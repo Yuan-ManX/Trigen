@@ -25,7 +25,7 @@
 
 The name combines **Tri (three dimensions & the ancient philosophy "three births all things") and Gen (generation)**. Taking user prompts as the origin, Trigen Agent organizes geometry, material and lighting — the three core pillars of 3D graphics — to automate the full workflow: prompt parsing, mesh generation, texture mapping, lighting calibration, scene assembly and procedural animation. All 3D content renders in real time directly inside browsers.
 
-Trigen is the **world's first conversational AI agent for 3D creation**. It turns dialogue, photos or sketches into printable 3D models in FBX, OBJ, GLB or STL, runs natively in the browser, and plugs into Blender, Unity, Unreal Engine and other toolchains. No 3D background required — anyone can create and experience 3D content through conversation.
+**Trigen is the World's First Open-Source Conversational AI agent for 3D creation**. It turns dialogue, photos or sketches into printable 3D models in FBX, OBJ, GLB or STL, runs natively in the browser, and plugs into Blender, Unity, Unreal Engine and other toolchains. No 3D background required — anyone can create and experience 3D content through conversation.
 
 
 ## Innovation
