@@ -25,12 +25,16 @@
 
 The name combines **Tri (three dimensions & the ancient philosophy "three births all things") and Gen (generation)**. Taking user prompts as the origin, Trigen Agent organizes geometry, material and lighting — the three core pillars of 3D graphics — to automate the full workflow: prompt parsing, mesh generation, texture mapping, lighting calibration, scene assembly and procedural animation. All 3D content renders in real time directly inside browsers.
 
-Designed for developers and 3D creators, this project delivers ready-to-use AI generation capabilities, visual preview workspace and customizable agent orchestration modules. Fully web-based with lightweight deployment, no bulky desktop 3D software required.
-
+Trigen is the **world's first conversational AI agent for 3D creation**. It turns dialogue, photos or sketches into printable 3D models in FBX, OBJ, GLB or STL, runs natively in the browser, and plugs into Blender, Unity, Unreal Engine and other toolchains. No 3D background required — anyone can create and experience 3D content through conversation.
 
 
 ## Innovation
 
+- **Conversational 3D Generation** — The first agent that materializes 3D assets from natural dialogue. Speak, upload a photo, or drop a sketch; Trigen reasons, plans and builds the model.
+- **Tri-Element Agent Orchestration** — Geometry, material and lighting are orchestrated as a unified triple by a single autonomous agent, replacing fragmented manual pipelines with one coherent flow.
+- **Zero-Threshold Creation** — No 3D expertise needed. The agent abstracts mesh topology, UV layout and shading graphs behind plain language.
+- **Browser-Native Runtime** — Models live and render in the browser out of the box, with no heavyweight desktop software installation.
+- **Open Format Ecosystem** — Native export to FBX, OBJ, GLB and STL bridges Trigen directly into Blender, Unity, Unreal Engine and downstream pipelines.
 
 
 ## Quick Start
@@ -46,9 +50,12 @@ cd Trigen
 
 ## Features
 
-
-
-## Use Cases
+- **Multi-Modal Input** — Text prompts, photos and sketches all drive 3D generation.
+- **Built-in AI 3D Models** — A curated set of 3D generation models wired into the agent runtime.
+- **Agent-Driven Editing** — Iterate on AI-generated or user-uploaded 3D content through dialogue: reshape, retexture, relight, animate.
+- **Real-Time Browser Preview** — Instant visual feedback in a web-native workspace.
+- **Multi-Format Export** — One-click output to FBX, OBJ, GLB and STL.
+- **Cross-Platform Integration** — Drop assets straight into Blender, Unity, Unreal Engine and other tools.
 
 
 
