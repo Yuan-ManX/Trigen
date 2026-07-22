@@ -1,12 +1,13 @@
 <div align="center">
 
-**An AI-Native 3D Creation Agent Platform, Redefining the Creation of 3D Content!** 💥
+**An AI-Native 3D Creation Agent Platform, Exploring the Creation of 3D Content!** 💥
 
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Stars](https://img.shields.io/github/stars/Yuan-ManX/Trigen?style=social)
 
+[Website](https://yuan-manx.github.io/Trigen/) · [Trigen](#what-is-trigen) · [Innovation](#innovation) · [Quickstart](#quick-start) · [Features](#features) · [Contributing](#contributing)
 
 #### [English](./README.md) | [中文文档](./README_CN.md)
 
@@ -18,10 +19,6 @@
 The name combines **Tri (three dimensions & the ancient philosophy "three births all things") and Gen (generation)**. Taking user prompts as the origin, Trigen Agent organizes geometry, material and lighting — the three core pillars of 3D graphics — to automate the full workflow: prompt parsing, mesh generation, texture mapping, lighting calibration, scene assembly and procedural animation. All 3D content renders in real time directly inside browsers.
 
 Designed for developers and 3D creators, this project delivers ready-to-use AI generation capabilities, visual preview workspace and customizable agent orchestration modules. Fully web-based with lightweight deployment, no bulky desktop 3D software required.
-
-
-
-## Why "Trigen"?
 
 
 
