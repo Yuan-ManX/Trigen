@@ -8,7 +8,7 @@
 ![Stars](https://img.shields.io/github/stars/Yuan-ManX/Trigen?style=social)
 
 
-[官方网站](https://yuan-manx.github.io/Trigen/) · [Trigen](#Trigen) · [创新](#创新) · [快速开始](#快速开始) · [特性](#特性) · [贡献](#贡献)
+[官方网站](https://yuan-manx.github.io/Trigen/) · [Trigen](#什么是-trigen) · [创新](#创新) · [快速开始](#快速开始) · [特性](#特性) · [贡献](#贡献)
 
 #### [English](./README.md) | [中文文档](./README_CN.md)
 
