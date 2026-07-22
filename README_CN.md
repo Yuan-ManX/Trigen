@@ -1,6 +1,10 @@
 <div align="center">
 
-**AI-Native 的 3D 创作 Agent 平台，探索 3D 内容创作！** 💥
+# Trigen
+
+**三生构维，智衍万物** 💥
+
+**AI-Native 的 3D 创作 Agent 平台，探索 3D 内容创作！**
 
 
 ![版本](https://img.shields.io/badge/version-1.0.0-blue)
