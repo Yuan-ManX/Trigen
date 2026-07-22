@@ -1,6 +1,13 @@
 <div align="center">
 
-**An AI-Native 3D Creation Agent Platform, Exploring the Creation of 3D Content!** 💥
+# Trigen
+
+**From Three, AI Generates Everything 💥**
+
+**An AI-Native 3D Creation Agent Platform, Exploring the Creation of 3D Content!** 
+
+> From a single thought, three elements spawn infinite 3D forms.  
+> Inspired by Tao produces one, one produces two, two produces three, three produces all things.
 
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
