@@ -3,8 +3,6 @@
 **AI-Native 的 3D 创作 Agent 平台，探索 3D 内容创作！** 💥
 
 
-AI 智能体设计世界、导演叙事、为每一个像素注入生命——不是叠放在表面的插件，而是引擎构建的基底本身。一种全新的范式，创作、认知与游戏在此交汇。
-
 ![版本](https://img.shields.io/badge/version-1.0.0-blue)
 ![许可证](https://img.shields.io/badge/license-MIT-green)
 ![Stars](https://img.shields.io/github/stars/Yuan-ManX/Trigen?style=social)
