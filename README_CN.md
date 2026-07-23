@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./assets/Trigen.svg" alt="Trigen" width="80%"/>
+
 # Trigen
 
 **三生构维，智衍万物** 💥
