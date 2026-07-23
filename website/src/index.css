@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --void: #0a0a0a;
+    --ink: #050505;
+    --snow: #ffffff;
+    --cyber: #00f0ff;
+    --amber: #ffb800;
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv01", "cv11";
+  }
+
+  body {
+    background-color: var(--ink);
+    color: var(--snow);
+    font-family: "Noto Sans SC", system-ui, sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* 中英混排节奏：中文采用更舒展的行高与字距 */
+  :lang(zh) body,
+  :lang(zh-CN) body {
+    line-height: 1.8;
+    letter-spacing: 0.01em;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+
+  p {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+  }
+
+  ::selection {
+    background: var(--cyber);
+    color: var(--ink);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--ink);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1f1f1f;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--cyber);
+  }
+}
+
+@layer components {
+  .font-display {
+    font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+  }
+  .font-mono {
+    font-family: "JetBrains Mono", "Noto Sans SC", monospace;
+  }
+
+  .text-gradient-cyber {
+    background: linear-gradient(120deg, #ffffff 0%, #00f0ff 60%, #ffffff 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 4s linear infinite;
+  }
+
+  .text-gradient-amber {
+    background: linear-gradient(120deg, #ffb800 0%, #ff4d2e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .grid-overlay {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .noise-overlay {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+    opacity: 0.04;
+  }
+
+  .btn-primary {
+    @apply relative inline-flex items-center justify-center gap-2 px-7 py-3.5 font-mono text-[13px] uppercase tracking-mega text-ink bg-snow transition-all duration-300 hover:bg-cyber hover:shadow-[0_0_30px_rgba(0,240,255,0.5)];
+  }
+
+  .btn-ghost {
+    @apply relative inline-flex items-center justify-center gap-2 px-7 py-3.5 font-mono text-[13px] uppercase tracking-mega text-snow border border-white/20 transition-all duration-300 hover:border-cyber hover:text-cyber hover:shadow-[0_0_30px_rgba(0,240,255,0.3)];
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 font-mono text-2xs uppercase tracking-mega text-ash border border-white/10 bg-white/[0.02];
+  }
+
+  .section-label {
+    @apply inline-flex items-center gap-3 font-mono text-xs uppercase tracking-ultra text-cyber;
+  }
+
+  .hairline {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent;
+  }
+}
+
+@layer utilities {
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
