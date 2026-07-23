@@ -195,7 +195,7 @@ export const translations: Record<Lang, Translation> = {
       submittedNote: "✓ Application received. We'll reach out soon.",
     },
     footer: {
-      tagline: "Trigen is the World's First Open-Source Conversational AI agent for 3D creation.",
+      tagline: "Trigen is the World's First Open-Source Conversational AI agent for 3D creation. From a single thought, three elements spawn infinite 3D forms.",
       cols: [
         {
           title: "Project",
@@ -224,8 +224,8 @@ export const translations: Record<Lang, Translation> = {
       { label: "场景", href: "#use-cases" },
     ],
     hero: {
-      tagline: "从三出发，AI 衍生万物",
-      subtitle: "一个 AI 原生的 3D 创作智能体平台，探索 3D 内容的创作！",
+      tagline: "三生构维，智衍万物",
+      subtitle: "AI-Native 的 3D 创作 Agent 平台，探索 3D 内容创作！",
       primaryCta: "开启创作",
       ghostCta: "探索创新",
       scroll: "向下",
@@ -308,7 +308,7 @@ export const translations: Record<Lang, Translation> = {
       submittedNote: "✓ 已收到你的申请，我们将很快与你联系。",
     },
     footer: {
-      tagline: "Trigen 是全球首个开源的对话式 AI 智能体，面向 3D 创作。",
+      tagline: "Trigen 是全球首个开源的对话式 AI 智能体，面向 3D 创作。一念起，三元衍生万千 3D 形态。",
       cols: [
         {
           title: "项目",
