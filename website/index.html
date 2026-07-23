@@ -12,6 +12,28 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // 重新部署后自愈：旧缓存的 index.html 引用的 JS 哈希已失效会 404，
+      // 捕获脚本加载失败后自动刷新一次拉取最新 index.html（sessionStorage 防死循环）
+      (function () {
+        window.addEventListener(
+          "error",
+          function (e) {
+            var el = e.target;
+            if (
+              el &&
+              el.tagName === "SCRIPT" &&
+              el.src &&
+              !sessionStorage.getItem("trigen-reloaded")
+            ) {
+              sessionStorage.setItem("trigen-reloaded", "1");
+              location.reload();
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <script type="module">
       if (import.meta.hot?.on) {
         import.meta.hot.on('vite:error', (error) => {
