@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/Trigen.svg" alt="Trigen" width="80%"/>
+<img src="./assets/Trigen.svg" alt="Trigen" width="60%"/>
 
 # Trigen
 
