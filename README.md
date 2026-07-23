@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./assets/Trigen.svg" alt="Trigen">
+
 # Trigen
 
 **From Three, AI Generates Everything 💥**
