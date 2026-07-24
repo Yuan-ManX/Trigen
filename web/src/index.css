@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局基础样式 */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  background-color: #0a0a0f;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+/* 数值与代码使用等宽字体 */
+.font-mono,
+input[type='number'],
+pre,
+code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* 自定义滚动条 —— 深色主题适配 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a35;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a4a;
+}
+
+/* range 滑块统一样式 */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #2a2a35;
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #00f0ff;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #00f0ff;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+}
+
+/* color 输入框去除内边距与默认外观 */
+input[type='color'] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+}
+
+/* 去除 number input 的默认箭头（保持紧凑） */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* 选中文本颜色 */
+::selection {
+  background: rgba(0, 240, 255, 0.25);
+  color: #ffffff;
+}
