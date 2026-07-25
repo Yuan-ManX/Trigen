@@ -1,4 +1,4 @@
-"""Trigen scene data model / Trigen 场景数据模型.
+"""Trigen scene data model.
 
 Defines the unified representation of scene objects, materials, transforms,
 lights, cameras, and groups, serving as the shared contract between agent
@@ -18,10 +18,10 @@ def _gen_id(prefix: str = "obj") -> str:
 
 @dataclass
 class Transform:
-    """Object spatial transform / 对象空间变换."""
+    """Object spatial transform."""
 
     position: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
-    rotation: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # Euler angles (radians) / 欧拉角（弧度）
+    rotation: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # Euler angles (radians)
     scale: List[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
 
     def to_dict(self) -> Dict[str, Any]:
@@ -30,7 +30,7 @@ class Transform:
 
 @dataclass
 class Material:
-    """Standard PBR material / 标准 PBR 材质."""
+    """Standard PBR material."""
 
     color: str = "#cccccc"
     metalness: float = 0.0
@@ -48,7 +48,7 @@ class Material:
 
 @dataclass
 class Geometry:
-    """Geometry description / 几何体描述."""
+    """Geometry description."""
 
     type: str = "box"  # box/sphere/cylinder/cone/torus/plane/...
     params: Dict[str, Any] = field(default_factory=dict)
@@ -59,7 +59,7 @@ class Geometry:
 
 @dataclass
 class SceneObject:
-    """A single object in the scene / 场景中的单一对象."""
+    """A single object in the scene."""
 
     id: str = field(default_factory=lambda: _gen_id("obj"))
     name: str = "Object"
@@ -69,7 +69,7 @@ class SceneObject:
     transform: Transform = field(default_factory=Transform)
     visible: bool = True
     locked: bool = False
-    group_id: Optional[str] = None  # parent group id / 所属分组 id
+    group_id: Optional[str] = None  # parent group id
     tags: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -107,7 +107,7 @@ class SceneObject:
 
 @dataclass
 class LightObject:
-    """Light object / 光源对象."""
+    """Light object."""
 
     id: str = field(default_factory=lambda: _gen_id("light"))
     name: str = "Light"
@@ -117,10 +117,10 @@ class LightObject:
     position: List[float] = field(default_factory=lambda: [5.0, 5.0, 5.0])
     target: Optional[List[float]] = None
     cast_shadow: bool = True
-    # Spot-specific / 聚光灯专属
+    # Spot-specific
     angle: float = 0.785398  # Math.PI/4
     penumbra: float = 0.2
-    distance: float = 0.0  # 0 = infinite / 0 表示无限
+    distance: float = 0.0  # 0 = infinite
     decay: float = 2.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -143,7 +143,7 @@ class LightObject:
 
 @dataclass
 class CameraObject:
-    """Camera object / 相机对象."""
+    """Camera object."""
 
     id: str = field(default_factory=lambda: _gen_id("cam"))
     name: str = "Camera"
@@ -170,7 +170,7 @@ class CameraObject:
 
 @dataclass
 class GroupObject:
-    """Group object for organizing multiple objects / 分组对象."""
+    """Group object for organizing multiple objects."""
 
     id: str = field(default_factory=lambda: _gen_id("grp"))
     name: str = "Group"
@@ -191,7 +191,7 @@ class GroupObject:
 
 @dataclass
 class Scene:
-    """Complete scene / 完整场景."""
+    """Complete scene."""
 
     objects: List[SceneObject] = field(default_factory=list)
     lights: List[LightObject] = field(default_factory=list)
@@ -231,14 +231,14 @@ class Scene:
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
-        """Find an object by id or name / 按 id 或 name 查找对象."""
+        """Find an object by id or name."""
         for obj in self.objects:
             if obj.id == identifier or obj.name.lower() == identifier.lower():
                 return obj
         return None
 
     def find_objects(self, identifiers: List[str]) -> List[SceneObject]:
-        """Find multiple objects by id or name / 按 id 或 name 查找多个对象."""
+        """Find multiple objects by id or name."""
         found: List[SceneObject] = []
         seen_ids = set()
         for identifier in identifiers:
@@ -249,7 +249,7 @@ class Scene:
         return found
 
     def find_light(self, identifier: str) -> Optional[LightObject]:
-        """Find a light by id or name / 按 id 或 name 查找光源."""
+        """Find a light by id or name."""
         for light in self.lights:
             if light.id == identifier or light.name.lower() == identifier.lower():
                 return light
@@ -259,7 +259,7 @@ class Scene:
         obj = self.find_object(identifier)
         if obj:
             self.objects.remove(obj)
-            # Detach from any group / 从所在分组移除
+            # Detach from any group
             for g in self.groups:
                 if obj.id in g.child_ids:
                     g.child_ids.remove(obj.id)
@@ -274,8 +274,7 @@ class Scene:
         return False
 
     def next_auto_name(self, base: str) -> str:
-        """Generate a non-conflicting name with auto-increment index.
-        生成不冲突的自增命名."""
+        """Generate a non-conflicting name with auto-increment index."""
         existing = {o.name for o in self.objects}
         if base not in existing:
             return base
@@ -285,7 +284,7 @@ class Scene:
         return f"{base}_{idx}"
 
 
-# Geometry default parameter table / 几何体默认参数表
+# Geometry default parameter table
 GEOMETRY_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "box": {"width": 1.0, "height": 1.0, "depth": 1.0, "widthSegments": 1, "heightSegments": 1, "depthSegments": 1},
     "sphere": {"radius": 0.6, "widthSegments": 32, "heightSegments": 16},
@@ -304,7 +303,7 @@ GEOMETRY_DEFAULTS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# Friendly display name map / 友好显示名映射
+# Friendly display name map
 GEOMETRY_DISPLAY_NAMES: Dict[str, str] = {
     "box": "Cube",
     "sphere": "Sphere",
@@ -323,7 +322,7 @@ GEOMETRY_DISPLAY_NAMES: Dict[str, str] = {
 }
 
 
-# Material presets / 材质预设
+# Material presets
 MATERIAL_PRESETS: Dict[str, Dict[str, Any]] = {
     "metal": {"color": "#9aa3ad", "metalness": 1.0, "roughness": 0.25, "opacity": 1.0},
     "gold": {"color": "#ffc933", "metalness": 1.0, "roughness": 0.18, "opacity": 1.0},
