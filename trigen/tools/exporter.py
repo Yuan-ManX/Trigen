@@ -1,7 +1,5 @@
-"""多格式导出工具 / Multi-format export tool.
+"""Multi-format export tool.
 
-将当前场景导出为 GLB / OBJ / STL 格式文件，使用 trimesh 构建网格并序列化。
-导出文件落盘到 workspace/exports，返回可下载 URL。
 Exports the current scene to GLB / OBJ / STL files, building meshes with
 trimesh and serializing them. Exported files are written to workspace/exports
 and a downloadable URL is returned.
@@ -26,22 +24,19 @@ _EXPORT_PARAMS = {
         "format": {
             "type": "string",
             "enum": ["glb", "obj", "stl"],
-            "description": "导出格式",
+            "description": "Export format",
         },
-        "filename": {"type": "string", "description": "文件名（不含扩展名）"},
+        "filename": {"type": "string", "description": "File name (without extension)"},
     },
     "required": ["format"],
 }
 
 
 class ExportSceneTool(ToolBase):
-    """场景导出工具。
-
-    Scene export tool.
-    """
+    """Scene export tool."""
 
     name = "export_scene"
-    description = "将当前场景导出为 GLB / OBJ / STL 格式文件。"
+    description = "Export the current scene as a GLB / OBJ / STL format file."
 
     def __init__(self, workspace_dir: str = ""):
         self.workspace_dir = workspace_dir or os.path.expanduser("~/.trigen/workspace")
@@ -50,15 +45,12 @@ class ExportSceneTool(ToolBase):
         return _EXPORT_PARAMS
 
     def _build_trimesh_scene(self, scene: Scene):
-        """将 Trigen 场景转为 trimesh.Scene。
-
-        Convert a Trigen scene into a trimesh.Scene.
-        """
+        """Convert a Trigen scene into a trimesh.Scene."""
         try:
             import trimesh
             import numpy as np
         except ImportError as exc:
-            raise RuntimeError("未安装 trimesh，无法导出") from exc
+            raise RuntimeError("trimesh not installed, cannot export") from exc
 
         meshes = []
         for obj in scene.objects:
@@ -147,23 +139,23 @@ class ExportSceneTool(ToolBase):
                 else:
                     mesh = trimesh.creation.box(extents=[1, 1, 1])
             except Exception as e:
-                logger.warning("构建 %s 网格失败: %s，回退为立方体", gtype, e)
+                logger.warning("Failed to build %s mesh: %s, falling back to cube", gtype, e)
                 mesh = trimesh.creation.box(extents=[1, 1, 1])
 
             if mesh is not None:
-                # 应用变换 / Apply transform
+                # Apply transform
                 tf = obj.transform
                 pos = np.array(tf.position, dtype=float)
                 scale = np.array(tf.scale, dtype=float)
                 mesh.apply_scale(scale)
-                # 简化旋转：仅应用 Z 轴旋转 / Simplified rotation: apply Z-axis only
+                # Simplified rotation: apply Z-axis only
                 rz = tf.rotation[2] if len(tf.rotation) == 3 else 0
                 if rz:
                     mesh.apply_transform(
                         trimesh.transformations.rotation_matrix(rz, [0, 0, 1])
                     )
                 mesh.apply_translation(pos)
-                # 应用颜色 / Apply color
+                # Apply color
                 color_hex = obj.material.color.lstrip("#")
                 try:
                     rgba = [
@@ -183,16 +175,16 @@ class ExportSceneTool(ToolBase):
         filename = arguments.get("filename", f"trigen_scene_{int(time.time())}")
 
         if not scene.objects:
-            return ToolResult(success=False, message="场景为空，无法导出")
+            return ToolResult(success=False, message="Scene is empty, cannot export")
 
         try:
             tm_scene = self._build_trimesh_scene(scene)
             if tm_scene is None:
-                return ToolResult(success=False, message="场景网格构建失败")
+                return ToolResult(success=False, message="Scene mesh build failed")
         except RuntimeError as e:
             return ToolResult(success=False, message=str(e))
         except Exception as e:
-            return ToolResult(success=False, message=f"网格构建异常: {e}")
+            return ToolResult(success=False, message=f"Mesh build exception: {e}")
 
         os.makedirs(os.path.join(self.workspace_dir, "exports"), exist_ok=True)
         ext = "glb" if fmt == "glb" else fmt
@@ -206,16 +198,16 @@ class ExportSceneTool(ToolBase):
             elif fmt == "stl":
                 data = tm_scene.export(file_type="stl")
             else:
-                return ToolResult(success=False, message=f"不支持的格式: {fmt}")
+                return ToolResult(success=False, message=f"Unsupported format: {fmt}")
             with open(filepath, "wb") as f:
                 f.write(data if isinstance(data, bytes) else data.encode("utf-8"))
         except Exception as e:
-            return ToolResult(success=False, message=f"导出失败: {e}")
+            return ToolResult(success=False, message=f"Export failed: {e}")
 
         size_kb = os.path.getsize(filepath) / 1024
         return ToolResult(
             success=True,
-            message=f"场景已导出为 {filename}.{ext}（{size_kb:.1f} KB），路径: {filepath}",
+            message=f"Scene exported as {filename}.{ext} ({size_kb:.1f} KB), path: {filepath}",
             deltas=[SceneDelta(action="export", payload={"format": fmt, "filename": f"{filename}.{ext}", "path": filepath, "size_kb": round(size_kb, 1)})],
             data={"path": filepath, "filename": f"{filename}.{ext}", "format": fmt, "size_kb": round(size_kb, 1)},
         )
