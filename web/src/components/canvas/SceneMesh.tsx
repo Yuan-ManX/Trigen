@@ -1,12 +1,14 @@
-// 单个网格对象渲染：根据 geometry.type 映射 R3F 几何体，处理选中高亮
 // Single mesh object rendering: maps R3F geometry based on geometry.type, handles selection highlight
-import { Edges } from '@react-three/drei'
-import { memo, useMemo } from 'react'
+// Includes optional TransformControls gizmo for direct viewport manipulation
+import { Edges, TransformControls } from '@react-three/drei'
+import { memo, useMemo, useState } from 'react'
 import type { ThreeEvent } from '@react-three/fiber'
+import * as THREE from 'three'
 import { useScene } from '../../store/useScene'
-import type { Geometry, SceneObject } from '../../types'
+import type { Geometry, SceneObject, Vec3 } from '../../types'
 
-/** 根据几何体类型与参数构造对应的 R3F 几何组件 */
+export type TransformMode = 'translate' | 'rotate' | 'scale'
+
 /** Build the corresponding R3F geometry component based on geometry type and parameters */
 function GeometryRenderer({ geometry }: { geometry: Geometry }) {
   const p = geometry.params
@@ -60,18 +62,58 @@ function GeometryRenderer({ geometry }: { geometry: Geometry }) {
       return <octahedronGeometry args={[num('radius', 0.6), int('detail', 0)]} />
     case 'tetrahedron':
       return <tetrahedronGeometry args={[num('radius', 0.6), int('detail', 0)]} />
+    case 'ring':
+      return (
+        <ringGeometry args={[num('innerRadius', 0.4), num('outerRadius', 0.7), int('thetaSegments', 24)]} />
+      )
+    case 'capsule':
+      return (
+        <capsuleGeometry args={[num('radius', 0.4), num('length', 0.8), int('capSegments', 12), int('radialSegments', 16)]} />
+      )
+    case 'tube':
+      return <TubeGeometryRenderer params={p} num={num} int={int} />
     default:
       return <boxGeometry args={[1, 1, 1]} />
   }
 }
 
-interface SceneMeshProps {
-  object: SceneObject
+/** Tube geometry requires a Curve object; build a gentle curved path */
+function TubeGeometryRenderer({
+  params: _p,
+  num,
+  int,
+}: {
+  params: Record<string, number | number[]>
+  num: (k: string, fallback: number) => number
+  int: (k: string, fallback: number) => number
+}) {
+  const curve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-1, 0, 0),
+        new THREE.Vector3(-0.3, 0.5, 0.3),
+        new THREE.Vector3(0.3, -0.3, -0.3),
+        new THREE.Vector3(1, 0, 0),
+      ]),
+    [],
+  )
+  return (
+    <tubeGeometry args={[curve, int('tubularSegments', 64), num('radius', 0.3), int('radialSegments', 8), false]} />
+  )
 }
 
-function SceneMeshBase({ object }: SceneMeshProps) {
+interface SceneMeshProps {
+  object: SceneObject
+  editMode?: boolean
+  transformMode?: TransformMode
+}
+
+function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }: SceneMeshProps) {
   const selectedId = useScene((s) => s.selectedId)
   const select = useScene((s) => s.select)
+  const updateTransform = useScene((s) => s.updateTransform)
+  // Use callback ref so re-render fires when mesh mounts
+  const [meshObj, setMeshObj] = useState<THREE.Mesh | null>(null)
 
   const isSelected = selectedId === object.id
   const mat = object.material
@@ -82,7 +124,6 @@ function SceneMeshBase({ object }: SceneMeshProps) {
     if (!object.locked) select(object.id)
   }
 
-  // 缓存旋转/缩放/位置，避免每次都创建新数组
   // Cache rotation/scale/position to avoid creating new arrays every time
   const transform = useMemo(
     () => ({
@@ -95,31 +136,52 @@ function SceneMeshBase({ object }: SceneMeshProps) {
 
   if (!object.visible) return null
 
+  const showGizmo = isSelected && editMode && meshObj !== null
+
   return (
-    <mesh
-      position={transform.position}
-      rotation={transform.rotation}
-      scale={transform.scale}
-      onClick={handleClick}
-      castShadow
-      receiveShadow
-      userData={{ id: object.id, name: object.name }}
-    >
-      <GeometryRenderer geometry={object.geometry} />
-      <meshStandardMaterial
-        color={mat.color}
-        metalness={mat.metalness}
-        roughness={mat.roughness}
-        opacity={mat.opacity}
-        transparent={transparent}
-        wireframe={mat.wireframe}
-        emissive={mat.emissive}
-        emissiveIntensity={mat.emissive_intensity}
-      />
-      {isSelected && (
-        <Edges threshold={15} color="#00F0FF" renderOrder={2} scale={1.02} />
+    <>
+      <mesh
+        ref={setMeshObj}
+        position={transform.position}
+        rotation={transform.rotation}
+        scale={transform.scale}
+        onClick={handleClick}
+        castShadow
+        receiveShadow
+        userData={{ id: object.id, name: object.name }}
+      >
+        <GeometryRenderer geometry={object.geometry} />
+        <meshStandardMaterial
+          color={mat.color}
+          metalness={mat.metalness}
+          roughness={mat.roughness}
+          opacity={mat.opacity}
+          transparent={transparent}
+          wireframe={mat.wireframe}
+          emissive={mat.emissive}
+          emissiveIntensity={mat.emissive_intensity}
+          flatShading={mat.flat_shading ?? false}
+          side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
+        />
+        {isSelected && (
+          <Edges threshold={15} color="#00F0FF" renderOrder={2} scale={1.02} />
+        )}
+      </mesh>
+      {showGizmo && meshObj && (
+        <TransformControls
+          object={meshObj}
+          mode={transformMode}
+          onObjectChange={() => {
+            if (!meshObj) return
+            updateTransform(object.id, {
+              position: [meshObj.position.x, meshObj.position.y, meshObj.position.z] as Vec3,
+              rotation: [meshObj.rotation.x, meshObj.rotation.y, meshObj.rotation.z] as Vec3,
+              scale: [meshObj.scale.x, meshObj.scale.y, meshObj.scale.z] as Vec3,
+            })
+          }}
+        />
       )}
-    </mesh>
+    </>
   )
 }
 
