@@ -1,6 +1,5 @@
-// 对话面板容器：头部标题 + 消息列表 + 输入栏
 // Chat panel container: header title + message list + input bar
-import { PanelLeftClose, Radio } from 'lucide-react'
+import { Eraser, PanelLeftClose, Radio } from 'lucide-react'
 import { useChat } from '../../store/useChat'
 import { InputBar } from './InputBar'
 import { MessageList } from './MessageList'
@@ -12,10 +11,11 @@ interface ChatPanelProps {
 export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const send = useChat((s) => s.send)
   const isResponding = useChat((s) => s.isResponding)
+  const clearMessages = useChat((s) => s.clearMessages)
+  const hasMessages = useChat((s) => s.messages.length > 0)
 
   return (
     <aside className="flex flex-col w-[380px] shrink-0 border-r border-border bg-bg-panel">
-      {/* 头部 */}
       {/* Header */}
       <header className="flex items-center justify-between h-11 px-4 border-b border-border">
         <div className="flex items-center gap-2">
@@ -28,16 +28,27 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
             }
           />
           <span className="text-xs font-semibold text-fg-primary tracking-wide">
-            对话创作
+            Chat
           </span>
         </div>
-        <button
-          onClick={onCollapse}
-          aria-label="折叠对话面板"
-          className="text-fg-muted hover:text-fg-primary transition-colors"
-        >
-          <PanelLeftClose size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={clearMessages}
+            disabled={!hasMessages}
+            aria-label="Clear chat messages"
+            title="Clear chat"
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Eraser size={14} />
+          </button>
+          <button
+            onClick={onCollapse}
+            aria-label="Collapse chat panel"
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
       </header>
 
       <MessageList onSuggestion={send} />
