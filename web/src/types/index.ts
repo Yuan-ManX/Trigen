@@ -1,13 +1,10 @@
 // Trigen scene data model and API event type definitions
-// Trigen 场景数据模型与 API 事件类型定义
 // Kept in sync with backend trigen/scene.py
 
 /** 3D vector / Euler angles (radians) */
-/** 三维向量 / 欧拉角（弧度） */
 export type Vec3 = [number, number, number]
 
 /** Supported geometry types */
-/** 支持的几何体类型 */
 export type GeometryType =
   | 'box'
   | 'sphere'
@@ -25,14 +22,12 @@ export type GeometryType =
   | 'tube'
 
 /** Geometry parameters (different types have different fields) */
-/** 几何体参数（不同类型字段不同） */
 export interface Geometry {
   type: GeometryType
   params: Record<string, number | number[]>
 }
 
 /** PBR material */
-/** PBR 材质 */
 export interface Material {
   color: string
   metalness: number
@@ -46,7 +41,6 @@ export interface Material {
 }
 
 /** Object-space transform */
-/** 对象空间变换 */
 export interface Transform {
   position: Vec3
   rotation: Vec3
@@ -54,7 +48,6 @@ export interface Transform {
 }
 
 /** Mesh object in the scene */
-/** 场景中的网格对象 */
 export interface SceneObject {
   id: string
   name: string
@@ -69,11 +62,9 @@ export interface SceneObject {
 }
 
 /** Light types */
-/** 光源类型 */
 export type LightType = 'ambient' | 'directional' | 'point' | 'spot' | 'hemisphere'
 
 /** Light object */
-/** 光源对象 */
 export interface LightObject {
   id: string
   name: string
@@ -90,7 +81,6 @@ export interface LightObject {
 }
 
 /** Camera object */
-/** 相机对象 */
 export interface CameraObject {
   id: string
   name: string
@@ -103,7 +93,6 @@ export interface CameraObject {
 }
 
 /** Group object */
-/** 分组对象 */
 export interface GroupObject {
   id: string
   name: string
@@ -113,7 +102,6 @@ export interface GroupObject {
 }
 
 /** Fog configuration */
-/** 雾效配置 */
 export interface FogConfig {
   color: string
   near: number
@@ -121,7 +109,6 @@ export interface FogConfig {
 }
 
 /** Complete scene */
-/** 完整场景 */
 export interface SceneData {
   objects: SceneObject[]
   lights: LightObject[]
@@ -135,7 +122,6 @@ export interface SceneData {
 }
 
 /** Empty scene default value */
-/** 空场景默认值 */
 export const EMPTY_SCENE: SceneData = {
   objects: [],
   lights: [],
@@ -149,10 +135,8 @@ export const EMPTY_SCENE: SceneData = {
 }
 
 /* ============ WebSocket event types ============ */
-/* ===================== WebSocket 事件类型 ===================== */
 
 /** Thinking event (Agent reasoning trace) */
-/** 思考事件（Agent 推理轨迹） */
 export interface ThinkingEvent {
   type: 'thinking'
   data: {
@@ -166,7 +150,6 @@ export interface ThinkingEvent {
 }
 
 /** Tool call start event */
-/** 工具调用开始事件 */
 export interface ToolCallEvent {
   type: 'tool_call'
   data: {
@@ -177,7 +160,6 @@ export interface ToolCallEvent {
 }
 
 /** Tool execution result event */
-/** 工具执行结果事件 */
 export interface ToolResultEvent {
   type: 'tool_result'
   data: {
@@ -190,7 +172,6 @@ export interface ToolResultEvent {
 }
 
 /** Scene update event */
-/** 场景变更事件 */
 export interface SceneUpdateEvent {
   type: 'scene_update'
   data: {
@@ -204,7 +185,6 @@ export interface SceneUpdateEvent {
 }
 
 /** Streaming text delta event */
-/** 流式文本片段事件 */
 export interface TextDeltaEvent {
   type: 'text_delta'
   data: {
@@ -213,7 +193,6 @@ export interface TextDeltaEvent {
 }
 
 /** Turn finished event */
-/** 本轮结束事件 */
 export interface DoneEvent {
   type: 'done'
   data: {
@@ -224,7 +203,6 @@ export interface DoneEvent {
 }
 
 /** Error event */
-/** 错误事件 */
 export interface ErrorEvent {
   type: 'error'
   data: {
@@ -233,17 +211,16 @@ export interface ErrorEvent {
 }
 
 /** Message sent by the client */
-/** 客户端发送的消息 */
 export interface ClientMessage {
   type: 'message'
   data: {
     message: string
     session_id: string
+    model?: string
   }
 }
 
 /** Union type of all server-pushed events */
-/** 服务端推送的所有事件联合类型 */
 export type ServerEvent =
   | ThinkingEvent
   | TextDeltaEvent
@@ -254,10 +231,8 @@ export type ServerEvent =
   | ErrorEvent
 
 /* ============ REST API types ============ */
-/* ===================== REST 接口类型 ===================== */
 
 /** Health check response */
-/** 健康检查响应 */
 export interface HealthResponse {
   status: string
   version: string
@@ -267,7 +242,6 @@ export interface HealthResponse {
 }
 
 /** Tool schema */
-/** 工具 schema */
 export interface ToolSchema {
   name: string
   description: string
@@ -275,14 +249,12 @@ export interface ToolSchema {
 }
 
 /** Tools listing response */
-/** 工具列表响应 */
 export interface ToolsResponse {
   tools: ToolSchema[]
   count: number
 }
 
 /** Presets listing response */
-/** 预设列表响应 */
 export interface PresetsResponse {
   geometry_types: string[]
   material_presets: string[]
