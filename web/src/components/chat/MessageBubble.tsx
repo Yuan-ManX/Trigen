@@ -1,12 +1,50 @@
-// 消息气泡：用户消息靠右、助手消息靠左，支持流式光标与工具调用
 // Message bubble: user messages on the right, assistant messages on the left, supports streaming cursor and tool calls
 import { motion } from 'framer-motion'
-import { AlertTriangle, Sparkles } from 'lucide-react'
-import type { ChatMessage } from '../../store/useChat'
+import { AlertTriangle, Brain, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { useState } from 'react'
+import type { ChatMessage, ThinkingTrace } from '../../store/useChat'
 import { ToolCallCard } from './ToolCallCard'
 
 interface MessageBubbleProps {
   message: ChatMessage
+}
+
+/** Collapsible reasoning trace card */
+function ThinkingCard({ traces }: { traces: ThinkingTrace[] }) {
+  const [open, setOpen] = useState(false)
+  const lastPhase = traces[traces.length - 1]?.phase ?? ''
+
+  return (
+    <div className="rounded-md border border-accent-gold/25 bg-accent-gold/5 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+      >
+        <Brain size={13} className="text-accent-gold" />
+        <span className="text-[11px] font-medium text-fg-secondary">
+          Reasoning · {lastPhase || 'thinking'}
+        </span>
+        {open ? (
+          <ChevronDown size={12} className="ml-auto text-fg-muted" />
+        ) : (
+          <ChevronRight size={12} className="ml-auto text-fg-muted" />
+        )}
+      </button>
+      {open && (
+        <div className="px-3 pb-2 space-y-1.5">
+          {traces.map((t, i) => (
+            <div key={i} className="text-[11px] text-fg-secondary leading-relaxed">
+              <span className="text-accent-gold/80 font-mono">[{t.phase}]</span>{' '}
+              {t.content}
+              {t.tools && t.tools.length > 0 && (
+                <span className="text-fg-muted"> → {t.tools.join(', ')}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
@@ -40,7 +78,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           <span>Trigen AI</span>
         </div>
 
-        {/* 工具调用 */}
+        {/* Reasoning trace */}
+        {message.thinking && message.thinking.length > 0 && (
+          <ThinkingCard traces={message.thinking} />
+        )}
+
         {/* Tool calls */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="space-y-1.5">
@@ -50,7 +92,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {/* 文本内容 */}
         {/* Text content */}
         {(message.content || message.streaming) && (
           <div className="rounded-md rounded-tl-sm bg-bg-elevated border border-border px-3 py-2 text-sm text-fg-primary whitespace-pre-wrap break-words">
@@ -61,7 +102,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        {/* 错误 */}
         {/* Error */}
         {message.error && (
           <div className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
