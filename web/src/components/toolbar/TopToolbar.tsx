@@ -1,57 +1,37 @@
-// 顶部工具栏：Logo + 标语，右侧导出 / 重置 / 连接状态
-// Top toolbar: Logo + tagline, with export / reset / connection status on the right
+// Top toolbar: Logo + tagline, with mode toggle / undo-redo / export / reset
 import { motion } from 'framer-motion'
 import {
   Download,
   Loader2,
+  Pause,
+  Play,
+  Redo2,
   RotateCcw,
   Triangle,
+  Undo2,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { fetchHealth, resetScene } from '../../api/client'
+import { useState } from 'react'
+import { resetScene } from '../../api/client'
 import { useChat } from '../../store/useChat'
 import { useScene } from '../../store/useScene'
-import type { HealthResponse } from '../../types'
 
 interface TopToolbarProps {
-  onToggleChat: () => void
+  mode: 'edit' | 'run'
+  onToggleMode: () => void
 }
 
-/** 连接状态映射 */
-/** Connection status mapping */
-function statusInfo(status: string): { label: string; color: string } {
-  switch (status) {
-    case 'connected':
-      return { label: '已连接', color: 'bg-emerald-400' }
-    case 'connecting':
-      return { label: '连接中', color: 'bg-accent-gold' }
-    case 'error':
-      return { label: '连接错误', color: 'bg-rose-400' }
-    default:
-      return { label: '未连接', color: 'bg-fg-muted' }
-  }
-}
-
-export function TopToolbar({ onToggleChat }: TopToolbarProps) {
-  const status = useChat((s) => s.status)
+export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
   const sessionId = useChat((s) => s.sessionId)
   const scene = useScene((s) => s.scene)
   const clearScene = useScene((s) => s.clear)
+  const undo = useScene((s) => s.undo)
+  const redo = useScene((s) => s.redo)
+  const canUndo = useScene((s) => s.past.length > 0)
+  const canRedo = useScene((s) => s.future.length > 0)
 
-  const [health, setHealth] = useState<HealthResponse | null>(null)
   const [resetting, setResetting] = useState(false)
+  const isRun = mode === 'run'
 
-  // 启动时检查后端健康状态
-  // Check backend health status on startup
-  useEffect(() => {
-    fetchHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null))
-  }, [])
-
-  const info = statusInfo(status)
-
-  /** 导出当前场景为 JSON 文件（客户端下载） */
   /** Export the current scene as a JSON file (client-side download) */
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(scene, null, 2)], {
@@ -67,11 +47,10 @@ export function TopToolbar({ onToggleChat }: TopToolbarProps) {
     URL.revokeObjectURL(url)
   }
 
-  /** 重置场景：调用后端并清空本地 */
   /** Reset the scene: call the backend and clear the local state */
   const handleReset = async () => {
     if (resetting) return
-    const ok = window.confirm('确定要重置当前场景吗？所有对象将被清空。')
+    const ok = window.confirm('Reset the current scene? All objects will be cleared.')
     if (!ok) return
     setResetting(true)
     try {
@@ -79,7 +58,6 @@ export function TopToolbar({ onToggleChat }: TopToolbarProps) {
       clearScene()
       useScene.getState().setScene(fresh)
     } catch {
-      // 后端不可用时仍清空本地场景
       // Still clear the local scene when the backend is unavailable
       clearScene()
     } finally {
@@ -89,8 +67,7 @@ export function TopToolbar({ onToggleChat }: TopToolbarProps) {
 
   return (
     <header className="flex items-center justify-between h-12 px-4 border-b border-border bg-bg-panel/90 backdrop-blur z-10">
-      {/* 左侧 Logo */}
-      {/* Left logo */}
+      {/* Left: logo + tagline */}
       <div className="flex items-center gap-2.5">
         <motion.div
           initial={{ rotate: -20, opacity: 0 }}
@@ -105,55 +82,80 @@ export function TopToolbar({ onToggleChat }: TopToolbarProps) {
             Trigen
           </span>
           <span className="text-[11px] text-fg-muted hidden sm:inline">
-            AI 原生 3D 创作
+            AI-Native 3D Creation Agent Platform
           </span>
         </div>
-        {health && (
-          <span className="ml-2 text-[10px] font-mono text-fg-muted px-1.5 py-0.5 rounded border border-border-subtle">
-            v{health.version}
-          </span>
-        )}
       </div>
 
-      {/* 右侧操作 */}
+      {/* Center: mode toggle */}
+      <div className="flex items-center gap-1 rounded-md border border-border bg-bg-elevated p-0.5">
+        <button
+          onClick={onToggleMode}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium transition-colors ${
+            !isRun
+              ? 'bg-accent-cyan/15 text-accent-cyan'
+              : 'text-fg-muted hover:text-fg-secondary'
+          }`}
+        >
+          Edit
+        </button>
+        <button
+          onClick={onToggleMode}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium transition-colors ${
+            isRun
+              ? 'bg-accent-gold/15 text-accent-gold'
+              : 'text-fg-muted hover:text-fg-secondary'
+          }`}
+        >
+          {isRun ? <Pause size={12} /> : <Play size={12} />}
+          Run
+        </button>
+      </div>
+
       {/* Right actions */}
       <div className="flex items-center gap-2">
-        {/* 连接状态 */}
-        {/* Connection status */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-bg-elevated">
-          <span className={`w-1.5 h-1.5 rounded-full ${info.color} ${status === 'connecting' ? 'animate-pulse' : ''}`} />
-          <span className="text-[11px] text-fg-secondary font-mono">{info.label}</span>
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-0.5 rounded-md border border-border bg-bg-elevated p-0.5">
+          <button
+            onClick={undo}
+            disabled={!canUndo || isRun}
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 size={13} />
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo || isRun}
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            <Redo2 size={13} />
+          </button>
         </div>
 
         <button
           onClick={handleExport}
-          className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors"
-          title="导出场景为 JSON"
+          disabled={isRun}
+          className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Export scene as JSON"
         >
           <Download size={13} />
-          <span className="hidden sm:inline">导出</span>
+          <span className="hidden sm:inline">Export</span>
         </button>
 
         <button
           onClick={handleReset}
-          disabled={resetting}
-          className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-rose-400/40 hover:bg-bg-hover transition-colors disabled:opacity-60"
-          title="重置场景"
+          disabled={resetting || isRun}
+          className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-rose-400/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Reset scene"
         >
           {resetting ? (
             <Loader2 size={13} className="animate-spin" />
           ) : (
             <RotateCcw size={13} />
           )}
-          <span className="hidden sm:inline">重置</span>
-        </button>
-
-        <button
-          onClick={onToggleChat}
-          className="lg:hidden flex items-center justify-center w-8 h-8 rounded-md border border-border text-fg-secondary hover:text-fg-primary"
-          aria-label="切换对话面板"
-        >
-          <Triangle size={14} />
+          <span className="hidden sm:inline">Reset</span>
         </button>
       </div>
     </header>
