@@ -1,6 +1,5 @@
-"""Trigen Agent 全局配置 / Trigen Agent global configuration.
+"""Trigen Agent global configuration.
 
-通过环境变量注入，未配置时使用安全默认值，保证开箱即用。
 Configuration is injected via environment variables; safe defaults are used
 when unset, ensuring out-of-the-box usability.
 """
@@ -18,9 +17,7 @@ def _env(key: str, default: str = "") -> str:
 
 @dataclass
 class LLMConfig:
-    """LLM 客户端配置，兼容 OpenAI 协议（含本地推理服务）。
-
-    LLM client configuration, compatible with the OpenAI protocol
+    """LLM client configuration, compatible with the OpenAI protocol
     (including local inference services).
     """
 
@@ -38,10 +35,7 @@ class LLMConfig:
 
 @dataclass
 class AgentConfig:
-    """Agent 运行时配置。
-
-    Agent runtime configuration.
-    """
+    """Agent runtime configuration."""
 
     llm: LLMConfig = field(default_factory=LLMConfig)
     max_iterations: int = field(default_factory=lambda: int(_env("TRIGEN_AGENT_MAX_ITER", "8")))
@@ -50,6 +44,6 @@ class AgentConfig:
     enable_streaming: bool = field(default_factory=lambda: _env("TRIGEN_STREAMING", "1") == "1")
 
     def ensure_workspace(self) -> str:
-        os.makedirs(self.workspace_dir, exist_ok=True)  # 创建工作空间目录 / Create workspace directory
-        os.makedirs(os.path.join(self.workspace_dir, "exports"), exist_ok=True)  # 创建导出子目录 / Create exports subdirectory
+        os.makedirs(self.workspace_dir, exist_ok=True)  # Create workspace directory
+        os.makedirs(os.path.join(self.workspace_dir, "exports"), exist_ok=True)  # Create exports subdirectory
         return self.workspace_dir
