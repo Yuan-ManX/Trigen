@@ -1,4 +1,4 @@
-"""Lighting orchestration tools / 灯光编排工具.
+"""Lighting orchestration tools.
 
 Adds, modifies, and removes lights from the scene, controlling color,
 intensity, position, angle, penumbra, distance, and decay.
@@ -18,26 +18,26 @@ _LIGHT_PARAMS = {
         "light_type": {
             "type": "string",
             "enum": ["ambient", "directional", "point", "spot", "hemisphere"],
-            "description": "光源类型",
+            "description": "Light type",
         },
-        "name": {"type": "string", "description": "光源名称"},
-        "color": {"type": "string", "description": "光色（十六进制）"},
-        "intensity": {"type": "number", "description": "光强 0-20"},
+        "name": {"type": "string", "description": "Light name"},
+        "color": {"type": "string", "description": "Light color (hex)"},
+        "intensity": {"type": "number", "description": "Light intensity 0-20"},
         "position": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "光源位置 [x, y, z]（directional/point/spot 有效）",
+            "description": "Light position [x, y, z] (effective for directional/point/spot)",
         },
         "target": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "光源目标 [x, y, z]（directional/spot 有效）",
+            "description": "Light target [x, y, z] (effective for directional/spot)",
         },
-        "cast_shadow": {"type": "boolean", "description": "是否投射阴影"},
-        "angle": {"type": "number", "description": "聚光锥角度（弧度，spot 有效）"},
-        "penumbra": {"type": "number", "description": "聚光半影 0-1（spot 有效）"},
-        "distance": {"type": "number", "description": "光照距离，0 表示无限"},
-        "decay": {"type": "number", "description": "衰减系数（默认 2）"},
+        "cast_shadow": {"type": "boolean", "description": "Whether to cast shadows"},
+        "angle": {"type": "number", "description": "Spot cone angle (radians, effective for spot)"},
+        "penumbra": {"type": "number", "description": "Spot penumbra 0-1 (effective for spot)"},
+        "distance": {"type": "number", "description": "Light distance, 0 means infinite"},
+        "decay": {"type": "number", "description": "Decay factor (default 2)"},
     },
     "required": ["light_type"],
 }
@@ -46,24 +46,24 @@ _LIGHT_PARAMS = {
 _MODIFY_LIGHT_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标光源的 id 或 name"},
-        "color": {"type": "string", "description": "光色（十六进制）"},
-        "intensity": {"type": "number", "description": "光强 0-20"},
+        "target": {"type": "string", "description": "Target light id or name"},
+        "color": {"type": "string", "description": "Light color (hex)"},
+        "intensity": {"type": "number", "description": "Light intensity 0-20"},
         "position": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "光源位置 [x, y, z]",
+            "description": "Light position [x, y, z]",
         },
         "target_pos": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "光源目标 [x, y, z]",
+            "description": "Light target [x, y, z]",
         },
-        "cast_shadow": {"type": "boolean", "description": "是否投射阴影"},
-        "angle": {"type": "number", "description": "聚光锥角度（弧度）"},
-        "penumbra": {"type": "number", "description": "聚光半影 0-1"},
-        "distance": {"type": "number", "description": "光照距离"},
-        "decay": {"type": "number", "description": "衰减系数"},
+        "cast_shadow": {"type": "boolean", "description": "Whether to cast shadows"},
+        "angle": {"type": "number", "description": "Spot cone angle (radians)"},
+        "penumbra": {"type": "number", "description": "Spot penumbra 0-1"},
+        "distance": {"type": "number", "description": "Light distance"},
+        "decay": {"type": "number", "description": "Decay factor"},
     },
     "required": ["target"],
 }
@@ -72,7 +72,7 @@ _MODIFY_LIGHT_PARAMS = {
 _DELETE_LIGHT_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标光源的 id 或 name"},
+        "target": {"type": "string", "description": "Target light id or name"},
     },
     "required": ["target"],
 }
@@ -88,10 +88,10 @@ _LIGHT_NAME_MAP = {
 
 
 class AddLightTool(ToolBase):
-    """Add light tool / 添加光源工具."""
+    """Add light tool."""
 
     name = "add_light"
-    description = "向场景添加光源（ambient/directional/point/spot/hemisphere），可控制颜色、强度、位置、角度等。"
+    description = "Add a light source to the scene (ambient/directional/point/spot/hemisphere), controlling color, intensity, position, angle, etc."
 
     def schema(self) -> Dict[str, Any]:
         return _LIGHT_PARAMS
@@ -100,7 +100,7 @@ class AddLightTool(ToolBase):
         light_type = arguments.get("light_type", "directional")
         name = arguments.get("name") or _LIGHT_NAME_MAP.get(light_type, "Light")
 
-        # Auto-append index for duplicate names / 同名追加序号
+        # Auto-append index for duplicate names
         existing = {l.name for l in scene.lights}
         if name in existing:
             idx = 2
@@ -129,17 +129,17 @@ class AddLightTool(ToolBase):
 
         return ToolResult(
             success=True,
-            message=f"已添加 {name}（{light_type}），强度 {light.intensity}，颜色 {light.color}",
+            message=f"Added {name} ({light_type}), intensity {light.intensity}, color {light.color}",
             deltas=[SceneDelta(action="create_light", target_id=light.id, payload=light.to_dict())],
             data={"light": light.to_dict()},
         )
 
 
 class ModifyLightTool(ToolBase):
-    """Modify light tool / 修改光源工具."""
+    """Modify light tool."""
 
     name = "modify_light"
-    description = "修改已有光源的属性（颜色、强度、位置、角度等）。"
+    description = "Modify properties of an existing light source (color, intensity, position, angle, etc.)."
 
     def schema(self) -> Dict[str, Any]:
         return _MODIFY_LIGHT_PARAMS
@@ -148,57 +148,57 @@ class ModifyLightTool(ToolBase):
         target_id = arguments.get("target", "")
         light = scene.find_light(target_id)
         if not light:
-            return ToolResult(success=False, message=f"未找到光源: {target_id}")
+            return ToolResult(success=False, message=f"Light not found: {target_id}")
 
         changes: List[str] = []
         if "color" in arguments:
             light.color = str(arguments["color"])
-            changes.append(f"颜色→{light.color}")
+            changes.append(f"color->{light.color}")
         if "intensity" in arguments:
             light.intensity = max(0.0, float(arguments["intensity"]))
-            changes.append(f"强度→{light.intensity}")
+            changes.append(f"intensity->{light.intensity}")
         if "position" in arguments and isinstance(arguments["position"], list):
             pos = arguments["position"]
             if len(pos) == 3:
                 light.position = [float(p) for p in pos]
-                changes.append(f"位置→{light.position}")
+                changes.append(f"position->{light.position}")
         if "target_pos" in arguments and isinstance(arguments["target_pos"], list):
             tgt = arguments["target_pos"]
             if len(tgt) == 3:
                 light.target = [float(t) for t in tgt]
-                changes.append(f"目标→{light.target}")
+                changes.append(f"target->{light.target}")
         if "cast_shadow" in arguments:
             light.cast_shadow = bool(arguments["cast_shadow"])
-            changes.append(f"阴影→{light.cast_shadow}")
+            changes.append(f"cast_shadow->{light.cast_shadow}")
         if "angle" in arguments:
             light.angle = float(arguments["angle"])
-            changes.append(f"角度→{light.angle}")
+            changes.append(f"angle->{light.angle}")
         if "penumbra" in arguments:
             light.penumbra = max(0.0, min(1.0, float(arguments["penumbra"])))
-            changes.append(f"半影→{light.penumbra}")
+            changes.append(f"penumbra->{light.penumbra}")
         if "distance" in arguments:
             light.distance = max(0.0, float(arguments["distance"]))
-            changes.append(f"距离→{light.distance}")
+            changes.append(f"distance->{light.distance}")
         if "decay" in arguments:
             light.decay = float(arguments["decay"])
-            changes.append(f"衰减→{light.decay}")
+            changes.append(f"decay->{light.decay}")
 
         if not changes:
-            return ToolResult(success=False, message="未提供任何光源修改参数")
+            return ToolResult(success=False, message="No light modification parameters provided")
 
         return ToolResult(
             success=True,
-            message=f"{light.name} 光源已更新：{'，'.join(changes)}",
+            message=f"{light.name} light updated: {', '.join(changes)}",
             deltas=[SceneDelta(action="update_light", target_id=light.id, payload=light.to_dict())],
             data={"light": light.to_dict()},
         )
 
 
 class DeleteLightTool(ToolBase):
-    """Delete light tool / 删除光源工具."""
+    """Delete light tool."""
 
     name = "delete_light"
-    description = "删除指定光源。"
+    description = "Delete the specified light source."
 
     def schema(self) -> Dict[str, Any]:
         return _DELETE_LIGHT_PARAMS
@@ -207,12 +207,12 @@ class DeleteLightTool(ToolBase):
         target_id = arguments.get("target", "")
         light = scene.find_light(target_id)
         if not light:
-            return ToolResult(success=False, message=f"未找到光源: {target_id}")
+            return ToolResult(success=False, message=f"Light not found: {target_id}")
         name = light.name
         lid = light.id
         scene.lights.remove(light)
         return ToolResult(
             success=True,
-            message=f"已删除光源 {name}",
+            message=f"Deleted light {name}",
             deltas=[SceneDelta(action="delete_light", target_id=lid)],
         )
