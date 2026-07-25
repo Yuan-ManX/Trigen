@@ -1,4 +1,4 @@
-"""Geometry editing tools / 几何编辑工具.
+"""Geometry editing tools.
 
 Provides object transforms (translate/rotate/scale), geometry parameter
 modification, duplication, deletion, and list-query capabilities.
@@ -17,30 +17,30 @@ from trigen.tools.base import SceneDelta, ToolBase, ToolResult
 _TRANSFORM_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标对象的 id 或 name"},
+        "target": {"type": "string", "description": "Target object id or name"},
         "position": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "新位置 [x, y, z]，不传则不修改",
+            "description": "New position [x, y, z]; omit to leave unchanged",
         },
         "rotation": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "新旋转（弧度）[x, y, z]，不传则不修改",
+            "description": "New rotation (radians) [x, y, z]; omit to leave unchanged",
         },
         "scale": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "新缩放 [x, y, z]，不传则不修改",
+            "description": "New scale [x, y, z]; omit to leave unchanged",
         },
         "rotation_degrees": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "旋转角度（度）[x, y, z]，内部自动转弧度",
+            "description": "Rotation angle (degrees) [x, y, z]; internally converted to radians",
         },
         "relative": {
             "type": "boolean",
-            "description": "是否相对当前值累加（默认 false 为绝对设置）",
+            "description": "Whether to accumulate relative to current values (default false for absolute)",
         },
     },
     "required": ["target"],
@@ -50,15 +50,15 @@ _TRANSFORM_PARAMS = {
 _MODIFY_GEOMETRY_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标对象的 id 或 name"},
+        "target": {"type": "string", "description": "Target object id or name"},
         "params": {
             "type": "object",
-            "description": "要更新的几何参数键值对（如 radius/height/widthSegments 等）",
+            "description": "Geometry parameter key-value pairs to update (e.g. radius/height/widthSegments)",
             "additionalProperties": True,
         },
         "geometry_type": {
             "type": "string",
-            "description": "（可选）切换几何体类型",
+            "description": "(Optional) switch geometry type",
             "enum": list(GEOMETRY_DEFAULTS.keys()),
         },
     },
@@ -69,14 +69,14 @@ _MODIFY_GEOMETRY_PARAMS = {
 _DUPLICATE_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标对象的 id 或 name"},
-        "count": {"type": "integer", "description": "副本数量（默认 1）", "minimum": 1, "maximum": 20},
+        "target": {"type": "string", "description": "Target object id or name"},
+        "count": {"type": "integer", "description": "Number of copies (default 1)", "minimum": 1, "maximum": 20},
         "offset": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "每个副本的位置偏移 [x, y, z]（默认 [1.2, 0, 0]）",
+            "description": "Position offset per copy [x, y, z] (default [1.2, 0, 0])",
         },
-        "name_prefix": {"type": "string", "description": "副本命名前缀（默认沿用原名）"},
+        "name_prefix": {"type": "string", "description": "Naming prefix for copies (default keeps original name)"},
     },
     "required": ["target"],
 }
@@ -85,7 +85,7 @@ _DUPLICATE_PARAMS = {
 _DELETE_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "目标对象的 id 或 name"},
+        "target": {"type": "string", "description": "Target object id or name"},
     },
     "required": ["target"],
 }
@@ -98,10 +98,10 @@ _LIST_PARAMS = {
 
 
 class TransformObjectTool(ToolBase):
-    """Transform object tool / 变换对象工具."""
+    """Transform object tool."""
 
     name = "transform_object"
-    description = "修改已有对象的位置、旋转或缩放。通过 id 或 name 定位目标，支持相对/绝对模式。"
+    description = "Modify the position, rotation, or scale of an existing object. Locate the target by id or name; supports relative/absolute modes."
 
     def schema(self) -> Dict[str, Any]:
         return _TRANSFORM_PARAMS
@@ -110,7 +110,7 @@ class TransformObjectTool(ToolBase):
         target_id = arguments.get("target", "")
         obj = scene.find_object(target_id)
         if not obj:
-            return ToolResult(success=False, message=f"未找到对象: {target_id}")
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
 
         relative = bool(arguments.get("relative", False))
         changes: List[str] = []
@@ -124,7 +124,7 @@ class TransformObjectTool(ToolBase):
                     ]
                 else:
                     obj.transform.position = [float(p) for p in pos]
-                changes.append(f"位置→{obj.transform.position}")
+                changes.append(f"position->{obj.transform.position}")
 
         if "rotation" in arguments and isinstance(arguments["rotation"], list):
             rot = arguments["rotation"]
@@ -135,7 +135,7 @@ class TransformObjectTool(ToolBase):
                     ]
                 else:
                     obj.transform.rotation = [float(r) for r in rot]
-                changes.append(f"旋转→{obj.transform.rotation}")
+                changes.append(f"rotation->{obj.transform.rotation}")
 
         if "rotation_degrees" in arguments and isinstance(arguments["rotation_degrees"], list):
             deg = arguments["rotation_degrees"]
@@ -146,7 +146,7 @@ class TransformObjectTool(ToolBase):
                     ]
                 else:
                     obj.transform.rotation = [math.radians(float(d)) for d in deg]
-                changes.append(f"旋转→{obj.transform.rotation}(弧度)")
+                changes.append(f"rotation->{obj.transform.rotation}(radians)")
 
         if "scale" in arguments and isinstance(arguments["scale"], list):
             sc = arguments["scale"]
@@ -157,24 +157,24 @@ class TransformObjectTool(ToolBase):
                     ]
                 else:
                     obj.transform.scale = [max(0.01, float(s)) for s in sc]
-                changes.append(f"缩放→{obj.transform.scale}")
+                changes.append(f"scale->{obj.transform.scale}")
 
         if not changes:
-            return ToolResult(success=False, message="未提供任何变换参数")
+            return ToolResult(success=False, message="No transform parameters provided")
 
         return ToolResult(
             success=True,
-            message=f"{obj.name} 已变换：{'，'.join(changes)}",
+            message=f"{obj.name} transformed: {', '.join(changes)}",
             deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
             data={"object": obj.to_dict()},
         )
 
 
 class ModifyGeometryTool(ToolBase):
-    """Modify geometry parameters tool / 修改几何参数工具."""
+    """Modify geometry parameters tool."""
 
     name = "modify_geometry"
-    description = "修改已有几何体的参数（半径、高度、分段等），可选切换几何体类型。"
+    description = "Modify parameters of an existing geometry (radius, height, segments, etc.), optionally switching geometry type."
 
     def schema(self) -> Dict[str, Any]:
         return _MODIFY_GEOMETRY_PARAMS
@@ -183,40 +183,40 @@ class ModifyGeometryTool(ToolBase):
         target_id = arguments.get("target", "")
         obj = scene.find_object(target_id)
         if not obj:
-            return ToolResult(success=False, message=f"未找到对象: {target_id}")
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
 
         changes: List[str] = []
         new_type = arguments.get("geometry_type")
         if new_type and new_type != obj.geometry.type:
             if new_type not in GEOMETRY_DEFAULTS:
-                return ToolResult(success=False, message=f"不支持的几何类型: {new_type}")
+                return ToolResult(success=False, message=f"Unsupported geometry type: {new_type}")
             obj.geometry.type = new_type
             obj.geometry.params = dict(GEOMETRY_DEFAULTS[new_type])
-            changes.append(f"类型→{new_type}")
+            changes.append(f"type->{new_type}")
 
         params = arguments.get("params", {})
         if isinstance(params, dict):
             for k, v in params.items():
                 obj.geometry.params[k] = v
             if params:
-                changes.append(f"参数→{params}")
+                changes.append(f"params->{params}")
 
         if not changes:
-            return ToolResult(success=False, message="未提供任何几何修改参数")
+            return ToolResult(success=False, message="No geometry modification parameters provided")
 
         return ToolResult(
             success=True,
-            message=f"{obj.name} 几何已更新：{'，'.join(changes)}",
+            message=f"{obj.name} geometry updated: {', '.join(changes)}",
             deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
             data={"object": obj.to_dict()},
         )
 
 
 class DuplicateObjectTool(ToolBase):
-    """Duplicate object tool / 复制对象工具."""
+    """Duplicate object tool."""
 
     name = "duplicate_object"
-    description = "复制指定对象，可指定副本数量与位置偏移。"
+    description = "Duplicate the specified object, with optional copy count and position offset."
 
     def schema(self) -> Dict[str, Any]:
         return _DUPLICATE_PARAMS
@@ -225,7 +225,7 @@ class DuplicateObjectTool(ToolBase):
         target_id = arguments.get("target", "")
         obj = scene.find_object(target_id)
         if not obj:
-            return ToolResult(success=False, message=f"未找到对象: {target_id}")
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
 
         count = max(1, min(20, int(arguments.get("count", 1))))
         offset = arguments.get("offset", [1.2, 0.0, 0.0])
@@ -251,17 +251,17 @@ class DuplicateObjectTool(ToolBase):
         names = ", ".join(o.name for o in created)
         return ToolResult(
             success=True,
-            message=f"已复制 {count} 个对象：{names}",
+            message=f"Duplicated {count} object(s): {names}",
             deltas=deltas,
             data={"objects": [o.to_dict() for o in created]},
         )
 
 
 class DeleteObjectTool(ToolBase):
-    """Delete object tool / 删除对象工具."""
+    """Delete object tool."""
 
     name = "delete_object"
-    description = "从场景中移除指定对象。"
+    description = "Remove the specified object from the scene."
 
     def schema(self) -> Dict[str, Any]:
         return _DELETE_PARAMS
@@ -270,26 +270,26 @@ class DeleteObjectTool(ToolBase):
         target_id = arguments.get("target", "")
         obj = scene.find_object(target_id)
         if not obj:
-            return ToolResult(success=False, message=f"未找到对象: {target_id}")
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
         name = obj.name
         oid = obj.id
         scene.objects.remove(obj)
-        # Detach from any group / 从所在分组移除
+        # Detach from any group
         for g in scene.groups:
             if oid in g.child_ids:
                 g.child_ids.remove(oid)
         return ToolResult(
             success=True,
-            message=f"已删除 {name}",
+            message=f"Deleted {name}",
             deltas=[SceneDelta(action="delete", target_id=oid)],
         )
 
 
 class ListObjectsTool(ToolBase):
-    """List scene objects tool / 列出场景对象工具."""
+    """List scene objects tool."""
 
     name = "list_objects"
-    description = "列出当前场景中所有对象、光源、相机与分组。"
+    description = "List all objects, lights, cameras, and groups in the current scene."
 
     def schema(self) -> Dict[str, Any]:
         return _LIST_PARAMS
@@ -298,7 +298,7 @@ class ListObjectsTool(ToolBase):
         if not scene.objects and not scene.lights:
             return ToolResult(
                 success=True,
-                message="当前场景为空",
+                message="The current scene is empty",
                 data={"objects": [], "lights": [], "cameras": [], "groups": []},
             )
         objs = [o.to_dict() for o in scene.objects]
@@ -308,8 +308,8 @@ class ListObjectsTool(ToolBase):
         summary = ", ".join(f"{o['name']}({o['geometry']['type']})" for o in objs)
         return ToolResult(
             success=True,
-            message=f"场景含 {len(objs)} 个对象，{len(lights)} 盏灯光，"
-            f"{len(cameras)} 个相机，{len(groups)} 个分组：{summary}",
+            message=f"Scene contains {len(objs)} object(s), {len(lights)} light(s), "
+            f"{len(cameras)} camera(s), {len(groups)} group(s): {summary}",
             data={
                 "objects": objs,
                 "lights": lights,
