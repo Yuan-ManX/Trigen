@@ -1,15 +1,21 @@
-// 消息列表：自动滚动到底部，空状态显示引导提示
-// Message list: auto-scrolls to bottom, shows guided hints in empty state
+// Message list: auto-scrolls to bottom, shows compact hints in empty state
 import { useEffect, useRef } from 'react'
-import { Boxes, MessageSquare } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Boxes, Lightbulb, Orbit, Sparkles } from 'lucide-react'
 import { useChat } from '../../store/useChat'
 import { MessageBubble } from './MessageBubble'
 
-const SUGGESTIONS = [
-  '创建一个红色的金属立方体',
-  '在场景里放一个发光的球体',
-  '生成三个不同颜色的圆柱体并排排列',
-  '把所有物体的材质改成线框模式',
+interface SuggestionItem {
+  icon: typeof Boxes
+  label: string
+  prompt: string
+}
+
+const SUGGESTIONS: SuggestionItem[] = [
+  { icon: Sparkles, label: 'Solar System', prompt: 'Create a solar system scene' },
+  { icon: Boxes, label: 'Red Cube', prompt: 'Create a red metallic cube' },
+  { icon: Lightbulb, label: 'Point Light', prompt: 'Add a point light' },
+  { icon: Orbit, label: 'Arrange Circle', prompt: 'Arrange all objects in a circle' },
 ]
 
 interface MessageListProps {
@@ -21,7 +27,6 @@ export function MessageList({ onSuggestion }: MessageListProps) {
   const isResponding = useChat((s) => s.isResponding)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // 消息变化时滚动到底部
   // Scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -29,33 +34,48 @@ export function MessageList({ onSuggestion }: MessageListProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="flex flex-col items-center text-center py-8">
-          <div className="w-12 h-12 rounded-md bg-accent-cyan/10 border border-accent-cyan/30 flex items-center justify-center mb-4 shadow-glow">
-            <Boxes size={22} className="text-accent-cyan" />
-          </div>
-          <h3 className="text-sm font-semibold text-fg-primary mb-1">
-            开始用自然语言创作 3D
-          </h3>
-          <p className="text-xs text-fg-secondary max-w-[260px] leading-relaxed">
-            描述你想要的场景，Trigen AI 会实时生成并编辑 3D 对象。
-          </p>
-
-          <div className="mt-6 w-full space-y-2">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-fg-muted px-1">
-              <MessageSquare size={11} />
-              试试这些
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col items-center text-center pt-1 pb-4"
+        >
+          <div className="relative mb-2.5">
+            <div className="absolute inset-0 bg-accent-cyan/20 blur-xl rounded-full" />
+            <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-accent-cyan/20 to-accent-gold/10 border border-accent-cyan/30 flex items-center justify-center shadow-glow">
+              <Sparkles size={18} className="text-accent-cyan" />
             </div>
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => onSuggestion(s)}
-                className="w-full text-left text-xs text-fg-secondary hover:text-fg-primary hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors rounded-md border border-border bg-bg-elevated/50 px-3 py-2"
-              >
-                {s}
-              </button>
-            ))}
           </div>
+          <h3 className="text-sm font-semibold text-fg-primary mb-0.5">
+            AI 3D Creator
+          </h3>
+          <p className="text-[11px] text-fg-muted">
+            Describe what you want to build
+          </p>
+        </motion.div>
+
+        {/* Suggestion grid */}
+        <div className="grid grid-cols-2 gap-1.5">
+          {SUGGESTIONS.map((s, i) => {
+            const Icon = s.icon
+            return (
+              <motion.button
+                key={s.label}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: 0.05 * i }}
+                onClick={() => onSuggestion(s.prompt)}
+                className="group flex flex-col items-center gap-1.5 rounded-lg border border-border bg-bg-elevated/40 hover:bg-bg-hover hover:border-accent-cyan/40 transition-all px-2 py-2.5"
+              >
+                <Icon size={15} className="text-fg-muted group-hover:text-accent-cyan transition-colors" />
+                <span className="text-[10px] font-medium text-fg-secondary group-hover:text-fg-primary transition-colors">
+                  {s.label}
+                </span>
+              </motion.button>
+            )
+          })}
         </div>
       </div>
     )
