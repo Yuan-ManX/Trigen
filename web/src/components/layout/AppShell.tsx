@@ -1,8 +1,8 @@
-// 整体布局容器：顶栏 + 左侧对话 + 中央画布 + 右侧面板，面板可折叠
 // Overall layout container: top bar + left chat + center canvas + right panel, panels are collapsible
+// Includes keyboard shortcuts: Space=toggle mode, Delete=remove, Ctrl+D=duplicate
 import { AnimatePresence, motion } from 'framer-motion'
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { fetchScene } from '../../api/client'
 import { useScene } from '../../store/useScene'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -11,32 +11,94 @@ import { EditorCanvas } from '../canvas/EditorCanvas'
 import { RightPanel } from '../sidebar/RightPanel'
 import { TopToolbar } from '../toolbar/TopToolbar'
 
+type EditorMode = 'edit' | 'run'
+
 export function AppShell() {
-  // 自动建立 WebSocket 连接
   // Automatically establish WebSocket connection
   const { sessionId } = useWebSocket()
   const setScene = useScene((s) => s.setScene)
 
   const [chatOpen, setChatOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
+  const [mode, setMode] = useState<EditorMode>('edit')
 
-  // 启动时加载当前会话已有的场景
+  const selectedId = useScene((s) => s.selectedId)
+  const removeObject = useScene((s) => s.removeObject)
+  const duplicateObject = useScene((s) => s.duplicateObject)
+  const undo = useScene((s) => s.undo)
+  const redo = useScene((s) => s.redo)
+
   // Load the existing scene of the current session on startup
   useEffect(() => {
     fetchScene(sessionId)
       .then((s) => setScene(s))
       .catch(() => {
-        /* 后端未就绪时静默，等待 WS 推送 */
         /* Stay silent when the backend is not ready, wait for WS push */
       })
   }, [sessionId, setScene])
 
+  const toggleMode = useCallback(() => {
+    setMode((m) => (m === 'edit' ? 'run' : 'edit'))
+  }, [])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore when typing in input/textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+
+      // Space: toggle edit/run mode
+      if (e.code === 'Space') {
+        e.preventDefault()
+        toggleMode()
+        return
+      }
+
+      // Only process the following in edit mode
+      if (mode !== 'edit') return
+
+      // Ctrl/Cmd+Z: undo, Ctrl/Cmd+Shift+Z: redo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          redo()
+        } else {
+          undo()
+        }
+        return
+      }
+
+      // Ctrl/Cmd+Y: redo (alternative)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault()
+        redo()
+        return
+      }
+
+      // Delete/Backspace: remove selected object
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault()
+        removeObject(selectedId)
+        return
+      }
+
+      // Ctrl/Cmd+D: duplicate selected object
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedId) {
+        e.preventDefault()
+        duplicateObject(selectedId)
+        return
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [mode, selectedId, removeObject, duplicateObject, undo, redo, toggleMode])
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-bg-base text-fg-primary">
-      <TopToolbar onToggleChat={() => setChatOpen((v) => !v)} />
+      <TopToolbar mode={mode} onToggleMode={toggleMode} />
 
       <div className="flex flex-1 min-h-0">
-        {/* 左侧对话面板 */}
         {/* Left chat panel */}
         <AnimatePresence initial={false}>
           {chatOpen ? (
@@ -58,30 +120,29 @@ export function AppShell() {
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
               onClick={() => setChatOpen(true)}
-              aria-label="展开对话面板"
+              aria-label="Expand chat panel"
               className="shrink-0 flex flex-col items-center gap-2 w-11 border-r border-border bg-bg-panel text-fg-muted hover:text-fg-primary pt-3"
             >
               <PanelLeftOpen size={16} />
-              <span className="text-[10px] [writing-mode:vertical-rl]">对话</span>
+              <span className="text-[10px] [writing-mode:vertical-rl]">Chat</span>
             </motion.button>
           )}
         </AnimatePresence>
 
-        {/* 中央 3D 画布 */}
         {/* Center 3D canvas */}
         <main className="relative flex-1 min-w-0 bg-bg-base">
-          <EditorCanvas />
-          {/* 画布左下角水印 */}
+          <EditorCanvas mode={mode} />
           {/* Watermark at the bottom-left of the canvas */}
           <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] font-mono text-fg-muted/60">
-            Trigen Editor · 拖拽旋转 · 滚轮缩放 · 点击选中
+            {mode === 'edit'
+              ? 'Trigen Editor · Drag to orbit · Scroll to zoom · Click to select'
+              : 'Trigen Player · Auto-rotating · Press Edit to modify'}
           </div>
         </main>
 
-        {/* 右侧面板 */}
         {/* Right panel */}
         <AnimatePresence initial={false}>
-          {rightOpen ? (
+          {rightOpen && mode === 'edit' ? (
             <motion.div
               key="right"
               initial={{ width: 0, opacity: 0 }}
@@ -92,7 +153,7 @@ export function AppShell() {
             >
               <RightPanel onCollapse={() => setRightOpen(false)} />
             </motion.div>
-          ) : (
+          ) : mode === 'run' ? null : (
             <motion.button
               key="right-rail"
               initial={{ width: 0, opacity: 0 }}
@@ -100,11 +161,11 @@ export function AppShell() {
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
               onClick={() => setRightOpen(true)}
-              aria-label="展开右侧面板"
+              aria-label="Expand right panel"
               className="shrink-0 flex flex-col items-center gap-2 w-11 border-l border-border bg-bg-panel text-fg-muted hover:text-fg-primary pt-3"
             >
               <PanelRightOpen size={16} />
-              <span className="text-[10px]">面板</span>
+              <span className="text-[10px]">Panel</span>
             </motion.button>
           )}
         </AnimatePresence>
