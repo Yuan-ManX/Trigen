@@ -1,4 +1,4 @@
-"""Geometry generation tool / 几何生成工具.
+"""Geometry generation tool.
 
 Creates base geometry via parametric means, supporting cubes, spheres,
 cylinders, cones, tori, planes, polyhedra, capsules, rings, and tubes.
@@ -28,48 +28,48 @@ _CREATE_PARAMS = {
         "geometry_type": {
             "type": "string",
             "enum": list(GEOMETRY_DEFAULTS.keys()),
-            "description": "几何体类型",
+            "description": "Geometry type",
         },
-        "name": {"type": "string", "description": "对象名称，便于后续引用"},
+        "name": {"type": "string", "description": "Object name, for later reference"},
         "params": {
             "type": "object",
-            "description": "几何参数（如 width/height/radius/segments 等），未提供则用默认值",
+            "description": "Geometry parameters (e.g. width/height/radius/segments). Defaults are used if not provided.",
             "additionalProperties": True,
         },
         "position": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "初始位置 [x, y, z]",
+            "description": "Initial position [x, y, z]",
         },
         "rotation": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "初始旋转（弧度）[x, y, z]",
+            "description": "Initial rotation (radians) [x, y, z]",
         },
         "scale": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "初始缩放 [x, y, z]",
+            "description": "Initial scale [x, y, z]",
         },
-        "color": {"type": "string", "description": "材质颜色（十六进制如 #00F0FF）"},
-        "metalness": {"type": "number", "description": "金属度 0-1"},
-        "roughness": {"type": "number", "description": "粗糙度 0-1"},
-        "opacity": {"type": "number", "description": "不透明度 0-1"},
-        "emissive": {"type": "string", "description": "自发光颜色"},
-        "emissive_intensity": {"type": "number", "description": "自发光强度"},
-        "wireframe": {"type": "boolean", "description": "是否线框模式"},
+        "color": {"type": "string", "description": "Material color (hex such as #00F0FF)"},
+        "metalness": {"type": "number", "description": "Metalness 0-1"},
+        "roughness": {"type": "number", "description": "Roughness 0-1"},
+        "opacity": {"type": "number", "description": "Opacity 0-1"},
+        "emissive": {"type": "string", "description": "Emissive color"},
+        "emissive_intensity": {"type": "number", "description": "Emissive intensity"},
+        "wireframe": {"type": "boolean", "description": "Whether to use wireframe mode"},
     },
     "required": ["geometry_type"],
 }
 
 
 class CreateObjectTool(ToolBase):
-    """Create 3D object tool / 创建 3D 对象工具."""
+    """Create 3D object tool."""
 
     name = "create_object"
     description = (
-        "创建一个 3D 对象并加入场景。支持 box/sphere/cylinder/cone/torus/plane/"
-        "torusKnot/多面体/capsule/ring 等几何类型，可一并指定材质属性。"
+        "Create a 3D object and add it to the scene. Supports box/sphere/cylinder/cone/torus/plane/"
+        "torusKnot/polyhedra/capsule/ring geometry types; material properties may be specified as well."
     )
 
     def schema(self) -> Dict[str, Any]:
@@ -80,31 +80,31 @@ class CreateObjectTool(ToolBase):
         if geo_type not in GEOMETRY_DEFAULTS:
             return ToolResult(
                 success=False,
-                message=f"不支持的几何类型: {geo_type}。可用: {', '.join(GEOMETRY_DEFAULTS.keys())}",
+                message=f"Unsupported geometry type: {geo_type}. Available: {', '.join(GEOMETRY_DEFAULTS.keys())}",
             )
 
-        # Merge default params with user params / 合并默认参数与用户参数
+        # Merge default params with user params
         params = dict(GEOMETRY_DEFAULTS[geo_type])
         user_params = arguments.get("params", {})
         if isinstance(user_params, dict):
             params.update(user_params)
 
-        # Position / 位置
+        # Position
         position = arguments.get("position", [0.0, 0.0, 0.0])
         if not isinstance(position, list) or len(position) != 3:
             position = [0.0, 0.0, 0.0]
 
-        # Rotation / 旋转
+        # Rotation
         rotation = arguments.get("rotation", [0.0, 0.0, 0.0])
         if not isinstance(rotation, list) or len(rotation) != 3:
             rotation = [0.0, 0.0, 0.0]
 
-        # Scale / 缩放
+        # Scale
         scale = arguments.get("scale", [1.0, 1.0, 1.0])
         if not isinstance(scale, list) or len(scale) != 3:
             scale = [1.0, 1.0, 1.0]
 
-        # Material / 材质
+        # Material
         material = Material(
             color=arguments.get("color", "#cccccc"),
             metalness=float(arguments.get("metalness", 0.0)),
@@ -116,7 +116,7 @@ class CreateObjectTool(ToolBase):
         )
 
         name = arguments.get("name") or GEOMETRY_DISPLAY_NAMES.get(geo_type, "Object")
-        # Auto-append index for duplicate names / 同名对象自动追加序号
+        # Auto-append index for duplicate names
         name = scene.next_auto_name(name)
 
         obj = SceneObject(
@@ -134,7 +134,7 @@ class CreateObjectTool(ToolBase):
 
         return ToolResult(
             success=True,
-            message=f"已创建 {name}（{geo_type}），位置 {position}，颜色 {material.color}",
+            message=f"Created {name} ({geo_type}), position {position}, color {material.color}",
             deltas=[SceneDelta(action="create", target_id=obj.id, payload=obj.to_dict())],
             data={"object": obj.to_dict()},
         )
