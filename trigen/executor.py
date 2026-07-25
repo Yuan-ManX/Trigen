@@ -1,4 +1,4 @@
-"""Task executor / 任务执行器.
+"""Task executor.
 
 Executes tool calls in planned order, collecting results and scene mutations,
 supporting parallel batch execution and exception isolation.
@@ -18,8 +18,7 @@ logger = logging.getLogger("trigen.executor")
 
 
 class TaskExecutor:
-    """Sequentially (or batched-parallel) executes the tool calls in the task plan.
-    按计划顺序（或批次并行）执行任务计划中的工具调用。"""
+    """Sequentially (or batched-parallel) executes the tool calls in the task plan."""
 
     def __init__(self, registry: ToolRegistry, parallel: bool = True):
         self.registry = registry
@@ -30,7 +29,6 @@ class TaskExecutor:
             return await self._execute_sequential(scene, plan)
 
         # Group steps into parallel-safe batches
-        # 将步骤分组为并行安全批次
         batches = self._group_batches(plan.steps)
         results: List[ToolResult] = []
         for batch in batches:
@@ -53,28 +51,26 @@ class TaskExecutor:
     async def _execute_step(self, scene: Scene, step: TaskStep) -> ToolResult:
         tool = self.registry.get(step.tool_name)
         if tool is None:
-            return ToolResult(success=False, message=f"未知工具: {step.tool_name}")
+            return ToolResult(success=False, message=f"Unknown tool: {step.tool_name}")
         try:
             result = await tool.execute(scene, step.arguments)
             logger.info(
-                "工具 %s 执行 %s: %s",
+                "Tool %s execution %s: %s",
                 step.tool_name,
-                "成功" if result.success else "失败",
+                "succeeded" if result.success else "failed",
                 result.message,
             )
             return result
         except Exception as e:
-            logger.exception("工具 %s 执行异常", step.tool_name)
+            logger.exception("Tool %s execution exception", step.tool_name)
             return ToolResult(
                 success=False,
-                message=f"工具 {step.tool_name} 执行异常: {e}",
+                message=f"Tool {step.tool_name} execution exception: {e}",
             )
 
     def _group_batches(self, steps: List[TaskStep]) -> List[List[TaskStep]]:
-        """Group consecutive parallel-safe steps into batches.
-        将连续的并行安全步骤归为一批。"""
+        """Group consecutive parallel-safe steps into batches."""
         # Conservative: only batch steps that operate on distinct targets
-        # 保守策略：仅批次操作不同目标的步骤
         batches: List[List[TaskStep]] = []
         current: List[TaskStep] = []
         seen_targets = set()
@@ -103,7 +99,6 @@ class TaskExecutor:
 
 
 # Tools that can be safely executed in parallel within a single batch
-# 可在同一批次内安全并行执行的工具
 _PARALLEL_SAFE_TOOLS = {
     "apply_material",
     "apply_material_preset",
