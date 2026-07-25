@@ -1,4 +1,4 @@
-"""Trigen Agent tools module / Trigen Agent 工具模块.
+"""Trigen Agent tools module.
 
 Exposes every editor capability as an Agent-callable tool, covering
 geometry creation/editing, material orchestration, lighting, scene
@@ -25,35 +25,50 @@ from trigen.tools.scene_tools import (
 )
 from trigen.tools.editor_tools import FocusObjectTool, SelectObjectTool
 from trigen.tools.exporter import ExportSceneTool
+from trigen.tools.camera_tools import AddCameraTool, ModifyCameraTool, SetViewTool
+from trigen.tools.scene_info_tool import SceneInfoTool
+from trigen.tools.grid_toggle_tool import SetGridSizeTool, ToggleGridTool
+from trigen.tools.smart_compose import SmartComposeTool
 
 __all__ = [
     "ToolBase",
     "ToolRegistry",
     "ToolResult",
     "SceneDelta",
-    # Geometry / 几何
+    # Geometry
     "CreateObjectTool",
     "TransformObjectTool",
     "ModifyGeometryTool",
     "DuplicateObjectTool",
     "DeleteObjectTool",
     "ListObjectsTool",
-    # Material / 材质
+    # Material
     "ApplyMaterialTool",
     "ApplyMaterialPresetTool",
-    # Lighting / 灯光
+    # Lighting
     "AddLightTool",
     "ModifyLightTool",
     "DeleteLightTool",
-    # Scene organization / 场景组织
+    # Camera
+    "AddCameraTool",
+    "ModifyCameraTool",
+    "SetViewTool",
+    # Scene organization
     "GroupObjectsTool",
     "UngroupObjectsTool",
     "SetBackgroundTool",
     "SetFogTool",
     "ArrangeLayoutTool",
-    # Editor control / 编辑器控制
+    # Scene inspection
+    "SceneInfoTool",
+    # Grid control
+    "ToggleGridTool",
+    "SetGridSizeTool",
+    # Smart composition
+    "SmartComposeTool",
+    # Editor control
     "SelectObjectTool",
     "FocusObjectTool",
-    # Export / 导出
+    # Export
     "ExportSceneTool",
 ]
