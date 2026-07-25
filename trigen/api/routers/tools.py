@@ -1,4 +1,4 @@
-"""Tools and presets router / 工具与预设路由.
+"""Tools and presets router.
 
 Exposes the Agent tool catalog and preset enumerations to the frontend
 so it can render dynamic UI based on available capabilities.
@@ -20,8 +20,7 @@ router = APIRouter(tags=["tools"])
 
 @router.get("/tools", response_model=ToolsResponse)
 async def list_tools() -> ToolsResponse:
-    """List all Agent-callable tools with their schemas.
-    列出所有可被 Agent 调用的工具及其 schema。"""
+    """List all Agent-callable tools with their schemas."""
     agent = AgentService.get()
     raw = agent.list_tools()
     tools = [
@@ -37,8 +36,7 @@ async def list_tools() -> ToolsResponse:
 
 @router.get("/presets", response_model=PresetsResponse)
 async def list_presets() -> PresetsResponse:
-    """List available geometry, material, and light presets.
-    列出可用的几何、材质、灯光预设。"""
+    """List available geometry, material, and light presets."""
     agent = AgentService.get()
     presets = agent.list_presets()
     return PresetsResponse(
@@ -46,3 +44,19 @@ async def list_presets() -> PresetsResponse:
         material_presets=presets["material_presets"],
         light_types=presets["light_types"],
     )
+
+
+# Smart compose scene templates
+SCENE_TEMPLATES = [
+    {"id": "solar_system", "name": "Solar System", "description": "Sun with 8 orbiting planets and orbital rings"},
+    {"id": "city_block", "name": "City Block", "description": "Grid of buildings with varying heights on a ground plane"},
+    {"id": "studio", "name": "Studio", "description": "Three-point lighting setup with a display platform"},
+    {"id": "crystal_cluster", "name": "Crystal Cluster", "description": "Random glowing polyhedra in a dark atmosphere"},
+    {"id": "product_showcase", "name": "Product Showcase", "description": "Pedestal with spotlight and rim lighting"},
+]
+
+
+@router.get("/presets/templates")
+async def list_scene_templates() -> dict:
+    """List available smart compose scene templates."""
+    return {"templates": SCENE_TEMPLATES, "count": len(SCENE_TEMPLATES)}
