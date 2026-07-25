@@ -1,7 +1,5 @@
-"""Trigen LLM 客户端 / Trigen LLM Client.
+"""Trigen LLM Client.
 
-统一封装 OpenAI 协议兼容的推理服务，支持流式输出与原生函数调用，
-可对接 OpenAI、Anthropic 代理、本地推理服务（Ollama / vLLM / LM Studio）。
 Unified wrapper for OpenAI-protocol compatible inference services, supporting
 streaming output and native function calling. Compatible with OpenAI, Anthropic
 proxies, and local inference services (Ollama / vLLM / LM Studio).
@@ -21,10 +19,7 @@ logger = logging.getLogger("trigen.llm")
 
 @dataclass
 class ToolCall:
-    """LLM 发起的工具调用。
-
-    A tool call initiated by the LLM.
-    """
+    """A tool call initiated by the LLM."""
 
     id: str
     name: str
@@ -33,10 +28,7 @@ class ToolCall:
 
 @dataclass
 class LLMResponse:
-    """LLM 一次完整响应。
-
-    A complete LLM response.
-    """
+    """A complete LLM response."""
 
     content: str
     tool_calls: List[ToolCall] = field(default_factory=list)
@@ -46,10 +38,7 @@ class LLMResponse:
 
 @dataclass
 class LLMStreamChunk:
-    """流式响应片段。
-
-    A streaming response chunk.
-    """
+    """A streaming response chunk."""
 
     content: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
@@ -57,10 +46,7 @@ class LLMStreamChunk:
 
 
 class LLMClient:
-    """OpenAI 协议兼容的异步 LLM 客户端。
-
-    Asynchronous LLM client compatible with the OpenAI protocol.
-    """
+    """Asynchronous LLM client compatible with the OpenAI protocol."""
 
     def __init__(self, config: LLMConfig):
         self.config = config
@@ -72,7 +58,7 @@ class LLMClient:
                 from openai import AsyncOpenAI
             except ImportError as exc:
                 raise RuntimeError(
-                    "未安装 openai 包，请在 agent 目录执行 pip install -e ."
+                    "openai package not installed. Run pip install -e . in the agent directory."
                 ) from exc
             kwargs: Dict[str, Any] = {
                 "api_key": self.config.api_key or "missing",
@@ -83,10 +69,7 @@ class LLMClient:
         return self._client
 
     def _build_tools_schema(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """将内部工具描述转为 OpenAI function calling schema。
-
-        Convert internal tool descriptions into OpenAI function calling schema.
-        """
+        """Convert internal tool descriptions into OpenAI function calling schema."""
         return [{"type": "function", "function": t} for t in tools]
 
     async def complete(
@@ -95,10 +78,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]] = None,
         system: Optional[str] = None,
     ) -> LLMResponse:
-        """同步（非流式）补全，返回完整响应。
-
-        Synchronous (non-streaming) completion, returning the full response.
-        """
+        """Synchronous (non-streaming) completion, returning the full response."""
         client = self._ensure_client()
         full_messages: List[Dict[str, Any]] = []
         if system:
@@ -118,8 +98,8 @@ class LLMClient:
         try:
             resp = await client.chat.completions.create(**kwargs)
         except Exception as exc:
-            logger.error("LLM 调用失败: %s", exc)
-            return LLMResponse(content=f"[LLM 调用失败] {exc}", finish_reason="error")
+            logger.error("LLM call failed: %s", exc)
+            return LLMResponse(content=f"[LLM call failed] {exc}", finish_reason="error")
 
         choice = resp.choices[0]
         msg = choice.message
@@ -150,11 +130,9 @@ class LLMClient:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         system: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> AsyncIterator[LLMStreamChunk]:
-        """流式补全，逐 token 产出。
-
-        Streaming completion, yielding token by token.
-        """
+        """Streaming completion, yielding token by token. Overrides model if provided."""
         client = self._ensure_client()
         full_messages: List[Dict[str, Any]] = []
         if system:
@@ -162,7 +140,7 @@ class LLMClient:
         full_messages.extend(messages)
 
         kwargs: Dict[str, Any] = {
-            "model": self.config.model,
+            "model": model or self.config.model,
             "messages": full_messages,
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
@@ -175,11 +153,11 @@ class LLMClient:
         try:
             stream = await client.chat.completions.create(**kwargs)
         except Exception as exc:
-            logger.error("LLM 流式调用失败: %s", exc)
-            yield LLMStreamChunk(content=f"[LLM 调用失败] {exc}", finish_reason="error")
+            logger.error("LLM streaming call failed: %s", exc)
+            yield LLMStreamChunk(content=f"[LLM call failed] {exc}", finish_reason="error")
             return
 
-        tool_call_accum: Dict[int, Dict[str, Any]] = {}  # 工具调用累计字典 / Tool call accumulation dict
+        tool_call_accum: Dict[int, Dict[str, Any]] = {}  # Tool call accumulation dict
         async for chunk in stream:
             if not chunk.choices:
                 continue
