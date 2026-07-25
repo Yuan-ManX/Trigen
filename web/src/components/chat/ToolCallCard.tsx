@@ -1,4 +1,3 @@
-// 工具调用卡片：内联展示工具名、参数与执行结果
 // Tool call card: inline display of tool name, parameters and execution result
 import { motion } from 'framer-motion'
 import { CheckCircle2, Loader2, Terminal, XCircle } from 'lucide-react'
@@ -8,7 +7,6 @@ interface ToolCallCardProps {
   call: ToolCallRecord
 }
 
-/** 工具名称友好显示 */
 /** Friendly display of the tool name */
 function friendlyName(name: string): string {
   return name.replace(/_/g, ' ')
@@ -39,17 +37,17 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
           {call.pending ? (
             <span className="flex items-center gap-1 text-fg-secondary">
               <Loader2 size={11} className="animate-spin" />
-              执行中
+              Running
             </span>
           ) : call.result?.success ? (
             <span className="flex items-center gap-1 text-emerald-400">
               <CheckCircle2 size={11} />
-              完成
+              Done
             </span>
           ) : (
             <span className="flex items-center gap-1 text-rose-400">
               <XCircle size={11} />
-              失败
+              Failed
             </span>
           )}
         </span>
