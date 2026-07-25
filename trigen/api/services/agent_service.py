@@ -1,5 +1,5 @@
 """Agent service layer, encapsulating invocation and lifecycle management
-of AgentOrchestrator. Agent 服务层，封装 AgentOrchestrator 的调用与生命周期管理。"""
+of AgentOrchestrator."""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ logger = logging.getLogger("trigen.api.agent")
 
 
 class AgentService:
-    """Agent orchestration service, global singleton.
-    Agent 编排服务，全局单例。"""
+    """Agent orchestration service, global singleton."""
 
     _instance: Optional["AgentService"] = None
     _orchestrator: Optional[AgentOrchestrator] = None
@@ -34,7 +33,7 @@ class AgentService:
         if self._orchestrator is None:
             self._orchestrator = AgentOrchestrator(self.config)
             logger.info(
-                "AgentOrchestrator 已初始化，LLM 配置状态: %s",
+                "AgentOrchestrator initialized, LLM configured: %s",
                 self.config.llm.is_configured,
             )
         return self._orchestrator
@@ -64,19 +63,17 @@ class AgentService:
         }
 
     async def chat_stream(
-        self, message: str, session_id: str = "default"
+        self, message: str, session_id: str = "default", model: Optional[str] = None
     ) -> AsyncIterator[AgentEvent]:
-        """Streaming chat, yielding a sequence of AgentEvents.
-        流式对话，产出 AgentEvent 序列。"""
-        async for event in self.orchestrator.run(message, session_id):
+        """Streaming chat, yielding a sequence of AgentEvents. Passes model override to orchestrator."""
+        async for event in self.orchestrator.run(message, session_id, model=model):
             yield event
 
     def get_scene(self, session_id: str) -> Dict[str, Any]:
-        """Get the current scene of the specified session.
-        获取指定会话的当前场景。"""
+        """Get the current scene of the specified session."""
         scene = self.orchestrator.get_scene(session_id)
         return scene.to_dict()
 
     def reset_session(self, session_id: str) -> None:
-        """Reset the specified session. 重置指定会话。"""
+        """Reset the specified session."""
         self.orchestrator.reset_session(session_id)
