@@ -1,4 +1,4 @@
-"""Scene organization tools / 场景组织工具.
+"""Scene organization tools.
 
 Provides grouping/ungrouping, background color, fog, and automatic
 layout arrangement (circle / grid / linear) for scene objects.
@@ -19,9 +19,9 @@ _GROUP_PARAMS = {
         "targets": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "要分组的对象 id 或 name 列表",
+            "description": "List of object ids or names to group",
         },
-        "name": {"type": "string", "description": "分组名称"},
+        "name": {"type": "string", "description": "Group name"},
     },
     "required": ["targets"],
 }
@@ -30,7 +30,7 @@ _GROUP_PARAMS = {
 _UNGROUP_PARAMS = {
     "type": "object",
     "properties": {
-        "target": {"type": "string", "description": "要解散的分组 id 或 name"},
+        "target": {"type": "string", "description": "Group id or name to dissolve"},
     },
     "required": ["target"],
 }
@@ -39,7 +39,7 @@ _UNGROUP_PARAMS = {
 _BACKGROUND_PARAMS = {
     "type": "object",
     "properties": {
-        "color": {"type": "string", "description": "背景颜色（十六进制）"},
+        "color": {"type": "string", "description": "Background color (hex)"},
     },
     "required": ["color"],
 }
@@ -48,10 +48,10 @@ _BACKGROUND_PARAMS = {
 _FOG_PARAMS = {
     "type": "object",
     "properties": {
-        "color": {"type": "string", "description": "雾色（十六进制，默认与背景一致）"},
-        "near": {"type": "number", "description": "雾近端距离（默认 10）"},
-        "far": {"type": "number", "description": "雾远端距离（默认 50）"},
-        "enabled": {"type": "boolean", "description": "是否启用雾效（默认 true）"},
+        "color": {"type": "string", "description": "Fog color (hex, defaults to background)"},
+        "near": {"type": "number", "description": "Fog near distance (default 10)"},
+        "far": {"type": "number", "description": "Fog far distance (default 50)"},
+        "enabled": {"type": "boolean", "description": "Whether to enable fog (default true)"},
     },
     "required": [],
 }
@@ -63,19 +63,19 @@ _ARRANGE_PARAMS = {
         "layout_type": {
             "type": "string",
             "enum": ["circle", "grid", "linear"],
-            "description": "布局类型",
+            "description": "Layout type",
         },
         "targets": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "（可选）要排列的对象 id/name 列表，不传则排列全部对象",
+            "description": "(Optional) list of object ids/names to arrange; if omitted, all objects are arranged",
         },
-        "radius": {"type": "number", "description": "圆形布局半径（默认 3）"},
-        "spacing": {"type": "number", "description": "网格/线性布局间距（默认 2）"},
+        "radius": {"type": "number", "description": "Circle layout radius (default 3)"},
+        "spacing": {"type": "number", "description": "Grid/linear layout spacing (default 2)"},
         "center": {
             "type": "array",
             "items": {"type": "number"},
-            "description": "布局中心 [x, y, z]（默认 [0, 0, 0]）",
+            "description": "Layout center [x, y, z] (default [0, 0, 0])",
         },
     },
     "required": ["layout_type"],
@@ -83,10 +83,10 @@ _ARRANGE_PARAMS = {
 
 
 class GroupObjectsTool(ToolBase):
-    """Group objects tool / 对象分组工具."""
+    """Group objects tool."""
 
     name = "group_objects"
-    description = "将多个对象组合为分组，便于统一管理。"
+    description = "Combine multiple objects into a group for unified management."
 
     def schema(self) -> Dict[str, Any]:
         return _GROUP_PARAMS
@@ -94,11 +94,11 @@ class GroupObjectsTool(ToolBase):
     async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
         targets = arguments.get("targets", [])
         if not targets or not isinstance(targets, list):
-            return ToolResult(success=False, message="未提供分组目标列表")
+            return ToolResult(success=False, message="No group target list provided")
 
         objs = scene.find_objects([str(t) for t in targets])
         if not objs:
-            return ToolResult(success=False, message="未找到任何可分组的对象")
+            return ToolResult(success=False, message="No groupable objects found")
 
         name = arguments.get("name") or f"Group_{len(scene.groups) + 1}"
         existing = {g.name for g in scene.groups}
@@ -110,13 +110,13 @@ class GroupObjectsTool(ToolBase):
 
         group = GroupObject(name=name, child_ids=[o.id for o in objs])
         scene.groups.append(group)
-        # Mark group_id on children / 标记子对象的 group_id
+        # Mark group_id on children
         for o in objs:
             o.group_id = group.id
 
         return ToolResult(
             success=True,
-            message=f"已创建分组 {name}，包含 {len(objs)} 个对象",
+            message=f"Created group {name} containing {len(objs)} object(s)",
             deltas=[SceneDelta(action="create_group", target_id=group.id, payload=group.to_dict())]
             + [SceneDelta(action="update", target_id=o.id, payload=o.to_dict()) for o in objs],
             data={"group": group.to_dict()},
@@ -124,10 +124,10 @@ class GroupObjectsTool(ToolBase):
 
 
 class UngroupObjectsTool(ToolBase):
-    """Ungroup objects tool / 解散分组工具."""
+    """Ungroup objects tool."""
 
     name = "ungroup_objects"
-    description = "解散指定分组，释放其中的对象。"
+    description = "Dissolve the specified group, releasing its objects."
 
     def schema(self) -> Dict[str, Any]:
         return _UNGROUP_PARAMS
@@ -140,9 +140,9 @@ class UngroupObjectsTool(ToolBase):
                 group = g
                 break
         if not group:
-            return ToolResult(success=False, message=f"未找到分组: {target_id}")
+            return ToolResult(success=False, message=f"Group not found: {target_id}")
 
-        # Clear group_id on children / 清除子对象的 group_id
+        # Clear group_id on children
         for oid in group.child_ids:
             obj = scene.find_object(oid)
             if obj:
@@ -151,16 +151,16 @@ class UngroupObjectsTool(ToolBase):
         scene.groups.remove(group)
         return ToolResult(
             success=True,
-            message=f"已解散分组 {group.name}",
+            message=f"Dissolved group {group.name}",
             deltas=[SceneDelta(action="delete_group", target_id=group.id)],
         )
 
 
 class SetBackgroundTool(ToolBase):
-    """Set background color tool / 设置背景色工具."""
+    """Set background color tool."""
 
     name = "set_background"
-    description = "设置场景背景颜色。"
+    description = "Set the scene background color."
 
     def schema(self) -> Dict[str, Any]:
         return _BACKGROUND_PARAMS
@@ -168,22 +168,22 @@ class SetBackgroundTool(ToolBase):
     async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
         color = arguments.get("color", "")
         if not color:
-            return ToolResult(success=False, message="未提供背景颜色")
+            return ToolResult(success=False, message="No background color provided")
         old = scene.background
         scene.background = str(color)
         return ToolResult(
             success=True,
-            message=f"背景色已从 {old} 改为 {scene.background}",
+            message=f"Background color changed from {old} to {scene.background}",
             deltas=[SceneDelta(action="set_background", payload={"color": scene.background})],
             data={"background": scene.background},
         )
 
 
 class SetFogTool(ToolBase):
-    """Set fog tool / 设置雾效工具."""
+    """Set fog tool."""
 
     name = "set_fog"
-    description = "配置场景雾效（颜色、近端、远端）。"
+    description = "Configure scene fog effects (color, near, far)."
 
     def schema(self) -> Dict[str, Any]:
         return _FOG_PARAMS
@@ -194,7 +194,7 @@ class SetFogTool(ToolBase):
             scene.fog = None
             return ToolResult(
                 success=True,
-                message="已关闭雾效",
+                message="Fog disabled",
                 deltas=[SceneDelta(action="set_fog", payload={"fog": None})],
                 data={"fog": None},
             )
@@ -205,17 +205,17 @@ class SetFogTool(ToolBase):
         scene.fog = {"color": str(color), "near": near, "far": far}
         return ToolResult(
             success=True,
-            message=f"雾效已设置：颜色 {color}，近端 {near}，远端 {far}",
+            message=f"Fog set: color {color}, near {near}, far {far}",
             deltas=[SceneDelta(action="set_fog", payload={"fog": scene.fog})],
             data={"fog": scene.fog},
         )
 
 
 class ArrangeLayoutTool(ToolBase):
-    """Arrange layout tool / 布局排列工具."""
+    """Arrange layout tool."""
 
     name = "arrange_layout"
-    description = "自动布局排列场景对象（circle/grid/linear）。"
+    description = "Automatically arrange scene objects in a layout (circle/grid/linear)."
 
     def schema(self) -> Dict[str, Any]:
         return _ARRANGE_PARAMS
@@ -229,7 +229,7 @@ class ArrangeLayoutTool(ToolBase):
             objs = list(scene.objects)
 
         if not objs:
-            return ToolResult(success=False, message="场景中没有可排列的对象")
+            return ToolResult(success=False, message="No arrangeable objects in the scene")
 
         radius = float(arguments.get("radius", 3.0))
         spacing = float(arguments.get("spacing", 2.0))
@@ -276,11 +276,11 @@ class ArrangeLayoutTool(ToolBase):
                     SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())
                 )
         else:
-            return ToolResult(success=False, message=f"未知布局类型: {layout_type}")
+            return ToolResult(success=False, message=f"Unknown layout type: {layout_type}")
 
         return ToolResult(
             success=True,
-            message=f"已按 {layout_type} 布局排列 {n} 个对象",
+            message=f"Arranged {n} object(s) in {layout_type} layout",
             deltas=deltas,
             data={"layout": layout_type, "count": n},
         )
