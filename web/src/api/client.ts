@@ -1,51 +1,59 @@
-// REST + WebSocket 客户端
 // REST + WebSocket client
-// 开发环境下通过 Vite proxy 代理到后端 http://localhost:7100
 // In development, proxied to backend http://localhost:7100 via Vite proxy
 
 import type {
   ClientMessage,
   HealthResponse,
+  PresetsResponse,
   SceneData,
   ServerEvent,
+  ToolsResponse,
 } from '../types'
 
-/* ===================== REST 接口 ===================== */
 /* ============ REST API ============ */
 
-/** 健康检查 */
 /** Health check */
 export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch('/api/health')
-  if (!res.ok) throw new Error(`健康检查失败: ${res.status}`)
+  if (!res.ok) throw new Error(`Health check failed: ${res.status}`)
   return res.json() as Promise<HealthResponse>
 }
 
-/** 获取完整场景 */
 /** Fetch the complete scene */
 export async function fetchScene(sessionId: string): Promise<SceneData> {
   const res = await fetch(`/api/scene/${encodeURIComponent(sessionId)}`)
-  if (!res.ok) throw new Error(`获取场景失败: ${res.status}`)
+  if (!res.ok) throw new Error(`Failed to fetch scene: ${res.status}`)
   return res.json() as Promise<SceneData>
 }
 
-/** 重置场景 */
 /** Reset scene */
 export async function resetScene(sessionId: string): Promise<SceneData> {
   const res = await fetch(`/api/scene/${encodeURIComponent(sessionId)}/reset`, {
     method: 'POST',
   })
-  if (!res.ok) throw new Error(`重置场景失败: ${res.status}`)
+  if (!res.ok) throw new Error(`Failed to reset scene: ${res.status}`)
   return res.json() as Promise<SceneData>
 }
 
-/** 构造导出文件下载 URL */
 /** Build the export file download URL */
 export function exportUrl(filename: string): string {
   return `/api/exports/${encodeURIComponent(filename)}`
 }
 
-/* ===================== WebSocket 客户端 ===================== */
+/** Fetch the available tool catalog */
+export async function fetchTools(): Promise<ToolsResponse> {
+  const res = await fetch('/api/tools')
+  if (!res.ok) throw new Error(`Failed to fetch tool list: ${res.status}`)
+  return res.json() as Promise<ToolsResponse>
+}
+
+/** Fetch the preset catalog (geometry / material / light) */
+export async function fetchPresets(): Promise<PresetsResponse> {
+  const res = await fetch('/api/presets')
+  if (!res.ok) throw new Error(`Failed to fetch preset list: ${res.status}`)
+  return res.json() as Promise<PresetsResponse>
+}
+
 /* ============ WebSocket client ============ */
 
 export type SocketStatus =
@@ -62,7 +70,6 @@ export interface ChatSocketHandlers {
   onEvent?: (ev: ServerEvent) => void
 }
 
-/** 根据 window.location 推导 WebSocket 地址（开发期由 Vite 代理转发） */
 /** Derive WebSocket URL from window.location (forwarded by Vite proxy during development) */
 function buildWsUrl(): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -70,11 +77,6 @@ function buildWsUrl(): string {
 }
 
 /**
- * 轻量 WebSocket 客户端封装：
- * - 自动重连（指数退避，最多 5 次）
- * - 只在 active 时发送，未连接时缓存最近一条消息并在连接后补发
- * - 解析服务端 JSON 事件并回调
- *
  * Lightweight WebSocket client wrapper:
  * - Auto reconnect (exponential backoff, up to 5 attempts)
  * - Sends only when active; caches the latest message when not connected and resends after connection
@@ -115,7 +117,6 @@ export class ChatSocket {
       this.reconnectAttempts = 0
       this.setStatus('connected')
       this.handlers.onOpen?.()
-      // 连接成功后补发缓存消息
       // Resend cached message after successful connection
       if (this.pending) {
         this.rawSend(this.pending)
@@ -153,20 +154,18 @@ export class ChatSocket {
       try {
         this.ws.close()
       } catch {
-        /* ignore / 忽略 */
+        /* ignore */
       }
       this.ws = null
     }
     this.setStatus('disconnected')
   }
 
-  /** 发送消息；未连接时缓存并触发连接 */
   /** Send a message; cache it and trigger connection when not connected */
   send(message: ClientMessage) {
     if (this.status === 'connected' && this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.rawSend(message)
     } else {
-      // 缓存最近一条，连接后补发
       // Cache the latest message and resend after connection
       this.pending = message
       if (this.status !== 'connecting') this.connect()
@@ -204,7 +203,6 @@ export class ChatSocket {
   }
 }
 
-/** 生成或读取本地持久化的 session id */
 /** Generate or read a locally persisted session id */
 export function getOrCreateSessionId(): string {
   const KEY = 'trigen_session_id'
