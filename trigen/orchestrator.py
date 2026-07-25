@@ -1,22 +1,18 @@
 """Agent orchestrator — Trigen intelligent body's central scheduling core.
 
-Unified串联 LLM 推理、任务规划、工具执行与对话记忆，以流式事件驱动
-前端实时更新。支持多轮工具调用循环、并行执行与思考过程透出，直至 LLM
-给出最终文本回复。
-
 Unifies LLM reasoning, task planning, tool execution, and conversation
 memory, driving real-time frontend updates via streaming events. Supports
 multi-round tool-call loops, parallel execution, and thinking-process
 exposure until the LLM yields its final text reply.
 
-Event stream / 事件流:
-  thinking     — Agent 思考过程 / Agent reasoning trace
-  text_delta   — LLM 文本片段 / LLM text fragment
-  tool_call    — 工具调用开始 / Tool call start
-  tool_result  — 工具执行结果 / Tool execution result
-  scene_update — 场景变更 / Scene mutation
-  done         — 本轮对话结束 / End of this conversation turn
-  error        — 异常 / Error
+Event stream:
+  thinking     — Agent reasoning trace
+  text_delta   — LLM text fragment
+  tool_call    — Tool call start
+  tool_result  — Tool execution result
+  scene_update — Scene mutation
+  done         — End of this conversation turn
+  error        — Error
 """
 
 from __future__ import annotations
@@ -35,8 +31,10 @@ from trigen.memory import ConversationMemory
 from trigen.planner import TaskPlanner
 from trigen.llm.client import LLMClient, LLMStreamChunk
 from trigen.llm.prompts import SYSTEM_PROMPT, build_scene_summary
+from trigen.intent_parser import parse_message, ParsedIntent
 from trigen.scene import Scene, LightObject
 from trigen.tools import (
+    AddCameraTool,
     AddLightTool,
     ApplyMaterialTool,
     ApplyMaterialPresetTool,
@@ -49,11 +47,17 @@ from trigen.tools import (
     FocusObjectTool,
     GroupObjectsTool,
     ListObjectsTool,
+    ModifyCameraTool,
     ModifyGeometryTool,
     ModifyLightTool,
+    SceneInfoTool,
     SelectObjectTool,
     SetBackgroundTool,
     SetFogTool,
+    SetGridSizeTool,
+    SetViewTool,
+    SmartComposeTool,
+    ToggleGridTool,
     TransformObjectTool,
     UngroupObjectsTool,
 )
@@ -74,7 +78,7 @@ class EventType(str, Enum):
 
 @dataclass
 class AgentEvent:
-    """Agent output event / Agent 输出事件."""
+    """Agent output event."""
 
     type: EventType
     data: Dict[str, Any]
@@ -87,7 +91,7 @@ class AgentEvent:
 
 
 class AgentOrchestrator:
-    """Trigen Agent orchestrator / Trigen Agent 编排器."""
+    """Trigen Agent orchestrator."""
 
     def __init__(self, config: Optional[AgentConfig] = None):
         self.config = config or AgentConfig()
@@ -101,30 +105,41 @@ class AgentOrchestrator:
 
     def _build_registry(self) -> ToolRegistry:
         registry = ToolRegistry()
-        # Geometry creation & editing / 几何创建与编辑
+        # Geometry creation & editing
         registry.register(CreateObjectTool())
         registry.register(TransformObjectTool())
         registry.register(ModifyGeometryTool())
         registry.register(DuplicateObjectTool())
         registry.register(DeleteObjectTool())
         registry.register(ListObjectsTool())
-        # Material / 材质
+        # Material
         registry.register(ApplyMaterialTool())
         registry.register(ApplyMaterialPresetTool())
-        # Lighting / 灯光
+        # Lighting
         registry.register(AddLightTool())
         registry.register(ModifyLightTool())
         registry.register(DeleteLightTool())
-        # Scene organization / 场景组织
+        # Camera
+        registry.register(AddCameraTool())
+        registry.register(ModifyCameraTool())
+        registry.register(SetViewTool())
+        # Scene organization
         registry.register(GroupObjectsTool())
         registry.register(UngroupObjectsTool())
         registry.register(SetBackgroundTool())
         registry.register(SetFogTool())
         registry.register(ArrangeLayoutTool())
-        # Editor control / 编辑器控制
+        # Scene inspection
+        registry.register(SceneInfoTool())
+        # Grid control
+        registry.register(ToggleGridTool())
+        registry.register(SetGridSizeTool())
+        # Smart composition
+        registry.register(SmartComposeTool())
+        # Editor control
         registry.register(SelectObjectTool())
         registry.register(FocusObjectTool())
-        # Export / 导出
+        # Export
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
         return registry
 
@@ -139,7 +154,6 @@ class AgentOrchestrator:
         if session_id not in self._scenes:
             scene = Scene()
             # Default scene: a directional key light + ambient fill
-            # 默认场景：一束方向光 + 环境光
             scene.lights.append(
                 LightObject(name="KeyLight", type="directional", intensity=1.2, position=[5, 8, 5])
             )
@@ -154,20 +168,19 @@ class AgentOrchestrator:
         self._scenes.pop(session_id, None)
 
     def list_tools(self) -> List[Dict[str, Any]]:
-        """Expose all registered tool schemas / 暴露全部已注册工具 schema."""
+        """Expose all registered tool schemas."""
         return self.registry.schemas()
 
-    async def run(self, user_message: str, session_id: str = "default") -> AsyncIterator[AgentEvent]:
-        """Run a conversation turn, streaming out events.
-        运行一轮对话，流式产出事件."""
+    async def run(self, user_message: str, session_id: str = "default", model: Optional[str] = None) -> AsyncIterator[AgentEvent]:
+        """Run a conversation turn, streaming out events. Overrides LLM model if provided."""
         start_ts = time.time()
         memory = self.get_memory(session_id)
         scene = self.get_scene(session_id)
         memory.add_user(user_message)
 
-        # If LLM is not configured, run in offline rule mode
-        # 若 LLM 未配置，走降级模式
-        if not self.config.llm.is_configured:
+        # If LLM is not configured or model is "trigen-default", run in offline rule mode
+        use_offline = not self.config.llm.is_configured or (model == "trigen-default")
+        if use_offline:
             async for event in self._run_offline(user_message, scene, session_id):
                 yield event
             return
@@ -176,16 +189,14 @@ class AgentOrchestrator:
         scene_context = self.planner.build_context_message(scene.to_dict())
         messages = memory.to_openai_messages()
         # Inject scene context before the latest user message
-        # 注入场景上下文到最新用户消息前
         messages.insert(-1, {"role": "system", "content": scene_context})
 
         # Emit a thinking event describing the plan
-        # 发出思考事件描述计划
         yield AgentEvent(
             type=EventType.THINKING,
             data={
                 "phase": "understanding",
-                "content": f"理解用户意图：{user_message[:120]}",
+                "content": f"Understanding user intent: {user_message[:120]}",
                 "scene_summary": build_scene_summary(scene.to_dict()),
             },
         )
@@ -199,6 +210,7 @@ class AgentOrchestrator:
                     messages=messages,
                     tools=tool_schemas,
                     system=SYSTEM_PROMPT,
+                    model=model,
                 ):
                     if chunk.content:
                         full_text += chunk.content
@@ -216,26 +228,23 @@ class AgentOrchestrator:
                 return
 
             # No tool calls → end of this turn
-            # 无工具调用 → 本轮结束
             if not tool_calls_collected:
                 break
 
             # Emit thinking event for the planning phase
-            # 发出规划阶段思考事件
             yield AgentEvent(
                 type=EventType.THINKING,
                 data={
                     "phase": "planning",
-                    "content": f"规划执行 {len(tool_calls_collected)} 个工具调用",
+                    "content": f"Planning to execute {len(tool_calls_collected)} tool calls",
                     "tools": [tc.name for tc in tool_calls_collected],
                     "iteration": iteration,
                 },
             )
 
-            # Plan and execute tools / 规划并执行工具
+            # Plan and execute tools
             plan = self.planner.from_tool_calls(tool_calls_collected, reasoning=full_text)
             # Append assistant message (with tool_calls structure) to LLM messages
-            # 向 LLM messages 追加 assistant 消息（含 tool_calls 结构）
             assistant_msg: Dict[str, Any] = {"role": "assistant", "content": full_text or ""}
             assistant_msg["tool_calls"] = [
                 {
@@ -274,7 +283,6 @@ class AgentOrchestrator:
                     },
                 )
                 # Append tool result to messages
-                # 向 messages 追加 tool 结果
                 if step:
                     messages.append(
                         {
@@ -284,7 +292,7 @@ class AgentOrchestrator:
                         }
                     )
 
-            # Scene mutation event / 场景变更事件
+            # Scene mutation event
             deltas = self.executor.collect_deltas(results)
             if deltas:
                 yield AgentEvent(
@@ -295,7 +303,7 @@ class AgentOrchestrator:
                     },
                 )
 
-            # Update scene context / 更新场景上下文
+            # Update scene context
             messages.append(
                 {"role": "system", "content": self.planner.build_context_message(scene.to_dict())}
             )
@@ -305,12 +313,11 @@ class AgentOrchestrator:
         memory.add_assistant(full_text)
 
         # Emit final thinking event summarizing the turn
-        # 发出本轮总结思考事件
         yield AgentEvent(
             type=EventType.THINKING,
             data={
                 "phase": "complete",
-                "content": f"本轮完成，共 {iteration + 1} 次迭代，耗时 {elapsed}s",
+                "content": f"Turn complete, {iteration + 1} iterations, elapsed {elapsed}s",
                 "elapsed": elapsed,
                 "iterations": iteration + 1,
             },
@@ -330,174 +337,134 @@ class AgentOrchestrator:
         self, user_message: str, scene: Scene, session_id: str
     ) -> AsyncIterator[AgentEvent]:
         """Offline rule engine when LLM is not configured.
-        LLM 未配置时的降级模式：基于关键词的规则引擎。"""
-        msg = user_message.lower()
-        text = "（离线模式：未配置 LLM API Key，使用规则引擎响应。配置 TRIGEN_LLM_API_KEY 后可获得完整智能体能力。）\n\n"
 
+        Uses the intent parser to decompose user messages into structured
+        tool-call intents, then executes them sequentially with thinking
+        and scene-update events — mirroring the online LLM flow.
+        """
+        start_ts = time.time()
+        scene_dict = scene.to_dict()
+        scene_objects = scene_dict.get("objects", [])
+        scene_lights = scene_dict.get("lights", [])
+
+        # Phase 1: Understanding
         yield AgentEvent(
             type=EventType.THINKING,
-            data={"phase": "understanding", "content": "离线规则引擎解析用户指令"},
+            data={
+                "phase": "understanding",
+                "content": f"Parsing user instruction: {user_message[:120]}",
+                "scene_summary": build_scene_summary(scene_dict),
+            },
         )
 
-        # Create objects / 创建对象
-        geo_map = {
-            "立方体": "box", "cube": "box", "方块": "box", "盒子": "box",
-            "球": "sphere", "sphere": "sphere", "球体": "sphere",
-            "圆柱": "cylinder", "cylinder": "cylinder", "柱子": "cylinder",
-            "圆锥": "cone", "cone": "cone",
-            "圆环": "torus", "torus": "torus", "环": "torus",
-            "平面": "plane", "plane": "plane", "地面": "plane",
-            "二十面体": "icosahedron", "icosahedron": "icosahedron",
-            "十二面体": "dodecahedron", "dodecahedron": "dodecahedron",
-            "八面体": "octahedron", "octahedron": "octahedron",
-            "四面体": "tetrahedron", "tetrahedron": "tetrahedron",
-            "扭结": "torusKnot", "knot": "torusKnot",
-            "胶囊": "capsule", "capsule": "capsule",
-            "圆环面": "ring", "ring": "ring",
-        }
-        created = []
-        matched_types = set()
+        # Phase 2: Intent parsing
+        intents, _ = parse_message(user_message, scene_objects, scene_lights)
 
-        # Color detection / 颜色检测
-        color_map = {
-            "红": "#e84a4a", "red": "#e84a4a",
-            "绿": "#3acc66", "green": "#3acc66",
-            "蓝": "#3a7aff", "blue": "#3a7aff",
-            "黄": "#ffc933", "yellow": "#ffc933",
-            "紫": "#9a3aff", "purple": "#9a3aff",
-            "橙": "#ff8a3a", "orange": "#ff8a3a",
-            "粉": "#ff7acc", "pink": "#ff7acc",
-            "白": "#ffffff", "white": "#ffffff",
-            "黑": "#1a1a1a", "black": "#1a1a1a",
-            "青": "#00F0FF", "cyan": "#00F0FF",
-            "金": "#ffc933", "gold": "#ffc933",
-            "银": "#c0c0c8", "silver": "#c0c0c8",
-        }
-        detected_color = None
-        for color_kw, color_hex in color_map.items():
-            if color_kw in msg:
-                detected_color = color_hex
-                break
+        if not intents:
+            text = (
+                "(Offline mode) I couldn't parse that command. Try:\n"
+                "- \"create a red cube\"\n"
+                "- \"add a blue sphere\"\n"
+                "- \"move the cube to [2, 0, 0]\"\n"
+                "- \"apply metal material to the sphere\"\n"
+                "- \"add a point light\"\n"
+                "- \"create solar system\"\n"
+                "- \"arrange in circle\"\n"
+                "- \"export as GLB\""
+            )
+            yield AgentEvent(type=EventType.TEXT_DELTA, data={"content": text, "iteration": 0})
+            memory = self.get_memory(session_id)
+            memory.add_assistant(text)
+            yield AgentEvent(
+                type=EventType.DONE,
+                data={"content": text, "scene": scene.to_dict(), "session_id": session_id, "elapsed": 0.0},
+            )
+            return
 
-        # Material preset detection / 材质预设检测
-        preset_map = {
-            "金属": "metal", "metal": "metal",
-            "玻璃": "glass", "glass": "glass",
-            "木头": "wood", "wood": "wood",
-            "塑料": "plastic", "plastic": "plastic",
-            "橡胶": "rubber", "rubber": "rubber",
-            "陶瓷": "ceramic", "ceramic": "ceramic",
-            "大理石": "marble", "marble": "marble",
-            "霓虹": "neon", "neon": "neon",
-            "发光": "emissive", "emissive": "emissive",
-            "线框": "wireframe", "wireframe": "wireframe",
-        }
-        detected_preset = None
-        for preset_kw, preset_name in preset_map.items():
-            if preset_kw in msg:
-                detected_preset = preset_name
-                break
+        # Phase 3: Planning
+        tool_names = [i.tool_name for i in intents]
+        yield AgentEvent(
+            type=EventType.THINKING,
+            data={
+                "phase": "planning",
+                "content": f"Planned {len(intents)} operation(s): {', '.join(tool_names)}",
+                "tools": tool_names,
+            },
+        )
 
-        for kw, geo_type in geo_map.items():
-            if kw in msg and geo_type not in matched_types:
-                matched_types.add(geo_type)
-                tool = self.registry.get("create_object")
-                args: Dict[str, Any] = {"geometry_type": geo_type}
-                if detected_color:
-                    args["color"] = detected_color
-                if detected_preset == "metal":
-                    args["metalness"] = 1.0
-                    args["roughness"] = 0.25
-                elif detected_preset == "glass":
-                    args["opacity"] = 0.35
-                    args["roughness"] = 0.05
-                result = await tool.execute(scene, args)
-                created.append(result)
+        text_parts: List[str] = []
+        scene_changed = False
+
+        # Phase 4: Execution
+        for idx, intent in enumerate(intents):
+            tool = self.registry.get(intent.tool_name)
+            if tool is None:
+                text_parts.append(f"Unknown tool: {intent.tool_name}")
+                continue
+
+            # Emit tool_call event (for tools that modify the scene)
+            if intent.emit_tool_call:
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
-                    data={"id": "", "name": "create_object", "arguments": args},
+                    data={
+                        "id": f"offline_{idx}",
+                        "name": intent.tool_name,
+                        "arguments": intent.arguments,
+                    },
                 )
-                yield AgentEvent(
-                    type=EventType.TOOL_RESULT,
-                    data={"name": "create_object", "success": result.success, "message": result.message, "data": result.data},
-                )
-                if result.deltas:
-                    yield AgentEvent(
-                        type=EventType.SCENE_UPDATE,
-                        data={"deltas": [d.__dict__ for d in result.deltas], "scene": scene.to_dict()},
-                    )
-                text += f"已创建 {geo_type}。\n"
 
-        # Export / 导出
-        if any(k in msg for k in ["导出", "export", "glb", "obj", "stl"]):
-            fmt = "glb"
-            if "obj" in msg:
-                fmt = "obj"
-            elif "stl" in msg:
-                fmt = "stl"
-            tool = self.registry.get("export_scene")
-            result = await tool.execute(scene, {"format": fmt})
+            try:
+                result = await tool.execute(scene, intent.arguments)
+            except Exception as e:
+                logger.exception("Offline tool %s execution error", intent.tool_name)
+                from trigen.tools.base import ToolResult
+                result = ToolResult(success=False, message=f"Execution error: {e}")
+
             yield AgentEvent(
                 type=EventType.TOOL_RESULT,
-                data={"name": "export_scene", "success": result.success, "message": result.message, "data": result.data},
+                data={
+                    "id": f"offline_{idx}",
+                    "name": intent.tool_name,
+                    "success": result.success,
+                    "message": result.message,
+                    "data": result.data,
+                },
             )
-            text += result.message + "\n"
 
-        # List / 列表
-        if any(k in msg for k in ["列表", "list", "查看", "有哪些", "场景"]):
-            tool = self.registry.get("list_objects")
-            result = await tool.execute(scene, {})
-            yield AgentEvent(
-                type=EventType.TOOL_RESULT,
-                data={"name": "list_objects", "success": result.success, "message": result.message, "data": result.data},
-            )
-            text += result.message + "\n"
-
-        # Arrange layout / 布局排列
-        if any(k in msg for k in ["排列", "排布", "arrange", "布局"]):
-            tool = self.registry.get("arrange_layout")
-            layout_type = "grid"
-            if "圆形" in msg or "circle" in msg:
-                layout_type = "circle"
-            elif "线性" in msg or "linear" in msg or "一排" in msg:
-                layout_type = "linear"
-            result = await tool.execute(scene, {"layout_type": layout_type})
-            yield AgentEvent(
-                type=EventType.TOOL_RESULT,
-                data={"name": "arrange_layout", "success": result.success, "message": result.message, "data": result.data},
-            )
             if result.deltas:
+                scene_changed = True
                 yield AgentEvent(
                     type=EventType.SCENE_UPDATE,
-                    data={"deltas": [d.__dict__ for d in result.deltas], "scene": scene.to_dict()},
+                    data={
+                        "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+                        "scene": scene.to_dict(),
+                    },
                 )
-            text += result.message + "\n"
 
-        # Background / 背景
-        if any(k in msg for k in ["背景", "background"]):
-            for color_kw, color_hex in color_map.items():
-                if color_kw in msg:
-                    tool = self.registry.get("set_background")
-                    result = await tool.execute(scene, {"color": color_hex})
-                    yield AgentEvent(
-                        type=EventType.TOOL_RESULT,
-                        data={"name": "set_background", "success": result.success, "message": result.message, "data": result.data},
-                    )
-                    if result.deltas:
-                        yield AgentEvent(
-                            type=EventType.SCENE_UPDATE,
-                            data={"deltas": [d.__dict__ for d in result.deltas], "scene": scene.to_dict()},
-                        )
-                    text += result.message + "\n"
-                    break
+            text_parts.append(result.message if result.success else f"Failed: {result.message}")
 
-        if not created and "导出" not in msg and "list" not in msg and "查看" not in msg and "排列" not in msg and "背景" not in msg:
-            text += "我已就绪。尝试说「创建一个球体」「加一个红色金属立方体」「圆形排列所有物体」「导出为 GLB」等指令。"
+        # Phase 5: Complete
+        elapsed = round(time.time() - start_ts, 2)
+        yield AgentEvent(
+            type=EventType.THINKING,
+            data={
+                "phase": "complete",
+                "content": f"Turn complete, {len(intents)} operation(s), elapsed {elapsed}s",
+                "elapsed": elapsed,
+                "iterations": 1,
+            },
+        )
 
-        yield AgentEvent(type=EventType.TEXT_DELTA, data={"content": text, "iteration": 0})
+        full_text = "(Offline mode) " + "\n".join(text_parts)
+        yield AgentEvent(type=EventType.TEXT_DELTA, data={"content": full_text, "iteration": 0})
         memory = self.get_memory(session_id)
-        memory.add_assistant(text)
+        memory.add_assistant(full_text)
         yield AgentEvent(
             type=EventType.DONE,
-            data={"content": text, "scene": scene.to_dict(), "session_id": session_id, "elapsed": 0.0},
+            data={
+                "content": full_text,
+                "scene": scene.to_dict(),
+                "session_id": session_id,
+                "elapsed": elapsed,
+            },
         )
