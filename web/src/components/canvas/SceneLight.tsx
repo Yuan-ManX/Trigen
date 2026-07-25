@@ -1,4 +1,3 @@
-// 光源渲染：根据 type 映射 ambientLight/directionalLight/pointLight/spotLight
 // Light rendering: maps ambientLight/directionalLight/pointLight/spotLight based on type
 import { useEffect, useRef } from 'react'
 import type { Group } from 'three'
@@ -11,7 +10,6 @@ interface SceneLightProps {
 export function SceneLight({ light }: SceneLightProps) {
   const groupRef = useRef<Group>(null)
 
-  // 将光源 target 指向 group 内的占位对象，避免共用默认 target
   // Point the light target to a placeholder object inside the group to avoid sharing the default target
   useEffect(() => {
     const g = groupRef.current
@@ -56,22 +54,31 @@ export function SceneLight({ light }: SceneLightProps) {
           {...common}
           position={light.position}
           castShadow={light.cast_shadow}
-          distance={0}
-          decay={2}
+          distance={light.distance ?? 0}
+          decay={light.decay ?? 2}
         />
       )}
       {light.type === 'spot' && (
         <spotLight
           {...common}
           position={light.position}
-          angle={Math.PI / 6}
-          penumbra={0.2}
+          angle={light.angle ?? Math.PI / 6}
+          penumbra={light.penumbra ?? 0.2}
+          distance={light.distance ?? 0}
+          decay={light.decay ?? 2}
           castShadow={light.cast_shadow}
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
         />
       )}
-      {/* 方向光/聚光灯的目标占位对象 */}
+      {light.type === 'hemisphere' && (
+        <hemisphereLight
+          color={light.color}
+          groundColor="#202028"
+          intensity={light.intensity}
+          position={light.position}
+        />
+      )}
       {/* Target placeholder object for directional/spot lights */}
       {(light.type === 'directional' || light.type === 'spot') && (
         <object3D
