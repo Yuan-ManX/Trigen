@@ -1,4 +1,4 @@
-"""Conversation memory management / 对话记忆管理.
+"""Conversation memory management.
 
 Maintains the context window for each conversation turn, supporting
 sliding-window truncation, tool-call result persistence, and compaction
@@ -13,13 +13,13 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class MessageRecord:
-    """A single message record / 单条消息记录."""
+    """A single message record."""
 
     role: str  # user / assistant / tool / system
     content: str
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
-    name: Optional[str] = None  # tool message source name / tool 消息来源名称
+    name: Optional[str] = None  # tool message source name
     timestamp: float = 0.0
 
     def to_openai(self) -> Dict[str, Any]:
@@ -32,8 +32,7 @@ class MessageRecord:
 
 
 class ConversationMemory:
-    """Session-level conversation memory with sliding window and compaction.
-    会话级对话记忆，支持滑动窗口与压缩摘要。"""
+    """Session-level conversation memory with sliding window and compaction."""
 
     def __init__(self, session_id: str, window_size: int = 12):
         self.session_id = session_id
@@ -55,8 +54,7 @@ class ConversationMemory:
         rec = MessageRecord(role="assistant", content=content, timestamp=time.time())
         self._messages.append(rec)
         if tool_calls:
-            # Record tool-call metadata (for debugging only)
-            # 记录工具调用元信息（用于调试，不直接进 OpenAI messages）
+            # Record tool-call metadata (for debugging only, not directly added to OpenAI messages)
             for tc in tool_calls:
                 self._messages.append(
                     MessageRecord(
@@ -81,13 +79,13 @@ class ConversationMemory:
 
     def to_openai_messages(self) -> List[Dict[str, Any]]:
         """Convert to OpenAI messages format, prepending a compaction summary
-        if available. 转为 OpenAI messages 格式，若有压缩摘要则前置。"""
+        if available."""
         messages: List[Dict[str, Any]] = []
         if self._compacted_summary:
             messages.append(
                 {
                     "role": "system",
-                    "content": f"先前对话摘要：{self._compacted_summary}",
+                    "content": f"Previous conversation summary: {self._compacted_summary}",
                 }
             )
         messages.extend(
@@ -96,8 +94,7 @@ class ConversationMemory:
         return messages
 
     def recent_summary(self, n: int = 5) -> str:
-        """Summary of the most recent n messages (for debugging).
-        最近 n 条消息摘要（供调试）。"""
+        """Summary of the most recent n messages (for debugging)."""
         lines = []
         for m in self._messages[-n:]:
             prefix = m.role.upper()
@@ -113,7 +110,6 @@ class ConversationMemory:
 
     def _trim(self) -> None:
         # When exceeding 2x window, compact older messages into a summary
-        # 超过 2 倍窗口时，将较旧消息压缩为摘要
         if len(self._messages) > self.window_size * 2:
             keep = self._messages[-(self.window_size):]
             to_compact = self._messages[: -self.window_size]
@@ -126,18 +122,17 @@ class ConversationMemory:
 
     @staticmethod
     def _build_compaction(messages: List[MessageRecord]) -> str:
-        """Build a brief compaction summary from dropped messages.
-        从被丢弃的消息中构建简短摘要。"""
+        """Build a brief compaction summary from dropped messages."""
         user_turns = [m.content for m in messages if m.role == "user" and m.content]
         assistant_turns = [
             m.content for m in messages if m.role == "assistant" and m.content
         ]
         parts = []
         if user_turns:
-            parts.append("用户曾问：" + " / ".join(f"「{t[:60]}」" for t in user_turns[-3:]))
+            parts.append("User asked: " + " / ".join(f'"{t[:60]}"' for t in user_turns[-3:]))
         if assistant_turns:
-            parts.append("助手回应：" + " / ".join(f"「{t[:60]}」" for t in assistant_turns[-3:]))
-        return "；".join(parts) if parts else ""
+            parts.append("Assistant responded: " + " / ".join(f'"{t[:60]}"' for t in assistant_turns[-3:]))
+        return "; ".join(parts) if parts else ""
 
     @property
     def message_count(self) -> int:
