@@ -1,5 +1,4 @@
-"""Pydantic data models defining API request/response schemas.
-Pydantic 数据模型，定义 API 请求/响应 Schema。"""
+"""Pydantic data models defining API request/response schemas."""
 
 from __future__ import annotations
 
@@ -9,14 +8,15 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    """Chat request / 对话请求."""
+    """Chat request."""
 
-    message: str = Field(..., description="用户输入消息")
-    session_id: str = Field(default="default", description="会话 ID")
+    message: str = Field(..., description="User input message")
+    session_id: str = Field(default="default", description="Session ID")
+    model: Optional[str] = Field(default=None, description="LLM model override")
 
 
 class ChatResponse(BaseModel):
-    """Chat response (non-streaming) / 对话响应（非流式）."""
+    """Chat response (non-streaming)."""
 
     content: str
     session_id: str
@@ -24,7 +24,7 @@ class ChatResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Health check response / 健康检查响应."""
+    """Health check response."""
 
     status: str = "ok"
     version: str = "1.0.0"
@@ -34,7 +34,7 @@ class HealthResponse(BaseModel):
 
 
 class SceneResponse(BaseModel):
-    """Scene response / 场景响应."""
+    """Scene response."""
 
     session_id: str
     objects: List[Dict[str, Any]] = Field(default_factory=list)
@@ -49,21 +49,21 @@ class SceneResponse(BaseModel):
 
 
 class WSMessage(BaseModel):
-    """WebSocket outbound message / WebSocket 出站消息."""
+    """WebSocket outbound message."""
 
     type: str
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WSIncoming(BaseModel):
-    """WebSocket inbound message / WebSocket 入站消息."""
+    """WebSocket inbound message."""
 
     type: str = "message"
     data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolSchema(BaseModel):
-    """Single tool schema / 单个工具 schema."""
+    """Single tool schema."""
 
     name: str
     description: str
@@ -71,14 +71,14 @@ class ToolSchema(BaseModel):
 
 
 class ToolsResponse(BaseModel):
-    """Tools listing response / 工具列表响应."""
+    """Tools listing response."""
 
     tools: List[ToolSchema]
     count: int
 
 
 class PresetsResponse(BaseModel):
-    """Presets listing response / 预设列表响应."""
+    """Presets listing response."""
 
     geometry_types: List[str]
     material_presets: List[str]
