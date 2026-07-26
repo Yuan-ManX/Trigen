@@ -114,28 +114,31 @@ export function InputBar() {
 
   return (
     <div className="border-t border-border bg-bg-panel px-3 py-3">
-      <div className="flex items-end gap-2 rounded-md border border-border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-2.5 py-1.5">
+      <div className="rounded-lg border border-border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-3 py-2.5">
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          rows={1}
+          rows={3}
           placeholder={isResponding ? 'Trigen is creating…' : 'Describe the 3D scene you want…'}
           disabled={isResponding}
-          className="flex-1 resize-none bg-transparent text-sm text-fg-primary placeholder:text-fg-muted outline-none leading-relaxed py-1 disabled:opacity-60"
+          className="w-full resize-none bg-transparent text-sm text-fg-primary placeholder:text-fg-muted outline-none leading-relaxed disabled:opacity-60 min-h-[72px]"
         />
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          aria-label="Send message"
-          className="shrink-0 w-8 h-8 rounded-md flex items-center justify-center bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all"
-        >
-          <Send size={14} />
-        </button>
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">
+          <ModelSelector />
+          <button
+            onClick={handleSend}
+            disabled={!canSend}
+            aria-label="Send message"
+            className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all text-[11px] font-medium"
+          >
+            <Send size={13} />
+            <span>Send</span>
+          </button>
+        </div>
       </div>
-      <div className="mt-1.5 px-1 flex items-center justify-between">
-        <ModelSelector />
+      <div className="mt-1.5 px-1 text-center">
         <span className="text-[10px] text-fg-muted">
           Enter to send · Shift+Enter for newline
         </span>
