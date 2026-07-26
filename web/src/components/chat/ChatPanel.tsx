@@ -15,7 +15,7 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const hasMessages = useChat((s) => s.messages.length > 0)
 
   return (
-    <aside className="flex flex-col w-[440px] shrink-0 border-r border-border bg-bg-panel">
+    <aside className="flex flex-col w-[400px] h-full shrink-0 border-r border-border bg-bg-panel">
       {/* Header */}
       <header className="flex items-center justify-between h-11 px-4 border-b border-border">
         <div className="flex items-center gap-2">
