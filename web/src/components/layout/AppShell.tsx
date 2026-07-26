@@ -105,10 +105,10 @@ export function AppShell() {
             <motion.div
               key="chat"
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 440, opacity: 1 }}
+              animate={{ width: 400, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
-              className="overflow-hidden"
+              className="overflow-hidden h-full"
             >
               <ChatPanel onCollapse={() => setChatOpen(false)} />
             </motion.div>
