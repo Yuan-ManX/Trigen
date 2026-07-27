@@ -1,4 +1,5 @@
 // Chat state management: message list, streaming rendering, WebSocket connection
+// Includes conversation history persistence via localStorage
 import { create } from 'zustand'
 import {
   ChatSocket,
@@ -38,18 +39,43 @@ export interface ChatMessage {
   thinking?: ThinkingTrace[]
 }
 
+/** A saved conversation in history */
+export interface Conversation {
+  id: string
+  title: string
+  messages: ChatMessage[]
+  sessionId: string
+  createdAt: number
+  updatedAt: number
+  pinned?: boolean
+}
+
+const HISTORY_KEY = 'trigen_chat_history'
+const MAX_CONVERSATIONS = 30
+
 interface ChatState {
   messages: ChatMessage[]
   status: SocketStatus
   sessionId: string
   isResponding: boolean
   model: string
+  conversations: Conversation[]
+  activeConversationId: string | null
+  showHistory: boolean
 
   connect: () => void
   disconnect: () => void
   send: (text: string) => void
   setModel: (model: string) => void
   clearMessages: () => void
+  toggleHistory: () => void
+  setHistoryVisible: (visible: boolean) => void
+  startNewConversation: () => void
+  saveCurrentConversation: () => void
+  loadConversation: (id: string) => void
+  deleteConversation: (id: string) => void
+  togglePin: (id: string) => void
+  renameConversation: (id: string, title: string) => void
 }
 
 /** Module-level singleton socket, owned by the store */
@@ -60,6 +86,45 @@ let sceneBeforeResponse: SceneData | null = null
 
 function genId(): string {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+}
+
+function genConversationId(): string {
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+}
+
+/** Load conversation history from localStorage */
+function loadHistory(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+/** Save conversation history to localStorage */
+function persistHistory(conversations: Conversation[]): void {
+  try {
+    // Only persist non-streaming messages
+    const clean = conversations.map((c) => ({
+      ...c,
+      messages: c.messages.filter((m) => !m.streaming && !m.error),
+    }))
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(clean))
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+/** Generate a title from the first user message */
+function titleFromMessages(messages: ChatMessage[]): string {
+  const first = messages.find((m) => m.role === 'user')
+  if (!first) return 'New Conversation'
+  const text = first.content.trim()
+  return text.length > 40 ? text.slice(0, 40) + '…' : text
 }
 
 /** Create and bind socket event handlers */
@@ -233,6 +298,8 @@ export const useChat = create<ChatState>((set, get) => {
           }
           sceneBeforeResponse = null
         }
+        // Auto-save the conversation after a complete response
+        setTimeout(() => get().saveCurrentConversation(), 100)
         break
       }
       case 'error': {
@@ -275,6 +342,9 @@ export const useChat = create<ChatState>((set, get) => {
     sessionId: getOrCreateSessionId(),
     model: 'trigen-default',
     isResponding: false,
+    conversations: loadHistory(),
+    activeConversationId: null,
+    showHistory: false,
 
     connect: () => {
       const s = ensureSocket({ onStatus, onEvent })
@@ -324,6 +394,108 @@ export const useChat = create<ChatState>((set, get) => {
 
     setModel: (model) => set({ model }),
 
-    clearMessages: () => set({ messages: [] }),
+    clearMessages: () => {
+      get().saveCurrentConversation()
+      set({ messages: [], activeConversationId: null })
+    },
+
+    toggleHistory: () => set((state) => ({ showHistory: !state.showHistory })),
+
+    setHistoryVisible: (visible) => set({ showHistory: visible }),
+
+    startNewConversation: () => {
+      // Save the current conversation if it has messages
+      get().saveCurrentConversation()
+      set({
+        messages: [],
+        activeConversationId: null,
+        showHistory: false,
+        sessionId: getOrCreateSessionId(),
+      })
+    },
+
+    saveCurrentConversation: () => {
+      const state = get()
+      const msgs = state.messages.filter((m) => !m.streaming)
+      if (msgs.length === 0) return
+
+      const now = Date.now()
+      const title = titleFromMessages(msgs)
+
+      if (state.activeConversationId) {
+        // Update existing conversation
+        const updated = state.conversations.map((c) =>
+          c.id === state.activeConversationId
+            ? { ...c, title, messages: msgs, updatedAt: now }
+            : c,
+        )
+        const sorted = [...updated].sort((a, b) => b.updatedAt - a.updatedAt)
+        set({ conversations: sorted })
+        persistHistory(sorted)
+      } else {
+        // Create a new conversation
+        const conv: Conversation = {
+          id: genConversationId(),
+          title,
+          messages: msgs,
+          sessionId: state.sessionId,
+          createdAt: now,
+          updatedAt: now,
+        }
+        const next = [conv, ...state.conversations].slice(0, MAX_CONVERSATIONS)
+        set({ conversations: next, activeConversationId: conv.id })
+        persistHistory(next)
+      }
+    },
+
+    loadConversation: (id) => {
+      const state = get()
+      // Save current conversation first
+      if (state.messages.length > 0 && !state.activeConversationId) {
+        get().saveCurrentConversation()
+      }
+
+      const conv = state.conversations.find((c) => c.id === id)
+      if (!conv) return
+
+      set({
+        messages: conv.messages.map((m) => ({ ...m, streaming: false })),
+        activeConversationId: conv.id,
+        sessionId: conv.sessionId,
+        showHistory: false,
+      })
+    },
+
+    deleteConversation: (id) => {
+      const state = get()
+      const next = state.conversations.filter((c) => c.id !== id)
+      set({ conversations: next })
+      persistHistory(next)
+
+      // If we deleted the active conversation, clear messages
+      if (state.activeConversationId === id) {
+        set({ messages: [], activeConversationId: null })
+      }
+    },
+
+    togglePin: (id) => {
+      const state = get()
+      const next = state.conversations.map((c) =>
+        c.id === id ? { ...c, pinned: !c.pinned } : c,
+      )
+      set({ conversations: next })
+      persistHistory(next)
+    },
+
+    renameConversation: (id, title) => {
+      const state = get()
+      const trimmed = title.trim()
+      if (!trimmed) return
+      const next = state.conversations.map((c) =>
+        c.id === id ? { ...c, title: trimmed } : c,
+      )
+      set({ conversations: next })
+      persistHistory(next)
+    },
   }
 })
