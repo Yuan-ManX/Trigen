@@ -1,5 +1,5 @@
-// Overall layout container: top bar + left chat + center canvas + right panel, panels are collapsible
-// Includes keyboard shortcuts: Space=toggle mode, Delete=remove, Ctrl+D=duplicate
+// Overall layout container: top bar + left chat + center canvas + right panel + status bar
+// Includes keyboard shortcuts: Space=toggle mode, Delete=remove, Ctrl+D=duplicate, ?=shortcuts
 import { AnimatePresence, motion } from 'framer-motion'
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -8,8 +8,10 @@ import { useScene } from '../../store/useScene'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { ChatPanel } from '../chat/ChatPanel'
 import { EditorCanvas } from '../canvas/EditorCanvas'
+import { StatusBar } from '../canvas/StatusBar'
 import { RightPanel } from '../sidebar/RightPanel'
 import { TopToolbar } from '../toolbar/TopToolbar'
+import { KeyboardShortcuts } from '../toolbar/KeyboardShortcuts'
 
 type EditorMode = 'edit' | 'run'
 
@@ -21,6 +23,7 @@ export function AppShell() {
   const [chatOpen, setChatOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const [mode, setMode] = useState<EditorMode>('edit')
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   const selectedId = useScene((s) => s.selectedId)
   const removeObject = useScene((s) => s.removeObject)
@@ -47,6 +50,26 @@ export function AppShell() {
       // Ignore when typing in input/textarea
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+
+      // ? or Shift+/: toggle shortcuts overlay
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault()
+        setShowShortcuts((v) => !v)
+        return
+      }
+
+      // Escape: close shortcuts overlay
+      if (e.key === 'Escape' && showShortcuts) {
+        setShowShortcuts(false)
+        return
+      }
+
+      // Ctrl/Cmd+E: toggle edit/run mode
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault()
+        toggleMode()
+        return
+      }
 
       // Space: toggle edit/run mode
       if (e.code === 'Space') {
@@ -92,7 +115,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [mode, selectedId, removeObject, duplicateObject, undo, redo, toggleMode])
+  }, [mode, selectedId, removeObject, duplicateObject, undo, redo, toggleMode, showShortcuts])
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-bg-base text-fg-primary">
@@ -170,6 +193,12 @@ export function AppShell() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Bottom status bar */}
+      <StatusBar mode={mode} />
+
+      {/* Keyboard shortcuts overlay */}
+      <KeyboardShortcuts open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>
   )
 }
