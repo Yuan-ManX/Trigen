@@ -1,6 +1,7 @@
-// Chat panel container: header title + message list + input bar
-import { Eraser, PanelLeftClose, Radio } from 'lucide-react'
+// Chat panel container: header title + message list + input bar + history view
+import { Eraser, History, PanelLeftClose, Plus, Radio } from 'lucide-react'
 import { useChat } from '../../store/useChat'
+import { ChatHistory } from './ChatHistory'
 import { InputBar } from './InputBar'
 import { MessageList } from './MessageList'
 
@@ -13,6 +14,10 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const isResponding = useChat((s) => s.isResponding)
   const clearMessages = useChat((s) => s.clearMessages)
   const hasMessages = useChat((s) => s.messages.length > 0)
+  const showHistory = useChat((s) => s.showHistory)
+  const toggleHistory = useChat((s) => s.toggleHistory)
+  const startNewConversation = useChat((s) => s.startNewConversation)
+  const conversationsCount = useChat((s) => s.conversations.length)
 
   return (
     <aside className="flex flex-col w-[400px] h-full shrink-0 border-r border-border bg-bg-panel">
@@ -28,19 +33,48 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
             }
           />
           <span className="text-xs font-semibold text-fg-primary tracking-wide">
-            Chat
+            {showHistory ? 'History' : 'Chat'}
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {/* New conversation */}
+          <button
+            onClick={startNewConversation}
+            aria-label="New conversation"
+            title="New conversation"
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors"
+          >
+            <Plus size={14} />
+          </button>
+          {/* History toggle */}
+          <button
+            onClick={toggleHistory}
+            aria-label="Toggle chat history"
+            title="Chat history"
+            className={`flex items-center justify-center w-7 h-7 rounded transition-colors relative ${
+              showHistory
+                ? 'text-accent-cyan bg-accent-cyan/10'
+                : 'text-fg-muted hover:text-fg-primary hover:bg-bg-hover'
+            }`}
+          >
+            <History size={14} />
+            {conversationsCount > 0 && !showHistory && (
+              <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-3.5 h-3.5 rounded-full bg-accent-cyan text-[8px] font-bold text-bg-base">
+                {conversationsCount > 9 ? '9+' : conversationsCount}
+              </span>
+            )}
+          </button>
+          {/* Clear messages */}
           <button
             onClick={clearMessages}
-            disabled={!hasMessages}
+            disabled={!hasMessages || showHistory}
             aria-label="Clear chat messages"
             title="Clear chat"
             className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Eraser size={14} />
           </button>
+          {/* Collapse */}
           <button
             onClick={onCollapse}
             aria-label="Collapse chat panel"
@@ -51,8 +85,15 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
         </div>
       </header>
 
-      <MessageList onSuggestion={send} />
-      <InputBar />
+      {/* Body: either history view or chat messages */}
+      {showHistory ? (
+        <ChatHistory />
+      ) : (
+        <>
+          <MessageList onSuggestion={send} />
+          <InputBar />
+        </>
+      )}
     </aside>
   )
 }
