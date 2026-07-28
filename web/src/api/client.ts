@@ -54,6 +54,225 @@ export async function fetchPresets(): Promise<PresetsResponse> {
   return res.json() as Promise<PresetsResponse>
 }
 
+/** Model entry from the LLM catalog */
+export interface ModelEntry {
+  id: string
+  label: string
+  provider: string
+  description: string
+  modalities: string[]
+  max_tokens: number
+  context_window: number
+  is_open_source: boolean
+  is_local: boolean
+  api_key_env: string
+}
+
+/** Fetch the full LLM model catalog */
+export async function fetchModels(): Promise<ModelEntry[]> {
+  const res = await fetch('/api/models')
+  if (!res.ok) throw new Error(`Failed to fetch models: ${res.status}`)
+  const data = await res.json() as { models: ModelEntry[]; count: number }
+  return data.models
+}
+
+/** Result of a multimodal generation call */
+export interface GenerationResult {
+  success: boolean
+  modality: string
+  model: string
+  url?: string
+  base64_data?: string
+  mime_type?: string
+  text?: string
+  error?: string
+  raw?: Record<string, unknown>
+}
+
+/** Generation modalities that use dedicated endpoints (not chat-completions) */
+export const GENERATION_MODALITIES = ['image_gen', '3d', 'video', 'animation', 'voice', 'audio']
+
+/** Check if a model is a generation-only model (cannot power chat directly) */
+export function isGenerationModel(model: ModelEntry): boolean {
+  const hasGeneration = model.modalities.some((m) => GENERATION_MODALITIES.includes(m))
+  const hasChat = model.modalities.some((m) => m === 'text' || m === 'vision')
+  return hasGeneration && !hasChat
+}
+
+/** Generate an image from a text prompt */
+export async function generateImage(
+  model: string,
+  prompt: string,
+  size: string = '1024x1024',
+  n: number = 1,
+): Promise<GenerationResult> {
+  const res = await fetch('/api/models/generate-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt, size, n }),
+  })
+  if (!res.ok) throw new Error(`Image generation failed: ${res.status}`)
+  return res.json() as Promise<GenerationResult>
+}
+
+/** Generate a 3D asset from a text prompt */
+export async function generate3D(
+  model: string,
+  prompt: string,
+  outputFormat: string = 'glb',
+): Promise<GenerationResult> {
+  const res = await fetch('/api/models/generate-3d', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt, output_format: outputFormat }),
+  })
+  if (!res.ok) throw new Error(`3D generation failed: ${res.status}`)
+  return res.json() as Promise<GenerationResult>
+}
+
+/** Synthesize speech from text */
+export async function textToSpeech(
+  model: string,
+  text: string,
+  voice: string = 'alloy',
+): Promise<GenerationResult> {
+  const res = await fetch('/api/models/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, text, voice }),
+  })
+  if (!res.ok) throw new Error(`TTS failed: ${res.status}`)
+  return res.json() as Promise<GenerationResult>
+}
+
+/** Transcribe audio to text */
+export async function transcribeAudio(
+  model: string,
+  audioBase64: string,
+  mimeType: string = 'audio/wav',
+): Promise<GenerationResult> {
+  const res = await fetch('/api/models/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, audio_base64: audioBase64, mime_type: mimeType }),
+  })
+  if (!res.ok) throw new Error(`Transcription failed: ${res.status}`)
+  return res.json() as Promise<GenerationResult>
+}
+
+/* ============ Model availability & testing ============ */
+
+/** Availability status for a single model */
+export interface ModelAvailability {
+  id: string
+  label: string
+  provider: string
+  available: boolean
+  reason: string
+  modalities: string[]
+  is_local: boolean
+  is_open_source: boolean
+  is_generation: boolean
+}
+
+/** Fetch availability status for all models */
+export async function fetchModelAvailability(): Promise<ModelAvailability[]> {
+  const res = await fetch('/api/models/availability')
+  if (!res.ok) throw new Error(`Failed to fetch availability: ${res.status}`)
+  const data = await res.json() as { models: ModelAvailability[]; total: number; available: number }
+  return data.models
+}
+
+/** Result of a model connection test */
+export interface ModelTestResult {
+  model: string
+  success: boolean
+  response?: string
+  error?: string
+  elapsed_ms: number
+  provider?: string
+}
+
+/** Test whether a model can actually respond to a request */
+export async function testModelConnection(model: string, prompt?: string): Promise<ModelTestResult> {
+  const res = await fetch('/api/models/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt: prompt ?? 'Hello, respond with one word.' }),
+  })
+  if (!res.ok) throw new Error(`Model test failed: ${res.status}`)
+  return res.json() as Promise<ModelTestResult>
+}
+
+/* ============ Direct tool execution ============ */
+
+/** Result of a direct tool execution */
+export interface ToolExecutionResult {
+  tool: string
+  success: boolean
+  message: string
+  deltas: Array<Record<string, unknown>>
+  data: Record<string, unknown>
+  scene: SceneData
+}
+
+/** Execute a tool directly without going through chat */
+export async function executeTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  sessionId: string = 'default',
+): Promise<ToolExecutionResult> {
+  const res = await fetch('/api/tools/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool_name: toolName, arguments: args, session_id: sessionId }),
+  })
+  if (!res.ok) throw new Error(`Tool execution failed: ${res.status}`)
+  return res.json() as Promise<ToolExecutionResult>
+}
+
+/* ============ Pipeline templates ============ */
+
+/** A pre-built pipeline template */
+export interface PipelineTemplate {
+  id: string
+  name: string
+  description: string
+  nodes: Array<Record<string, unknown>>
+}
+
+/** Fetch pre-built pipeline templates */
+export async function fetchPipelineTemplates(): Promise<PipelineTemplate[]> {
+  const res = await fetch('/api/models/pipeline/templates')
+  if (!res.ok) throw new Error(`Failed to fetch pipeline templates: ${res.status}`)
+  const data = await res.json() as { templates: PipelineTemplate[]; count: number }
+  return data.templates
+}
+
+/** Execute a pipeline */
+export async function runPipeline(
+  name: string,
+  nodes: Array<Record<string, unknown>>,
+): Promise<{
+  name: string
+  node_count: number
+  results: Array<{
+    node_id: string
+    status: string
+    outputs: Record<string, unknown>
+    error: string
+    elapsed_ms: number
+  }>
+}> {
+  const res = await fetch('/api/models/pipeline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, nodes }),
+  })
+  if (!res.ok) throw new Error(`Pipeline execution failed: ${res.status}`)
+  return res.json()
+}
+
 /* ============ WebSocket client ============ */
 
 export type SocketStatus =
