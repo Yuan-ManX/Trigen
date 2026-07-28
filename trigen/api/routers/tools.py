@@ -1,15 +1,20 @@
 """Tools and presets router.
 
 Exposes the Agent tool catalog and preset enumerations to the frontend
-so it can render dynamic UI based on available capabilities.
+so it can render dynamic UI based on available capabilities. Also provides
+a direct tool execution endpoint so individual tools can be invoked
+without a full chat round-trip — useful for editor panels, quick actions,
+and pipeline composition.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from trigen.api.models.schemas import PresetsResponse, ToolsResponse, ToolSchema
 from trigen.api.services.agent_service import AgentService
@@ -60,3 +65,50 @@ SCENE_TEMPLATES = [
 async def list_scene_templates() -> dict:
     """List available smart compose scene templates."""
     return {"templates": SCENE_TEMPLATES, "count": len(SCENE_TEMPLATES)}
+
+
+class ExecuteToolRequest(BaseModel):
+    """Request body for direct tool execution."""
+
+    tool_name: str = Field(..., description="Name of the tool to execute")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict, description="Tool arguments as defined by its schema"
+    )
+    session_id: str = Field("default", description="Session id for scene isolation")
+
+
+@router.post("/tools/execute")
+async def execute_tool(req: ExecuteToolRequest) -> Dict[str, Any]:
+    """Execute a single tool directly against the session scene.
+
+    This bypasses the LLM chat flow and runs the tool immediately, returning
+    the tool result and the updated scene. Useful for editor-side panels,
+    quick actions, and pipeline composition where the LLM is not needed
+    to decide which tool to call.
+    """
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    registry = orch.registry
+
+    tool = registry.get(req.tool_name)
+    if tool is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool '{req.tool_name}' not found. Available: {[t.name for t in registry.all()]}",
+        )
+
+    scene = orch.get_scene(req.session_id)
+    try:
+        result = await tool.execute(scene, req.arguments)
+    except Exception as exc:
+        logger.exception("Direct tool execution failed: %s", req.tool_name)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "tool": req.tool_name,
+        "success": result.success,
+        "message": result.message,
+        "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+        "data": result.data,
+        "scene": scene.to_dict(),
+    }
