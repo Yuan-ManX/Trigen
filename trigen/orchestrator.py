@@ -31,6 +31,7 @@ from trigen.memory import ConversationMemory
 from trigen.planner import TaskPlanner
 from trigen.llm.client import LLMClient, LLMStreamChunk
 from trigen.llm.prompts import SYSTEM_PROMPT, build_scene_summary
+from trigen.llm.router import router as model_router
 from trigen.intent_parser import parse_message, ParsedIntent
 from trigen.scene import Scene, LightObject
 from trigen.tools import (
@@ -62,6 +63,7 @@ from trigen.tools import (
     UngroupObjectsTool,
 )
 from trigen.tools.base import ToolRegistry
+from trigen.tools.img2threejs_tool import ImageToThreeJSTool
 
 logger = logging.getLogger("trigen.orchestrator")
 
@@ -141,6 +143,8 @@ class AgentOrchestrator:
         registry.register(FocusObjectTool())
         # Export
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
+        # Multimodal reconstruction
+        registry.register(ImageToThreeJSTool(self.config.llm))
         return registry
 
     def get_memory(self, session_id: str) -> ConversationMemory:
@@ -178,8 +182,26 @@ class AgentOrchestrator:
         scene = self.get_scene(session_id)
         memory.add_user(user_message)
 
-        # If LLM is not configured or model is "trigen-default", run in offline rule mode
-        use_offline = not self.config.llm.is_configured or (model == "trigen-default")
+        # Determine whether to use offline mode:
+        # - model is "trigen-default" or None and no default API key configured
+        # - model is selected but its provider has no API key in environment
+        # - model is a generation-only model (image/3D/video) — these cannot
+        #   power conversational chat directly; fall back to the rule engine
+        #   so the editor remains controllable, while the frontend can still
+        #   invoke the generation model through its dedicated endpoint.
+        use_offline = False
+        if model == "trigen-default":
+            use_offline = True
+        elif model:
+            if model_router.is_generation_model(model):
+                use_offline = True
+            else:
+                resolved = model_router.resolve(model)
+                if not resolved.get("api_key"):
+                    use_offline = True
+        elif not self.config.llm.is_configured:
+            use_offline = True
+
         if use_offline:
             async for event in self._run_offline(user_message, scene, session_id):
                 yield event
