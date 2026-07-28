@@ -1,25 +1,41 @@
-// Top toolbar: Logo + tagline, with mode toggle / undo-redo / templates / export / reset
-import { motion } from 'framer-motion'
+// Top toolbar: Logo + tagline, with mode toggle / undo-redo / actions menu
+import { motion, AnimatePresence } from 'framer-motion'
 import {
+  ChevronDown,
   Download,
   LayoutGrid,
   Loader2,
+  Paintbrush,
   Pause,
   Play,
   Redo2,
   RotateCcw,
+  Settings2,
   Triangle,
   Undo2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { resetScene } from '../../api/client'
 import { useChat } from '../../store/useChat'
 import { useScene } from '../../store/useScene'
+import { MaterialLibrary } from './MaterialLibrary'
 import { SceneTemplates } from './SceneTemplates'
 
 interface TopToolbarProps {
   mode: 'edit' | 'run'
   onToggleMode: () => void
+}
+
+/** Dropdown menu item */
+interface MenuItem {
+  id: string
+  label: string
+  description: string
+  icon: typeof Download
+  action: () => void
+  disabled?: boolean
+  danger?: boolean
+  loading?: boolean
 }
 
 export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
@@ -34,10 +50,26 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
 
   const [resetting, setResetting] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showMaterialLibrary, setShowMaterialLibrary] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const isRun = mode === 'run'
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
 
   /** Export the current scene as a JSON file (client-side download) */
   const handleExport = () => {
+    setMenuOpen(false)
     const blob = new Blob([JSON.stringify(scene, null, 2)], {
       type: 'application/json',
     })
@@ -54,6 +86,7 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
   /** Reset the scene: call the backend and clear the local state */
   const handleReset = async () => {
     if (resetting) return
+    setMenuOpen(false)
     const ok = window.confirm('Reset the current scene? All objects will be cleared.')
     if (!ok) return
     setResetting(true)
@@ -62,12 +95,55 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
       clearScene()
       useScene.getState().setScene(fresh)
     } catch {
-      // Still clear the local scene when the backend is unavailable
       clearScene()
     } finally {
       setResetting(false)
     }
   }
+
+  // Menu items
+  const menuItems: MenuItem[] = [
+    {
+      id: 'templates',
+      label: 'Scene Templates',
+      description: 'Browse pre-built scene templates',
+      icon: LayoutGrid,
+      action: () => {
+        setMenuOpen(false)
+        setShowTemplates(true)
+      },
+      disabled: isRun,
+    },
+    {
+      id: 'materials',
+      label: 'Material Library',
+      description: 'Apply material presets to objects',
+      icon: Paintbrush,
+      action: () => {
+        setMenuOpen(false)
+        setShowMaterialLibrary(true)
+      },
+      disabled: isRun,
+    },
+    {
+      id: 'export',
+      label: 'Export Scene',
+      description: 'Download scene as JSON file',
+      icon: Download,
+      action: handleExport,
+      disabled: isRun,
+    },
+    {
+      id: 'reset',
+      label: 'Reset Scene',
+      description: 'Clear all objects and start fresh',
+      icon: RotateCcw,
+      action: handleReset,
+      disabled: resetting || isRun,
+      danger: true,
+      loading: resetting,
+    },
+  ]
 
   return (
     <>
@@ -139,42 +215,66 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
             </button>
           </div>
 
-          {/* Templates */}
-          <button
-            onClick={() => setShowTemplates(true)}
-            disabled={isRun}
-            className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Browse scene templates"
-          >
-            <LayoutGrid size={13} />
-            <span className="hidden sm:inline">Templates</span>
-          </button>
+          {/* Consolidated actions menu */}
+          <div ref={menuRef} className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              disabled={isRun}
+              className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Settings"
+            >
+              <Settings2 size={13} />
+              <span className="hidden sm:inline">Settings</span>
+              <ChevronDown size={10} className={`transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-          {/* Export */}
-          <button
-            onClick={handleExport}
-            disabled={isRun}
-            className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-accent-cyan/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Export scene as JSON"
-          >
-            <Download size={13} />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-
-          {/* Reset */}
-          <button
-            onClick={handleReset}
-            disabled={resetting || isRun}
-            className="flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg-primary px-2.5 py-1.5 rounded-md border border-border hover:border-rose-400/40 hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Reset scene"
-          >
-            {resetting ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <RotateCcw size={13} />
-            )}
-            <span className="hidden sm:inline">Reset</span>
-          </button>
+            <AnimatePresence>
+              {menuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full right-0 mt-1.5 w-64 rounded-md border border-border bg-bg-elevated shadow-lg overflow-hidden z-50"
+                >
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-muted border-b border-border-subtle">
+                    Actions
+                  </div>
+                  <div className="py-1">
+                    {menuItems.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={item.action}
+                          disabled={item.disabled}
+                          className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            item.danger
+                              ? 'hover:bg-rose-500/10'
+                              : 'hover:bg-bg-hover'
+                          }`}
+                        >
+                          <div className={`shrink-0 mt-0.5 ${item.danger ? 'text-rose-400' : 'text-accent-cyan'}`}>
+                            {item.loading ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Icon size={14} />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className={`text-xs font-medium ${item.danger ? 'text-rose-400' : 'text-fg-primary'}`}>
+                              {item.label}
+                            </div>
+                            <div className="text-[10px] text-fg-muted">{item.description}</div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
@@ -183,6 +283,12 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
         open={showTemplates}
         onClose={() => setShowTemplates(false)}
         onSelect={(prompt) => send(prompt)}
+      />
+
+      {/* Material library dialog */}
+      <MaterialLibrary
+        open={showMaterialLibrary}
+        onClose={() => setShowMaterialLibrary(false)}
       />
     </>
   )
