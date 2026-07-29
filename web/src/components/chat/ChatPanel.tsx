@@ -1,9 +1,11 @@
 // Chat panel container: header title + message list + input bar + history view
-import { Eraser, History, PanelLeftClose, Plus, Radio } from 'lucide-react'
+import { Eraser, History, KeyRound, PanelLeftClose, Plus, Radio } from 'lucide-react'
+import { useState } from 'react'
 import { useChat } from '../../store/useChat'
 import { ChatHistory } from './ChatHistory'
 import { InputBar } from './InputBar'
 import { MessageList } from './MessageList'
+import { ModelSettingsPanel } from './ModelSettingsPanel'
 
 interface ChatPanelProps {
   onCollapse: () => void
@@ -18,6 +20,7 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const toggleHistory = useChat((s) => s.toggleHistory)
   const startNewConversation = useChat((s) => s.startNewConversation)
   const conversationsCount = useChat((s) => s.conversations.length)
+  const [showSettings, setShowSettings] = useState(false)
 
   return (
     <aside className="flex flex-col w-[400px] h-full shrink-0 border-r border-border bg-bg-panel">
@@ -45,6 +48,15 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
             className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors"
           >
             <Plus size={14} />
+          </button>
+          {/* Model settings / API keys */}
+          <button
+            onClick={() => setShowSettings(true)}
+            aria-label="Model settings"
+            title="Configure model API keys"
+            className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-accent-cyan hover:bg-bg-hover transition-colors"
+          >
+            <KeyRound size={14} />
           </button>
           {/* History toggle */}
           <button
@@ -94,6 +106,9 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
           <InputBar />
         </>
       )}
+
+      {/* Model settings dialog */}
+      <ModelSettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
     </aside>
   )
 }
