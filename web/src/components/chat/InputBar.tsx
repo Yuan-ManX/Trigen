@@ -1,6 +1,6 @@
 // Input bar: model selector + image upload + multiline input box + send button
-import { Check, ChevronDown, Image as ImageIcon, Send, X } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, ChevronDown, Image as ImageIcon, Search, Send, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   fetchModelAvailability,
   fetchModels,
@@ -26,6 +26,8 @@ const FALLBACK_MODELS: ModelEntry[] = [
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
+  google: 'Google Gemini',
+  xai: 'xAI Grok',
   deepseek: 'DeepSeek',
   qwen: 'Alibaba Qwen',
   zhipu: 'Zhipu GLM',
@@ -36,6 +38,15 @@ const PROVIDER_LABELS: Record<string, string> = {
   groq: 'Groq',
   together: 'Together AI',
   fireworks: 'Fireworks AI',
+  mistral: 'Mistral AI',
+  cohere: 'Cohere',
+  perplexity: 'Perplexity',
+  ai21: 'AI21 Labs',
+  replicate: 'Replicate',
+  huggingface: 'Hugging Face',
+  stability: 'Stability AI',
+  runway: 'Runway',
+  meshy: 'Meshy',
   openrouter: 'OpenRouter',
   ollama: 'Ollama (Local)',
   local: 'Trigen',
@@ -63,13 +74,16 @@ function groupByProvider(models: ModelEntry[]): Record<string, ModelEntry[]> {
   return groups
 }
 
-/** Model selector dropdown (ChatGPT-style, categorized) */
+/** Model selector dropdown (ChatGPT-style, categorized, with search) */
 function ModelSelector() {
   const model = useChat((s) => s.model)
   const setModel = useChat((s) => s.setModel)
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<ModelEntry[]>(FALLBACK_MODELS)
   const [availability, setAvailability] = useState<Record<string, ModelAvailability>>({})
+  const [searchQuery, setSearchQuery] = useState('')
+  const [modalityFilter, setModalityFilter] = useState<string>('all')
+  const searchRef = useRef<HTMLInputElement>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   const current = models.find((m) => m.id === model) ?? models[0]
@@ -107,8 +121,34 @@ function ModelSelector() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const grouped = groupByProvider(models)
-  const providerOrder = ['local', 'openai', 'anthropic', 'deepseek', 'qwen', 'zhipu', 'moonshot', 'groq', 'together', 'fireworks', 'openrouter', 'ollama', 'baichuan', 'minimax', 'spark']
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (open && searchRef.current) {
+      setTimeout(() => searchRef.current?.focus(), 50)
+    }
+  }, [open])
+
+  // Filter models by search query and modality filter
+  const filteredModels = useMemo(() => {
+    let result = models
+    if (modalityFilter !== 'all') {
+      result = result.filter((m) => m.modalities.includes(modalityFilter))
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (m) =>
+          m.id.toLowerCase().includes(q) ||
+          m.label.toLowerCase().includes(q) ||
+          m.provider.toLowerCase().includes(q) ||
+          m.description.toLowerCase().includes(q)
+      )
+    }
+    return result
+  }, [models, searchQuery, modalityFilter])
+
+  const grouped = groupByProvider(filteredModels)
+  const providerOrder = ['local', 'openai', 'anthropic', 'google', 'xai', 'mistral', 'cohere', 'deepseek', 'qwen', 'zhipu', 'moonshot', 'perplexity', 'ai21', 'groq', 'together', 'fireworks', 'replicate', 'huggingface', 'stability', 'runway', 'meshy', 'openrouter', 'ollama', 'baichuan', 'minimax', 'spark']
   const sortedProviders = Object.keys(grouped).sort((a, b) => {
     const ia = providerOrder.indexOf(a)
     const ib = providerOrder.indexOf(b)
@@ -129,12 +169,51 @@ function ModelSelector() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 w-72 rounded-md border border-border bg-bg-elevated shadow-lg overflow-hidden z-50">
-          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-muted border-b border-border-subtle flex items-center justify-between">
-            <span>Select Model</span>
-            <span className="text-fg-muted normal-case">{models.length} models</span>
+        <div className="absolute bottom-full left-0 mb-1.5 w-80 rounded-md border border-border bg-bg-elevated shadow-lg overflow-hidden z-50">
+          {/* Search input */}
+          <div className="px-2.5 py-2 border-b border-border-subtle">
+            <div className="relative">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted" />
+              <input
+                ref={searchRef}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search models..."
+                className="w-full pl-7 pr-2 py-1.5 text-[11px] bg-bg-base border border-border-subtle rounded text-fg-primary placeholder:text-fg-muted outline-none focus:border-accent-cyan/50"
+              />
+            </div>
+            {/* Modality filter chips */}
+            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'text', label: 'Text' },
+                { key: 'vision', label: 'Vision' },
+                { key: 'image_gen', label: 'Image' },
+                { key: '3d', label: '3D' },
+                { key: 'video', label: 'Video' },
+                { key: 'audio', label: 'Audio' },
+              ].map((chip) => (
+                <button
+                  key={chip.key}
+                  onClick={() => setModalityFilter(chip.key)}
+                  className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+                    modalityFilter === chip.key
+                      ? 'bg-accent-cyan/20 text-accent-cyan border border-accent-cyan/40'
+                      : 'text-fg-muted hover:text-fg-secondary border border-transparent'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="max-h-80 overflow-y-auto">
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-fg-muted border-b border-border-subtle flex items-center justify-between">
+            <span>Select Model</span>
+            <span className="text-fg-muted normal-case">
+              {filteredModels.length} / {models.length}
+            </span>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
             {sortedProviders.map((provider) => (
               <div key={provider}>
                 <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-accent-cyan/70 bg-bg-hover/50 sticky top-0">
@@ -201,6 +280,11 @@ function ModelSelector() {
                 })}
               </div>
             ))}
+            {filteredModels.length === 0 && (
+              <div className="px-3 py-6 text-center text-[11px] text-fg-muted">
+                No models match your search
+              </div>
+            )}
           </div>
         </div>
       )}
