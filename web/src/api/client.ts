@@ -204,6 +204,56 @@ export async function testModelConnection(model: string, prompt?: string): Promi
   return res.json() as Promise<ModelTestResult>
 }
 
+/* ============ Runtime API key management ============ */
+
+/** Status of a single API key slot */
+export interface APIKeyStatus {
+  env_name: string
+  configured: boolean
+  preview: string
+  source: string // "runtime" | "env" | ""
+}
+
+/** Fetch the status of all API key slots */
+export async function fetchAPIKeys(): Promise<{ keys: APIKeyStatus[]; total: number; configured: number }> {
+  const res = await fetch('/api/models/keys')
+  if (!res.ok) throw new Error(`Failed to fetch API keys: ${res.status}`)
+  return res.json()
+}
+
+/** Set or update a runtime API key */
+export async function setAPIKey(envName: string, apiKey: string): Promise<APIKeyStatus> {
+  const res = await fetch('/api/models/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ env_name: envName, api_key: apiKey }),
+  })
+  if (!res.ok) throw new Error(`Failed to set API key: ${res.status}`)
+  return res.json()
+}
+
+/** Remove a runtime API key (falls back to env var if present) */
+export async function deleteAPIKey(envName: string): Promise<{
+  env_name: string
+  removed: boolean
+  still_configured_via_env: boolean
+  configured: boolean
+  source: string
+}> {
+  const res = await fetch(`/api/models/keys/${encodeURIComponent(envName)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`Failed to delete API key: ${res.status}`)
+  return res.json()
+}
+
+/** Remove all runtime API keys */
+export async function clearAllAPIKeys(): Promise<{ removed_count: number }> {
+  const res = await fetch('/api/models/keys', { method: 'DELETE' })
+  if (!res.ok) throw new Error(`Failed to clear API keys: ${res.status}`)
+  return res.json()
+}
+
 /* ============ Direct tool execution ============ */
 
 /** Result of a direct tool execution */
@@ -271,6 +321,59 @@ export async function runPipeline(
   })
   if (!res.ok) throw new Error(`Pipeline execution failed: ${res.status}`)
   return res.json()
+}
+
+/** A single event from the pipeline SSE stream */
+export interface PipelineStreamEvent {
+  event: 'start' | 'result' | 'done'
+  node_id?: string
+  node_type?: string
+  status?: string
+  outputs?: Record<string, unknown>
+  error?: string
+  elapsed_ms?: number
+  index?: number
+  total?: number
+  name?: string
+  total_elapsed_ms?: number
+  node_count?: number
+  succeeded?: number
+  failed?: number
+}
+
+/** Execute a pipeline and stream node-by-node progress via SSE */
+export async function* runPipelineStream(
+  name: string,
+  nodes: Array<Record<string, unknown>>,
+): AsyncGenerator<PipelineStreamEvent> {
+  const res = await fetch('/api/models/pipeline/sse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, nodes }),
+  })
+  if (!res.ok || !res.body) throw new Error(`Pipeline SSE failed: ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data: ')) continue
+      try {
+        const data = JSON.parse(trimmed.slice(6)) as PipelineStreamEvent
+        yield data
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  }
 }
 
 /* ============ WebSocket client ============ */
