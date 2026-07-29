@@ -519,7 +519,22 @@ def parse_message(
         ))
         matched_any = True
 
-    # 19. Image-to-3D reconstruction
+    # 19. Scene analysis
+    if any(k in msg_lower for k in ["analyze", "describe scene", "what's in", "what is in", "scene analysis", "inspect", "分析场景", "描述场景", "场景里有什么", "看看场景"]):
+        detail = "summary"
+        if any(k in msg_lower for k in ["detailed", "detail", "full", "详细", "完整"]):
+            detail = "detailed"
+        if any(k in msg_lower for k in ["everything", "all details", "所有", "全部"]):
+            detail = "full"
+        intents.append(ParsedIntent(
+            tool_name="analyze_scene",
+            arguments={"detail_level": detail},
+            description=f"Analyze scene ({detail})",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # 20. Image-to-3D reconstruction
     # Triggered by keywords like "reconstruct", "image to 3d", "重建", "图像转3D"
     img2threejs_triggers = [
         "reconstruct", "image to 3d", "image-to-3d", "img2threejs",
@@ -542,7 +557,160 @@ def parse_message(
         ))
         matched_any = True
 
+    # 21. Multimodal generation (image / 3D asset / video / animation / speech)
+    # These intents route natural language to the multimodal dispatcher via
+    # dedicated Agent tools. They are checked after image-to-3D so the
+    # reconstruction flow takes precedence when an image source is implied.
+    if not matched_any:
+        mm_intent = _parse_multimodal_intent(msg_lower, msg)
+        if mm_intent is not None:
+            intents.append(mm_intent)
+            matched_any = True
+
     if not matched_any:
         return [], ""
 
     return intents, ""
+
+
+# ---------------------------------------------------------------------------
+# Multimodal generation intent helpers
+# ---------------------------------------------------------------------------
+
+# Trigger phrases for each generation modality. Order matters: more specific
+# phrases are listed first so the prompt extraction strips them correctly.
+_IMAGE_TRIGGERS: List[str] = [
+    "generate an image of", "generate a picture of", "generate image of",
+    "create an image of", "create a picture of", "create image of",
+    "draw a picture of", "draw an image of",
+    "text to image", "text-to-image",
+    "生成一张图片", "生成图片", "画一张", "画一幅",
+    "生成一张图像", "生成图像",
+]
+_3D_ASSET_TRIGGERS: List[str] = [
+    "generate a 3d model of", "generate a 3d asset of", "generate 3d model of",
+    "generate 3d asset of", "generate a 3d asset", "generate a 3d model",
+    "create a 3d model of", "create a 3d asset of", "create 3d model of",
+    "create a 3d asset", "create a 3d model",
+    "text to 3d", "text-to-3d", "text to 3 d",
+    "生成3d模型", "生成3D模型", "生成一个3d", "生成一个3D",
+    "创建3d模型", "创建3D模型",
+]
+_VIDEO_TRIGGERS: List[str] = [
+    "generate a video of", "generate video of", "generate a video",
+    "create a video of", "create video of", "create a video",
+    "text to video", "text-to-video",
+    "生成一段视频", "生成视频", "创建视频", "创建一段视频",
+]
+_ANIMATION_TRIGGERS: List[str] = [
+    "generate an animation of", "generate animation of", "generate an animation",
+    "generate a animation of", "generate a animation",
+    "create an animation of", "create animation of", "create an animation",
+    "create a animation of", "create a animation",
+    "text to animation", "text-to-animation",
+    "生成一段动画", "生成动画", "创建动画", "创建一段动画",
+]
+_SPEECH_TRIGGERS: List[str] = [
+    "read aloud", "read this aloud", "read out loud", "read this out loud",
+    "synthesize speech", "text to speech", "text-to-speech", "say this",
+    "speak this", "朗读", "读出来", "语音合成", "转语音", "转为语音",
+]
+
+
+def _strip_trigger(text: str, triggers: List[str]) -> str:
+    """Remove the first matching trigger phrase from the text and tidy up."""
+    for trig in triggers:
+        if trig in text.lower():
+            # Remove the trigger (case-insensitive) from the original message
+            idx = text.lower().find(trig)
+            if idx >= 0:
+                text = text[:idx] + text[idx + len(trig):]
+            break
+    return text.strip(" :,.-\"'“”‘’")
+
+
+def _parse_multimodal_intent(msg_lower: str, msg_original: str) -> Optional[ParsedIntent]:
+    """Detect a multimodal generation command and build the corresponding intent.
+
+    Returns None when the message does not match any generation trigger, so
+    the caller can continue with the offline fallback handling.
+    """
+    # Speech synthesis — checked first because "read" is a common word
+    if any(k in msg_lower for k in _SPEECH_TRIGGERS):
+        text_payload = _strip_trigger(msg_original, _SPEECH_TRIGGERS)
+        if not text_payload:
+            return None
+        # Capture an optional voice name
+        voice = "alloy"
+        for v in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]:
+            if v in msg_lower:
+                voice = v
+                break
+        return ParsedIntent(
+            tool_name="synthesize_speech",
+            arguments={"text": text_payload, "voice": voice},
+            description=f"Synthesize speech from text",
+        )
+
+    # Image generation
+    if any(k in msg_lower for k in _IMAGE_TRIGGERS):
+        prompt = _strip_trigger(msg_original, _IMAGE_TRIGGERS)
+        if not prompt:
+            return None
+        size = "1024x1024"
+        size_match = re.search(r'(\d{3,4})\s*[x×]\s*(\d{3,4})', msg_lower)
+        if size_match:
+            size = f"{size_match.group(1)}x{size_match.group(2)}"
+        return ParsedIntent(
+            tool_name="generate_image",
+            arguments={"prompt": prompt, "size": size},
+            description=f"Generate image from prompt",
+        )
+
+    # 3D asset generation (distinct from image-to-3D reconstruction)
+    if any(k in msg_lower for k in _3D_ASSET_TRIGGERS):
+        prompt = _strip_trigger(msg_original, _3D_ASSET_TRIGGERS)
+        if not prompt:
+            return None
+        output_format = "glb"
+        for fmt in ["glb", "obj", "fbx", "usdz"]:
+            if fmt in msg_lower:
+                output_format = fmt
+                break
+        return ParsedIntent(
+            tool_name="generate_3d_asset",
+            arguments={"prompt": prompt, "output_format": output_format},
+            description=f"Generate 3D asset from prompt",
+        )
+
+    # Video generation
+    if any(k in msg_lower for k in _VIDEO_TRIGGERS):
+        prompt = _strip_trigger(msg_original, _VIDEO_TRIGGERS)
+        if not prompt:
+            return None
+        duration = 5
+        dur_match = re.search(r'(\d+)\s*(?:second|sec|s|秒)', msg_lower)
+        if dur_match:
+            duration = max(1, min(30, int(dur_match.group(1))))
+        return ParsedIntent(
+            tool_name="generate_video",
+            arguments={"prompt": prompt, "duration": duration},
+            description=f"Generate video from prompt",
+        )
+
+    # Animation generation
+    if any(k in msg_lower for k in _ANIMATION_TRIGGERS):
+        prompt = _strip_trigger(msg_original, _ANIMATION_TRIGGERS)
+        if not prompt:
+            return None
+        frames = 24
+        frame_match = re.search(r'(\d+)\s*(?:frame|帧)', msg_lower)
+        if frame_match:
+            frames = max(1, min(120, int(frame_match.group(1))))
+        return ParsedIntent(
+            tool_name="generate_animation",
+            arguments={"prompt": prompt, "frames": frames},
+            description=f"Generate animation from prompt",
+        )
+
+    return None
