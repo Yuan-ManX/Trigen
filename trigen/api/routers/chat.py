@@ -112,3 +112,46 @@ async def chat_rest(req: ChatRequest) -> JSONResponse:
             "scene": final_scene,
         }
     )
+
+
+@router.get("/chat/sessions")
+async def list_sessions() -> Dict[str, Any]:
+    """List all persisted conversation sessions."""
+    agent = AgentService.get()
+    sessions = agent.orchestrator.list_sessions()
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+@router.delete("/chat/sessions/{session_id}")
+async def delete_session(session_id: str) -> Dict[str, Any]:
+    """Delete a persisted conversation session."""
+    agent = AgentService.get()
+    agent.orchestrator.reset_session(session_id)
+    return {"deleted": True, "session_id": session_id}
+
+
+@router.get("/chat/sessions/{session_id}/memory")
+async def get_session_memory(session_id: str) -> Dict[str, Any]:
+    """Retrieve the persisted memory for a session."""
+    from trigen.memory_persistence import persistence as memory_persistence
+
+    memory = memory_persistence.load(session_id)
+    if memory is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Session '{session_id}' not found"},
+        )
+    return {
+        "session_id": session_id,
+        "message_count": len(memory._messages),
+        "compacted_summary": memory._compacted_summary,
+        "messages": [
+            {
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.timestamp,
+                "tool_name": m.tool_name,
+            }
+            for m in memory._messages
+        ],
+    }
