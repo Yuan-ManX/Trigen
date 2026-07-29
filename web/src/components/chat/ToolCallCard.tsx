@@ -2,6 +2,7 @@
 import { motion } from 'framer-motion'
 import { CheckCircle2, Loader2, Terminal, XCircle } from 'lucide-react'
 import type { ToolCallRecord } from '../../store/useChat'
+import { MultimodalResult, hasMultimediaResult } from './MultimodalResult'
 
 interface ToolCallCardProps {
   call: ToolCallRecord
@@ -20,6 +21,8 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
       return '{}'
     }
   })()
+
+  const hasMedia = call.result?.data && hasMultimediaResult(call.name)
 
   return (
     <motion.div
@@ -62,6 +65,13 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
       {call.result && (
         <div className="px-3 py-1.5 text-[11px] text-fg-secondary border-t border-border-subtle bg-bg-base/40">
           {call.result.message}
+        </div>
+      )}
+
+      {/* Rich media rendering for multimodal generation tools */}
+      {hasMedia && call.result?.data && (
+        <div className="px-3 pb-2">
+          <MultimodalResult toolName={call.name} data={call.result.data} />
         </div>
       )}
     </motion.div>
