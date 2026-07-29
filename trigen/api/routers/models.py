@@ -26,6 +26,8 @@ from trigen.llm.provider_registry import (
     registry as provider_registry,
 )
 from trigen.llm.pipeline import orchestrator as pipeline_orchestrator, parse_pipeline
+from trigen.llm.key_store import store as key_store
+from trigen.llm.model_discovery import discover_all
 
 logger = logging.getLogger("trigen.api.models")
 router = APIRouter(tags=["models"])
@@ -507,3 +509,180 @@ PIPELINE_TEMPLATES: List[Dict[str, Any]] = [
 async def list_pipeline_templates() -> Dict[str, Any]:
     """List pre-built pipeline templates for common multimodal workflows."""
     return {"templates": PIPELINE_TEMPLATES, "count": len(PIPELINE_TEMPLATES)}
+
+
+# ===== Streaming pipeline execution =====
+
+
+@router.post("/models/pipeline/stream")
+async def run_pipeline_stream(req: RunPipelineRequest) -> Dict[str, Any]:
+    """Execute a pipeline and return results with per-node timing.
+
+    This endpoint executes the pipeline synchronously but returns detailed
+    timing and status for each node, allowing the frontend to display
+    progress as nodes complete. For true real-time streaming, use the
+    WebSocket chat endpoint with a pipeline-formatted message.
+    """
+    import time
+
+    from trigen.llm.pipeline import PipelineNode, Pipeline as PipelineDef
+
+    definition = {"name": req.name, "nodes": req.nodes}
+    pipeline = parse_pipeline(definition)
+    start = time.time()
+    results = await pipeline_orchestrator.execute(pipeline)
+    total_elapsed = int((time.time() - start) * 1000)
+
+    # Build a summary
+    succeeded = sum(1 for r in results if r.status.value == "success")
+    failed = sum(1 for r in results if r.status.value == "failed")
+
+    return {
+        "name": pipeline.name,
+        "total_elapsed_ms": total_elapsed,
+        "node_count": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "results": [
+            {
+                "node_id": r.node_id,
+                "status": r.status.value,
+                "outputs": r.outputs,
+                "error": r.error,
+                "elapsed_ms": r.elapsed_ms,
+            }
+            for r in results
+        ],
+    }
+
+
+@router.post("/models/pipeline/sse")
+async def run_pipeline_sse(req: RunPipelineRequest):
+    """Execute a pipeline and stream node-by-node progress via Server-Sent Events.
+
+    Each pipeline node emits two events: 'start' when it begins running and
+    'result' when it finishes. A final 'done' event carries the summary.
+
+    Event format: data: {json}\\n\\n
+    """
+    import json
+    from fastapi.responses import StreamingResponse
+
+    definition = {"name": req.name, "nodes": req.nodes}
+    pipeline = parse_pipeline(definition)
+
+    async def event_stream():
+        async for event in pipeline_orchestrator.execute_stream(pipeline):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ===== Runtime API key management =====
+
+
+class SetKeyRequest(BaseModel):
+    """Request body for setting a runtime API key."""
+
+    env_name: str = Field(..., description="Environment variable name, e.g. OPENAI_API_KEY")
+    api_key: str = Field(..., description="The API key value")
+
+
+def _collect_key_env_names() -> List[str]:
+    """Collect all unique API key env names from the model catalog."""
+    seen: List[str] = []
+    seen_set: set[str] = set()
+    for entry in model_router.list_models():
+        if entry.api_key_env and entry.api_key_env not in seen_set:
+            seen.append(entry.api_key_env)
+            seen_set.add(entry.api_key_env)
+    return seen
+
+
+@router.get("/models/keys")
+async def list_api_keys() -> Dict[str, Any]:
+    """List all API key slots with their configuration status (masked)."""
+    env_names = _collect_key_env_names()
+    statuses = key_store.status_many(env_names)
+    configured = sum(1 for s in statuses if s.configured)
+    return {
+        "keys": [
+            {
+                "env_name": s.env_name,
+                "configured": s.configured,
+                "preview": s.preview,
+                "source": s.source,
+            }
+            for s in statuses
+        ],
+        "total": len(statuses),
+        "configured": configured,
+    }
+
+
+@router.post("/models/keys")
+async def set_api_key(req: SetKeyRequest) -> Dict[str, Any]:
+    """Set or update a runtime API key."""
+    env_name = req.env_name.strip()
+    if not env_name:
+        raise HTTPException(status_code=400, detail="env_name is required")
+    key_store.set_key(env_name, req.api_key)
+    status = key_store.status(env_name)
+    # Invalidate availability cache so the frontend sees the new state
+    availability_checker._ollama_reachable = None
+    return {
+        "env_name": env_name,
+        "configured": status.configured,
+        "preview": status.preview,
+        "source": status.source,
+    }
+
+
+@router.delete("/models/keys/{env_name}")
+async def delete_api_key(env_name: str) -> Dict[str, Any]:
+    """Remove a runtime API key (falls back to env var if present)."""
+    removed = key_store.delete_key(env_name)
+    availability_checker._ollama_reachable = None
+    status = key_store.status(env_name)
+    return {
+        "env_name": env_name,
+        "removed": removed,
+        "still_configured_via_env": status.configured and status.source == "env",
+        "configured": status.configured,
+        "source": status.source,
+    }
+
+
+@router.delete("/models/keys")
+async def clear_all_api_keys() -> Dict[str, Any]:
+    """Remove all runtime API keys (env-var keys remain untouched)."""
+    removed = key_store.clear_all()
+    availability_checker._ollama_reachable = None
+    return {"removed_count": removed}
+
+
+@router.post("/models/discover")
+async def run_model_discovery() -> Dict[str, Any]:
+    """Trigger dynamic model discovery across all configured providers.
+
+    Queries OpenRouter, Ollama, Together, Groq, and Mistral for their live
+    model listings and registers any new models in the router catalog.
+    Returns per-provider counts of newly discovered models.
+    """
+    counts = await discover_all(model_router)
+    total = sum(counts.values())
+    catalog_count = len(model_router.list_models())
+    return {
+        "discovered": counts,
+        "new_count": total,
+        "total_catalog": catalog_count,
+    }
+
