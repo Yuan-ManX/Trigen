@@ -43,6 +43,22 @@ async def lifespan(app: FastAPI):
     _ = AgentService.get().orchestrator
     logger.info("Trigen Agent ready | LLM configured: %s | port: %d", AgentService.get().llm_configured, config.port)
 
+    # Run dynamic model discovery in the background (non-blocking)
+    import asyncio
+    from trigen.llm.model_discovery import discover_all
+    from trigen.llm.router import router as model_router
+
+    async def _bg_discovery():
+        try:
+            counts = await discover_all(model_router)
+            total = sum(counts.values())
+            if total > 0:
+                logger.info("Startup model discovery: %d new models (%s)", total, counts)
+        except Exception as exc:
+            logger.warning("Startup model discovery failed: %s", str(exc)[:100])
+
+    asyncio.create_task(_bg_discovery())
+
     yield
 
     await db.close()
