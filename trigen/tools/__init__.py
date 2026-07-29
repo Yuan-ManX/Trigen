@@ -29,6 +29,14 @@ from trigen.tools.camera_tools import AddCameraTool, ModifyCameraTool, SetViewTo
 from trigen.tools.scene_info_tool import SceneInfoTool
 from trigen.tools.grid_toggle_tool import SetGridSizeTool, ToggleGridTool
 from trigen.tools.smart_compose import SmartComposeTool
+from trigen.tools.multimodal_tools import (
+    Generate3DAssetTool,
+    GenerateAnimationTool,
+    GenerateImageTool,
+    GenerateVideoTool,
+    SynthesizeSpeechTool,
+    TranscribeAudioTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -71,4 +79,11 @@ __all__ = [
     "FocusObjectTool",
     # Export
     "ExportSceneTool",
+    # Multimodal generation
+    "GenerateImageTool",
+    "Generate3DAssetTool",
+    "GenerateVideoTool",
+    "GenerateAnimationTool",
+    "SynthesizeSpeechTool",
+    "TranscribeAudioTool",
 ]
