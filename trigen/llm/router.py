@@ -22,6 +22,8 @@ class ProviderType(str, Enum):
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+    XAI = "xai"
     DEEPSEEK = "deepseek"
     QWEN = "qwen"
     OLLAMA = "ollama"
@@ -34,6 +36,15 @@ class ProviderType(str, Enum):
     GROQ = "groq"
     TOGETHER = "together"
     FIREWORKS = "fireworks"
+    MISTRAL = "mistral"
+    COHERE = "cohere"
+    PERPLEXITY = "perplexity"
+    AI21 = "ai21"
+    REPLICATE = "replicate"
+    HUGGINGFACE = "huggingface"
+    STABILITY = "stability"
+    RUNWAY = "runway"
+    MESHY = "meshy"
     LOCAL = "local"
 
 
@@ -356,6 +367,241 @@ MODEL_CATALOG: List[ModelEntry] = [
         context_window=131072,
         is_open_source=True,
     ),
+    # === Mistral AI ===
+    ModelEntry(
+        id="mistral-large-latest",
+        label="Mistral Large",
+        provider=ProviderType.MISTRAL,
+        base_url="https://api.mistral.ai/v1",
+        api_key_env="MISTRAL_API_KEY",
+        description="Mistral AI flagship model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=128000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="mistral-small-latest",
+        label="Mistral Small",
+        provider=ProviderType.MISTRAL,
+        base_url="https://api.mistral.ai/v1",
+        api_key_env="MISTRAL_API_KEY",
+        description="Fast and efficient Mistral model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=32000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="pixtral-large-latest",
+        label="Pixtral Large",
+        provider=ProviderType.MISTRAL,
+        base_url="https://api.mistral.ai/v1",
+        api_key_env="MISTRAL_API_KEY",
+        description="Mistral vision-language model",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=128000,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="codestral-latest",
+        label="Codestral",
+        provider=ProviderType.MISTRAL,
+        base_url="https://api.mistral.ai/v1",
+        api_key_env="MISTRAL_API_KEY",
+        description="Mistral code generation model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=32000,
+        is_open_source=True,
+    ),
+    # === Cohere ===
+    ModelEntry(
+        id="command-r-plus",
+        label="Command R+",
+        provider=ProviderType.COHERE,
+        base_url="https://api.cohere.com/v1",
+        api_key_env="COHERE_API_KEY",
+        description="Cohere enterprise LLM",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="command-r",
+        label="Command R",
+        provider=ProviderType.COHERE,
+        base_url="https://api.cohere.com/v1",
+        api_key_env="COHERE_API_KEY",
+        description="Cohere scalable LLM",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="command-r7b",
+        label="Command R7B",
+        provider=ProviderType.COHERE,
+        base_url="https://api.cohere.com/v1",
+        api_key_env="COHERE_API_KEY",
+        description="Cohere efficient model",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=True,
+    ),
+    # === Perplexity ===
+    ModelEntry(
+        id="perplexity/sonar-pro",
+        label="Sonar Pro",
+        provider=ProviderType.PERPLEXITY,
+        base_url="https://api.perplexity.ai",
+        api_key_env="PPLX_API_KEY",
+        description="Perplexity online model with web search",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=127000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="perplexity/sonar",
+        label="Sonar",
+        provider=ProviderType.PERPLEXITY,
+        base_url="https://api.perplexity.ai",
+        api_key_env="PPLX_API_KEY",
+        description="Perplexity fast online model",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=127000,
+        is_open_source=False,
+    ),
+    ModelEntry(
+        id="perplexity/llama-3.1-sonar-large-128k-online",
+        label="Sonar Large Online",
+        provider=ProviderType.PERPLEXITY,
+        base_url="https://api.perplexity.ai",
+        api_key_env="PPLX_API_KEY",
+        description="Llama 3.1 with web search via Perplexity",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=127000,
+        is_open_source=True,
+    ),
+    # === AI21 Labs ===
+    ModelEntry(
+        id="jamba-1.5-large",
+        label="Jamba 1.5 Large",
+        provider=ProviderType.AI21,
+        base_url="https://api.ai21.com/studio/v1",
+        api_key_env="AI21_API_KEY",
+        description="AI21 SSM-Transformer hybrid model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=256000,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="jamba-1.5-mini",
+        label="Jamba 1.5 Mini",
+        provider=ProviderType.AI21,
+        base_url="https://api.ai21.com/studio/v1",
+        api_key_env="AI21_API_KEY",
+        description="AI21 compact efficient model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=256000,
+        is_open_source=True,
+    ),
+    # === Replicate (hosted open-source) ===
+    ModelEntry(
+        id="meta/llama-3.1-405b-instruct",
+        label="Llama 3.1 405B (Replicate)",
+        provider=ProviderType.REPLICATE,
+        base_url="https://api.replicate.com/v1",
+        api_key_env="REPLICATE_API_TOKEN",
+        description="Llama 3.1 405B hosted on Replicate",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="black-forest-labs/flux-schnell",
+        label="FLUX Schnell (Replicate)",
+        provider=ProviderType.REPLICATE,
+        base_url="https://api.replicate.com/v1",
+        api_key_env="REPLICATE_API_TOKEN",
+        description="FLUX image generation on Replicate",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1,
+        context_window=4000,
+        is_open_source=True,
+    ),
+    # === Hugging Face (Inference API) ===
+    ModelEntry(
+        id="meta-llama/Llama-3.3-70B-Instruct",
+        label="Llama 3.3 70B (HF)",
+        provider=ProviderType.HUGGINGFACE,
+        base_url="https://api-inference.huggingface.co/v1",
+        api_key_env="HF_TOKEN",
+        description="Llama 3.3 via Hugging Face Inference API",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="Qwen/Qwen2.5-72B-Instruct",
+        label="Qwen 2.5 72B (HF)",
+        provider=ProviderType.HUGGINGFACE,
+        base_url="https://api-inference.huggingface.co/v1",
+        api_key_env="HF_TOKEN",
+        description="Qwen 2.5 72B via Hugging Face",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=32768,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="microsoft/Phi-3.5-mini-instruct",
+        label="Phi 3.5 Mini (HF)",
+        provider=ProviderType.HUGGINGFACE,
+        base_url="https://api-inference.huggingface.co/v1",
+        api_key_env="HF_TOKEN",
+        description="Microsoft Phi 3.5 via Hugging Face",
+        modalities=[Modality.TEXT],
+        max_tokens=4096,
+        context_window=128000,
+        is_open_source=True,
+    ),
+    # === Stability AI (image generation) ===
+    ModelEntry(
+        id="stable-image-core",
+        label="Stable Image Core",
+        provider=ProviderType.STABILITY,
+        base_url="https://api.stability.ai/v1",
+        api_key_env="STABILITY_API_KEY",
+        description="Stability AI core image generation",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1,
+        context_window=4000,
+        is_open_source=True,
+    ),
+    ModelEntry(
+        id="stable-image-ultra",
+        label="Stable Image Ultra",
+        provider=ProviderType.STABILITY,
+        base_url="https://api.stability.ai/v1",
+        api_key_env="STABILITY_API_KEY",
+        description="Stability AI ultra quality image generation",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1,
+        context_window=4000,
+        is_open_source=True,
+    ),
     # === OpenRouter (aggregator) ===
     ModelEntry(
         id="openrouter/auto",
@@ -552,6 +798,131 @@ MODEL_CATALOG: List[ModelEntry] = [
         context_window=4000,
         is_open_source=True,
     ),
+    # === Google Gemini ===
+    ModelEntry(
+        id="gemini-2.0-flash",
+        label="Gemini 2.0 Flash",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key_env="GOOGLE_API_KEY",
+        description="Google Gemini 2.0 Flash multimodal",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=1048576,
+    ),
+    ModelEntry(
+        id="gemini-2.0-pro",
+        label="Gemini 2.0 Pro",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key_env="GOOGLE_API_KEY",
+        description="Google Gemini 2.0 Pro flagship",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=2097152,
+    ),
+    ModelEntry(
+        id="gemini-1.5-pro",
+        label="Gemini 1.5 Pro",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key_env="GOOGLE_API_KEY",
+        description="Google Gemini 1.5 Pro with 2M context",
+        modalities=[Modality.TEXT, Modality.VISION, Modality.AUDIO],
+        max_tokens=8192,
+        context_window=2097152,
+    ),
+    ModelEntry(
+        id="gemini-1.5-flash",
+        label="Gemini 1.5 Flash",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key_env="GOOGLE_API_KEY",
+        description="Fast and efficient Gemini model",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=1048576,
+    ),
+    # === xAI Grok ===
+    ModelEntry(
+        id="grok-2-latest",
+        label="Grok 2",
+        provider=ProviderType.XAI,
+        base_url="https://api.x.ai/v1",
+        api_key_env="XAI_API_KEY",
+        description="xAI Grok 2 conversational model",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=131072,
+    ),
+    ModelEntry(
+        id="grok-2-vision-latest",
+        label="Grok 2 Vision",
+        provider=ProviderType.XAI,
+        base_url="https://api.x.ai/v1",
+        api_key_env="XAI_API_KEY",
+        description="xAI Grok 2 with vision capability",
+        modalities=[Modality.TEXT, Modality.VISION],
+        max_tokens=8192,
+        context_window=32768,
+    ),
+    ModelEntry(
+        id="grok-beta",
+        label="Grok Beta",
+        provider=ProviderType.XAI,
+        base_url="https://api.x.ai/v1",
+        api_key_env="XAI_API_KEY",
+        description="xAI Grok beta model",
+        modalities=[Modality.TEXT],
+        max_tokens=8192,
+        context_window=131072,
+    ),
+    # === Runway video generation ===
+    ModelEntry(
+        id="runway/gen3-alpha",
+        label="Runway Gen-3 Alpha",
+        provider=ProviderType.RUNWAY,
+        base_url="https://api.runwayml.com/v1",
+        api_key_env="RUNWAY_API_KEY",
+        description="Runway Gen-3 text-to-video",
+        modalities=[Modality.VIDEO],
+        max_tokens=1,
+        context_window=4000,
+    ),
+    ModelEntry(
+        id="runway/gen3-turbo",
+        label="Runway Gen-3 Turbo",
+        provider=ProviderType.RUNWAY,
+        base_url="https://api.runwayml.com/v1",
+        api_key_env="RUNWAY_API_KEY",
+        description="Runway Gen-3 Turbo fast video generation",
+        modalities=[Modality.VIDEO],
+        max_tokens=1,
+        context_window=4000,
+    ),
+    # === Meshy 3D generation (direct API) ===
+    ModelEntry(
+        id="meshy-direct/text-to-3d",
+        label="Meshy Text-to-3D (Direct)",
+        provider=ProviderType.MESHY,
+        base_url="https://api.meshy.ai/v2",
+        api_key_env="MESHY_API_KEY",
+        description="Meshy direct text-to-3D mesh generation",
+        modalities=[Modality.THREE_D],
+        max_tokens=1,
+        context_window=4000,
+    ),
+    ModelEntry(
+        id="meshy-direct/image-to-3d",
+        label="Meshy Image-to-3D (Direct)",
+        provider=ProviderType.MESHY,
+        base_url="https://api.meshy.ai/v2",
+        api_key_env="MESHY_API_KEY",
+        description="Meshy direct image-to-3D reconstruction",
+        modalities=[Modality.THREE_D],
+        max_tokens=1,
+        context_window=4000,
+    ),
 ]
 
 
@@ -652,7 +1023,13 @@ class ModelRouter:
                 pass
 
         if not api_key and entry.api_key_env:
-            api_key = os.environ.get(entry.api_key_env, "")
+            # Runtime key store first (set via UI), then process env
+            try:
+                from trigen.llm.key_store import store as _key_store
+
+                api_key = _key_store.get_key(entry.api_key_env)
+            except Exception:
+                api_key = os.environ.get(entry.api_key_env, "")
         # For local Ollama, allow a dummy key
         if not api_key and entry.is_local and entry.provider == ProviderType.OLLAMA:
             api_key = "ollama"
@@ -665,6 +1042,67 @@ class ModelRouter:
             "provider": entry.provider,
             "modalities": entry.modalities,
         }
+
+    def list_available_chat_models(self) -> List[str]:
+        """Return model ids that can power conversational chat right now.
+
+        A model qualifies when it has TEXT or VISION modality, is not a
+        generation-only model, and has an API key configured (or is the
+        offline default / a local Ollama model).
+        """
+        result: List[str] = []
+        for entry in self._models.values():
+            if self.is_generation_model(entry.id):
+                continue
+            if not any(m in (Modality.TEXT, Modality.VISION) for m in entry.modalities):
+                continue
+            params = self.resolve(entry.id)
+            if params.get("api_key") or entry.id == "trigen-default":
+                result.append(entry.id)
+        return result
+
+    def build_fallback_chain(
+        self,
+        primary: Optional[str] = None,
+        preferred_modality: Modality = Modality.TEXT,
+    ) -> List[str]:
+        """Build an ordered fallback chain of model ids.
+
+        The primary model (if any) is tried first. Then available chat
+        models are appended in priority order: large cloud models first,
+        then open-source hosted models, then local Ollama models, and
+        finally the offline default. Duplicates are removed.
+        """
+        chain: List[str] = []
+        seen: set[str] = set()
+
+        def _add(model_id: str) -> None:
+            if model_id and model_id not in seen:
+                chain.append(model_id)
+                seen.add(model_id)
+
+        if primary:
+            _add(primary)
+
+        available = self.list_available_chat_models()
+        # Sort by priority: cloud non-OSS → cloud OSS → local → default
+        def _priority(mid: str) -> int:
+            entry = self._models.get(mid)
+            if not entry:
+                return 99
+            if entry.id == "trigen-default":
+                return 90
+            if entry.is_local:
+                return 80
+            if entry.is_open_source:
+                return 50
+            return 10
+
+        for mid in sorted(available, key=_priority):
+            _add(mid)
+
+        _add("trigen-default")
+        return chain
 
     def to_catalog_dict(self) -> List[Dict[str, Any]]:
         """Serialize the catalog for the frontend model selector."""
