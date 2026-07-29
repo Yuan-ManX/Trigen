@@ -28,6 +28,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from trigen.config import AgentConfig
 from trigen.executor import TaskExecutor
 from trigen.memory import ConversationMemory
+from trigen.memory_persistence import persistence as memory_persistence
 from trigen.planner import TaskPlanner
 from trigen.llm.client import LLMClient, LLMStreamChunk
 from trigen.llm.prompts import SYSTEM_PROMPT, build_scene_summary
@@ -46,6 +47,10 @@ from trigen.tools import (
     DuplicateObjectTool,
     ExportSceneTool,
     FocusObjectTool,
+    Generate3DAssetTool,
+    GenerateAnimationTool,
+    GenerateImageTool,
+    GenerateVideoTool,
     GroupObjectsTool,
     ListObjectsTool,
     ModifyCameraTool,
@@ -58,12 +63,15 @@ from trigen.tools import (
     SetGridSizeTool,
     SetViewTool,
     SmartComposeTool,
+    SynthesizeSpeechTool,
     ToggleGridTool,
+    TranscribeAudioTool,
     TransformObjectTool,
     UngroupObjectsTool,
 )
 from trigen.tools.base import ToolRegistry
 from trigen.tools.img2threejs_tool import ImageToThreeJSTool
+from trigen.tools.scene_analyzer import SceneAnalyzerTool
 
 logger = logging.getLogger("trigen.orchestrator")
 
@@ -145,13 +153,27 @@ class AgentOrchestrator:
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
         # Multimodal reconstruction
         registry.register(ImageToThreeJSTool(self.config.llm))
+        # Scene analysis
+        registry.register(SceneAnalyzerTool())
+        # Multimodal generation (image / 3D / video / animation / speech / transcription)
+        registry.register(GenerateImageTool())
+        registry.register(Generate3DAssetTool())
+        registry.register(GenerateVideoTool())
+        registry.register(GenerateAnimationTool())
+        registry.register(SynthesizeSpeechTool())
+        registry.register(TranscribeAudioTool())
         return registry
 
     def get_memory(self, session_id: str) -> ConversationMemory:
         if session_id not in self._sessions:
-            self._sessions[session_id] = ConversationMemory(
-                session_id=session_id, window_size=self.config.memory_window
-            )
+            # Try to load from persistence first
+            loaded = memory_persistence.load(session_id)
+            if loaded is not None:
+                self._sessions[session_id] = loaded
+            else:
+                self._sessions[session_id] = ConversationMemory(
+                    session_id=session_id, window_size=self.config.memory_window
+                )
         return self._sessions[session_id]
 
     def get_scene(self, session_id: str) -> Scene:
@@ -170,6 +192,17 @@ class AgentOrchestrator:
     def reset_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._scenes.pop(session_id, None)
+        memory_persistence.delete(session_id)
+
+    def save_memory(self, session_id: str, model: str = "") -> None:
+        """Persist the current conversation memory to disk."""
+        memory = self._sessions.get(session_id)
+        if memory is not None:
+            memory_persistence.save(memory, model=model)
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """List all persisted sessions."""
+        return memory_persistence.list_sessions()
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Expose all registered tool schemas."""
@@ -183,12 +216,13 @@ class AgentOrchestrator:
         memory.add_user(user_message)
 
         # Determine whether to use offline mode:
-        # - model is "trigen-default" or None and no default API key configured
-        # - model is selected but its provider has no API key in environment
+        # - model is "trigen-default" — user explicitly chose the offline engine
         # - model is a generation-only model (image/3D/video) — these cannot
         #   power conversational chat directly; fall back to the rule engine
         #   so the editor remains controllable, while the frontend can still
         #   invoke the generation model through its dedicated endpoint.
+        # - model has no API key — try the fallback chain to find an alternative
+        #   configured model before resorting to the offline rule engine.
         use_offline = False
         if model == "trigen-default":
             use_offline = True
@@ -198,9 +232,21 @@ class AgentOrchestrator:
             else:
                 resolved = model_router.resolve(model)
                 if not resolved.get("api_key"):
-                    use_offline = True
+                    # Primary model lacks credentials — scan the fallback chain
+                    # for the first model with a valid API key.
+                    alternative = self._find_available_alternative(model)
+                    if alternative:
+                        logger.info("Primary model %s has no API key, falling back to %s", model, alternative)
+                        model = alternative
+                    else:
+                        use_offline = True
         elif not self.config.llm.is_configured:
-            use_offline = True
+            # No model specified and no default LLM configured — try the chain
+            alternative = self._find_available_alternative(None)
+            if alternative:
+                model = alternative
+            else:
+                use_offline = True
 
         if use_offline:
             async for event in self._run_offline(user_message, scene, session_id):
@@ -225,6 +271,9 @@ class AgentOrchestrator:
 
         full_text = ""
         iteration = 0
+        tried_models: set = {model} if model else set()
+        retry_count = 0
+        max_retries = 3
         for iteration in range(self.config.max_iterations):
             tool_calls_collected: List = []
             try:
@@ -234,6 +283,10 @@ class AgentOrchestrator:
                     system=SYSTEM_PROMPT,
                     model=model,
                 ):
+                    # Detect error chunks yielded by the LLM client (which
+                    # swallows exceptions and returns them as content)
+                    if chunk.finish_reason == "error":
+                        raise RuntimeError(chunk.content or "LLM streaming error")
                     if chunk.content:
                         full_text += chunk.content
                         yield AgentEvent(
@@ -245,8 +298,25 @@ class AgentOrchestrator:
                     if chunk.finish_reason and not chunk.tool_calls:
                         break
             except Exception as e:
-                logger.exception("LLM streaming error")
-                yield AgentEvent(type=EventType.ERROR, data={"message": str(e)})
+                # Try alternative models from the fallback chain before
+                # reporting an error to the user. Up to max_retries attempts.
+                if retry_count < max_retries:
+                    alternative = self._find_available_alternative(model, exclude=tried_models)
+                    if alternative:
+                        retry_count += 1
+                        logger.warning(
+                            "LLM streaming failed with %s (%s), retrying with %s (attempt %d/%d)",
+                            model, str(e)[:80], alternative, retry_count, max_retries,
+                        )
+                        tried_models.add(alternative)
+                        model = alternative
+                        full_text = ""
+                        continue
+                # All alternatives exhausted — fall back to offline rule engine
+                # so the editor remains controllable even without a working LLM.
+                logger.warning("All model alternatives exhausted, falling back to offline mode")
+                async for event in self._run_offline(user_message, scene, session_id):
+                    yield event
                 return
 
             # No tool calls → end of this turn
@@ -354,6 +424,33 @@ class AgentOrchestrator:
                 "elapsed": elapsed,
             },
         )
+
+        # Persist conversation memory after each turn
+        self.save_memory(session_id, model or "")
+
+    def _find_available_alternative(
+        self, primary: Optional[str], exclude: Optional[set] = None
+    ) -> Optional[str]:
+        """Scan the fallback chain for the first model with a valid API key.
+
+        Called when the primary model lacks credentials. Returns the model
+        id of the first usable alternative, or None when no model in the
+        chain has a configured API key (excluding the offline default).
+        The `exclude` set skips models that have already been tried.
+        """
+        chain = model_router.build_fallback_chain(primary)
+        skip = exclude or set()
+        for candidate in chain:
+            if candidate == primary or candidate in skip:
+                continue
+            if candidate == "trigen-default":
+                continue
+            if model_router.is_generation_model(candidate):
+                continue
+            resolved = model_router.resolve(candidate)
+            if resolved.get("api_key"):
+                return candidate
+        return None
 
     async def _run_offline(
         self, user_message: str, scene: Scene, session_id: str
@@ -490,3 +587,6 @@ class AgentOrchestrator:
                 "elapsed": elapsed,
             },
         )
+
+        # Persist conversation memory after each offline turn
+        self.save_memory(session_id)
