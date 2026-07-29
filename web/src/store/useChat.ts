@@ -15,7 +15,11 @@ export interface ToolCallRecord {
   name: string
   arguments: Record<string, unknown>
   pending: boolean
-  result?: { success: boolean; message: string }
+  result?: {
+    success: boolean
+    message: string
+    data?: Record<string, unknown>
+  }
 }
 
 /** Agent reasoning trace entry */
@@ -253,6 +257,7 @@ export const useChat = create<ChatState>((set, get) => {
                 result: {
                   success: ev.data.success,
                   message: ev.data.message,
+                  data: ev.data.data as Record<string, unknown> | undefined,
                 },
               }
               msgs[i] = { ...m, toolCalls: newCalls }
