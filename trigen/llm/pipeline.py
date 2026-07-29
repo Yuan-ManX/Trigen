@@ -110,6 +110,57 @@ class PipelineOrchestrator:
             results[node.id] = result
         return list(results.values())
 
+    async def execute_stream(
+        self, pipeline: Pipeline
+    ) -> Any:
+        """Execute the pipeline, yielding each NodeResult as it completes.
+
+        Yields dicts with: event ("start" | "result" | "done"), node_id,
+        status, outputs, error, elapsed_ms. Allows the frontend to show
+        real-time progress as each node finishes.
+        """
+        import time
+        from typing import AsyncIterator
+
+        results: Dict[str, NodeResult] = {}
+        total_start = time.time()
+        total = len(pipeline.nodes)
+
+        for idx, node in enumerate(pipeline.nodes):
+            # Emit a start event so the frontend can mark the node as running
+            yield {
+                "event": "start",
+                "node_id": node.id,
+                "node_type": node.type,
+                "index": idx,
+                "total": total,
+            }
+            resolved_inputs = self._resolve_inputs(node, results)
+            result = await self._run_node(node, resolved_inputs)
+            results[node.id] = result
+            yield {
+                "event": "result",
+                "node_id": result.node_id,
+                "status": result.status.value,
+                "outputs": result.outputs,
+                "error": result.error,
+                "elapsed_ms": result.elapsed_ms,
+                "index": idx,
+                "total": total,
+            }
+
+        total_elapsed = int((time.time() - total_start) * 1000)
+        succeeded = sum(1 for r in results.values() if r.status == NodeStatus.SUCCESS)
+        failed = sum(1 for r in results.values() if r.status == NodeStatus.FAILED)
+        yield {
+            "event": "done",
+            "name": pipeline.name,
+            "total_elapsed_ms": total_elapsed,
+            "node_count": total,
+            "succeeded": succeeded,
+            "failed": failed,
+        }
+
     def _resolve_inputs(
         self, node: PipelineNode, results: Dict[str, NodeResult]
     ) -> Dict[str, Any]:
