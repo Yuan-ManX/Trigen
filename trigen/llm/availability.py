@@ -149,14 +149,29 @@ class AvailabilityChecker:
                 is_generation=is_generation,
             )
 
-        # Cloud models: check API key in environment
-        api_key = os.environ.get(entry.api_key_env, "") if entry.api_key_env else ""
+        # Cloud models: check API key via runtime store then env
+        api_key = ""
+        if entry.api_key_env:
+            try:
+                from trigen.llm.key_store import store as _key_store
+
+                api_key = _key_store.get_key(entry.api_key_env)
+            except Exception:
+                api_key = os.environ.get(entry.api_key_env, "")
+        source_label = "runtime key store" if api_key else ""
+        if not api_key and entry.api_key_env:
+            api_key = os.environ.get(entry.api_key_env, "")
+            if api_key:
+                source_label = "environment variable"
         return ModelAvailability(
             id=entry.id,
             label=entry.label,
             provider=entry.provider.value,
             available=bool(api_key),
-            reason="API key configured" if api_key else f"Set {entry.api_key_env} to enable",
+            reason=(
+                f"API key configured ({source_label})" if api_key
+                else f"Set {entry.api_key_env} to enable"
+            ),
             modalities=[m.value for m in entry.modalities],
             is_local=entry.is_local,
             is_open_source=entry.is_open_source,
