@@ -33,10 +33,12 @@ from trigen.tools.multimodal_tools import (
     Generate3DAssetTool,
     GenerateAnimationTool,
     GenerateImageTool,
+    GenerateMusicTool,
     GenerateVideoTool,
     SynthesizeSpeechTool,
     TranscribeAudioTool,
 )
+from trigen.tools.subagent_tool import DispatchSubagentTool
 
 __all__ = [
     "ToolBase",
@@ -84,6 +86,9 @@ __all__ = [
     "Generate3DAssetTool",
     "GenerateVideoTool",
     "GenerateAnimationTool",
+    "GenerateMusicTool",
     "SynthesizeSpeechTool",
     "TranscribeAudioTool",
+    # Sub-agent
+    "DispatchSubagentTool",
 ]
