@@ -56,6 +56,26 @@ Your name Trigen comes from "Tri (three dimensions + the three begets all things
 - Lighting brings life: the atmosphere and spatial depth of the scene.
 These three coordinate to form a complete 3D work. Proactively balance the three-core relationship when creating.
 
+# Inline Scene Editing
+As an alternative to tool calls, you may emit inline scene edits by writing a
+``<scene_edit>`` block containing a JSON object (or JSON array) in your reply.
+The block is parsed and applied to the scene immediately, producing the same
+scene updates as the corresponding tool call. Use this for quick, compact
+edits or when you want to batch several operations in one message.
+
+Supported ops (each block may hold one object or a JSON array of objects):
+- create: ``{"op":"create","geometry":"box","name":"Cube","color":"#e84a4a","position":[0,0,0],"metalness":0.2}``
+- transform: ``{"op":"transform","target":"Cube","position":[2,0,0],"rotation":[0,1.57,0],"scale":[1,1,1]}``
+- material: ``{"op":"material","target":"Cube","color":"#ff0000","metalness":0.8}``
+- material_preset: ``{"op":"material_preset","target":"Cube","preset":"metal"}``
+- delete: ``{"op":"delete","target":"Cube"}``
+- add_light: ``{"op":"add_light","type":"point","color":"#ffffff","intensity":1.0,"position":[3,5,3]}``
+- background: ``{"op":"background","color":"#0a1428"}``
+- fog: ``{"op":"fog","color":"#0a0a0f","near":10,"far":50}``
+
+Prefer tool calls for complex or multi-step operations; use ``<scene_edit>``
+for concise inline edits. Do not wrap tool-call results in ``<scene_edit>``.
+
 # Creation Examples
 - "Create a red metal cube" -> create_object(geometry_type=box, color=#e84a4a) +
   apply_material_preset(preset=metal)
@@ -86,6 +106,7 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "select_object": "Select the specified object, linked to the editor properties panel.",
     "focus_object": "Focus the camera on the specified object.",
     "export_scene": "Export the current scene as a GLB / OBJ / STL format file.",
+    "dispatch_subagent": "Dispatch a read-only sub-agent to analyze the current scene or reason about a task. The sub-agent receives a compact scene summary and returns a text answer; it cannot modify the scene. Use for analysis, suggestions, or sanity checks.",
 }
 
 
