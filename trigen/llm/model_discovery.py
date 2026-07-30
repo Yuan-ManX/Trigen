@@ -68,8 +68,13 @@ def _guess_modalities(model_id: str, labels: List[str] = None) -> List[Modality]
 
 
 def _get_api_key(env_name: str) -> str:
-    """Retrieve an API key from the runtime key store or environment."""
-    key = key_store.get_key(env_name)
+    """Retrieve an API key from the runtime key store or environment.
+
+    Uses ``get_next_key`` so listing calls spread load across any indexed
+    key pool (``env_name`` + ``env_name_1..N``). Falls back to the base
+    env var when the store has no key configured.
+    """
+    key = key_store.get_next_key(env_name)
     return key or os.environ.get(env_name, "")
 
 
@@ -328,6 +333,168 @@ async def discover_mistral(router: ModelRouter) -> int:
     return count
 
 
+# Replicate models that are clearly not chat/language models are skipped to
+# keep the catalog focused. The keyword list matches model ids and labels.
+_REPLICATE_LLM_KEYWORDS = (
+    "llama", "mistral", "qwen", "phi", "gemma", "yi", "deepseek", "falcon",
+    "chat", "instruct", "llm", "gpt", "openchat", "zephyr", "starling",
+    "mixtral", "vicuna", "wizard", "solar", "internlm", "baichuan", "command",
+)
+
+
+async def discover_huggingface(router: ModelRouter) -> int:
+    """Discover models from the Hugging Face Inference API.
+
+    The Inference API exposes an OpenAI-compatible ``/v1/models`` endpoint
+    that lists chat-capable models hosted by Hugging Face. Each model is
+    registered with the ``HUGGINGFACE`` provider type so it dispatches
+    through the OpenAI client against the HF base URL.
+    """
+    api_key = _get_api_key("HF_TOKEN")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    data = await _fetch_json(
+        "https://api-inference.huggingface.co/v1/models", headers
+    )
+    # The endpoint may return either {"data": [...]} (OpenAI shape) or a bare list
+    models: List[Any] = []
+    if isinstance(data, dict):
+        models = data.get("data", []) or []
+    elif isinstance(data, list):
+        models = data
+    if not isinstance(models, list):
+        return 0
+
+    count = 0
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        model_id = m.get("id", "")
+        if not model_id or router.get_model(model_id):
+            continue
+        label = m.get("id", model_id)[:60]
+        entry = ModelEntry(
+            id=model_id,
+            label=label,
+            provider=ProviderType.HUGGINGFACE,
+            base_url="https://api-inference.huggingface.co/v1",
+            api_key_env="HF_TOKEN",
+            description=f"{model_id} via Hugging Face Inference API",
+            modalities=_guess_modalities(model_id),
+            max_tokens=4096,
+            context_window=32768,
+            openai_compatible=True,
+            is_open_source=True,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("Hugging Face discovery: registered %d new models", count)
+    return count
+
+
+async def discover_replicate(router: ModelRouter) -> int:
+    """Discover language models from Replicate's model listing.
+
+    Replicate's ``/v1/models`` endpoint returns paginated results across all
+    public models. To avoid flooding the catalog with image/audio/video
+    models, only entries whose id or name matches a language-model keyword
+    are registered. Each is registered with the ``REPLICATE`` provider type.
+    """
+    api_key = _get_api_key("REPLICATE_API_TOKEN")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    data = await _fetch_json("https://api.replicate.com/v1/models", headers)
+    if not data or not isinstance(data, dict):
+        return 0
+
+    models = data.get("results", [])
+    if not isinstance(models, list):
+        return 0
+
+    count = 0
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        owner = m.get("owner", "")
+        name = m.get("name", "")
+        if not name:
+            continue
+        model_id = f"{owner}/{name}" if owner else name
+        if router.get_model(model_id):
+            continue
+        haystack = f"{model_id} {m.get('description', '')}".lower()
+        if not any(kw in haystack for kw in _REPLICATE_LLM_KEYWORDS):
+            continue
+        entry = ModelEntry(
+            id=model_id,
+            label=name[:60],
+            provider=ProviderType.REPLICATE,
+            base_url="https://api.replicate.com/v1",
+            api_key_env="REPLICATE_API_TOKEN",
+            description=m.get("description", "")[:200] or f"{model_id} on Replicate",
+            modalities=_guess_modalities(model_id),
+            max_tokens=4096,
+            context_window=32768,
+            openai_compatible=True,
+            is_open_source=True,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("Replicate discovery: registered %d new language models", count)
+    return count
+
+
+async def discover_stability(router: ModelRouter) -> int:
+    """Discover image-generation engines from Stability AI.
+
+    Stability AI exposes a ``/v1/engines/list`` endpoint that returns the
+    available generation engines. Each engine is registered as an
+    ``IMAGE_GEN`` model under the ``STABILITY`` provider type.
+    """
+    api_key = _get_api_key("STABILITY_API_KEY")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    data = await _fetch_json("https://api.stability.ai/v1/engines/list", headers)
+    if not isinstance(data, list):
+        return 0
+
+    count = 0
+    for m in data:
+        if not isinstance(m, dict):
+            continue
+        engine_id = m.get("id", "")
+        if not engine_id or router.get_model(engine_id):
+            continue
+        name = m.get("name", engine_id)
+        engine_type = m.get("type", "")
+        entry = ModelEntry(
+            id=engine_id,
+            label=name[:60],
+            provider=ProviderType.STABILITY,
+            base_url="https://api.stability.ai/v1",
+            api_key_env="STABILITY_API_KEY",
+            description=f"Stability AI {name} ({engine_type})" if engine_type else f"Stability AI {name}",
+            modalities=[Modality.IMAGE_GEN],
+            max_tokens=1,
+            context_window=4000,
+            openai_compatible=False,
+            is_open_source=True,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("Stability AI discovery: registered %d engines", count)
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -349,6 +516,9 @@ async def discover_all(router: ModelRouter = None) -> Dict[str, int]:
         ("together", discover_together(r)),
         ("groq", discover_groq(r)),
         ("mistral", discover_mistral(r)),
+        ("huggingface", discover_huggingface(r)),
+        ("replicate", discover_replicate(r)),
+        ("stability", discover_stability(r)),
     ]
 
     gathered = await asyncio.gather(
