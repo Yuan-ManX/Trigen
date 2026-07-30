@@ -557,7 +557,16 @@ def parse_message(
         ))
         matched_any = True
 
-    # 21. Multimodal generation (image / 3D asset / video / animation / speech)
+    # 21. Multi-step pipeline (checked before single-step multimodal so
+    # "generate an image then convert to 3D" builds a DAG instead of a
+    # single generate_image intent).
+    if not matched_any:
+        pipeline_intent = _parse_pipeline_intent(msg_lower, msg)
+        if pipeline_intent is not None:
+            intents.append(pipeline_intent)
+            matched_any = True
+
+    # 22. Multimodal generation (image / 3D asset / video / animation / speech)
     # These intents route natural language to the multimodal dispatcher via
     # dedicated Agent tools. They are checked after image-to-3D so the
     # reconstruction flow takes precedence when an image source is implied.
@@ -586,6 +595,10 @@ _IMAGE_TRIGGERS: List[str] = [
     "text to image", "text-to-image",
     "生成一张图片", "生成图片", "画一张", "画一幅",
     "生成一张图像", "生成图像",
+    # Shorter forms (listed last so longer triggers match first in _strip_trigger)
+    "generate an image", "generate image",
+    "create an image", "create image",
+    "draw an image", "draw a picture", "draw image",
 ]
 _3D_ASSET_TRIGGERS: List[str] = [
     "generate a 3d model of", "generate a 3d asset of", "generate 3d model of",
@@ -714,3 +727,165 @@ def _parse_multimodal_intent(msg_lower: str, msg_original: str) -> Optional[Pars
         )
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Pipeline intent helpers
+# ---------------------------------------------------------------------------
+
+# Connectors that join multi-step generation requests. Longer phrases first
+# so "and then" is matched before "then" during splitting.
+_PIPELINE_CONNECTORS: List[str] = [
+    "and then", "after that", "then", "->", "→", "&&",
+    "然后", "接着", "之后",
+]
+
+# Explicit pipeline declaration keywords.
+_PIPELINE_KEYWORDS: List[str] = [
+    "pipeline", "workflow", "chain", "sequence",
+    "流水线", "链路", "工作流",
+]
+
+# LLM prompt-crafting step triggers.
+_LLM_STEP_TRIGGERS: List[str] = [
+    "write a prompt", "craft a prompt", "compose a prompt",
+    "write a description", "come up with a prompt",
+    "describe a", "describe the",
+    "写一段", "描述", "构思", "编写",
+]
+
+# Triggers for the image-to-3D conversion step within a pipeline.
+_IMG_TO_3D_STEP_TRIGGERS: List[str] = [
+    "convert to 3d", "turn to 3d", "turn into 3d", "make it 3d",
+    "make 3d", "to 3d", "into 3d",
+    "转3d", "转3D", "变成3d", "变成3D", "转为3d", "转为3D",
+]
+
+
+def _triggers_for_step(step_type: str) -> List[str]:
+    """Return the trigger phrase list associated with a pipeline step type."""
+    return {
+        "generate_image": _IMAGE_TRIGGERS,
+        "generate_3d": _3D_ASSET_TRIGGERS,
+        "generate_video": _VIDEO_TRIGGERS,
+        "generate_animation": _ANIMATION_TRIGGERS,
+        "tts": _SPEECH_TRIGGERS,
+        "image_to_3d": _IMG_TO_3D_STEP_TRIGGERS,
+        "llm_complete": _LLM_STEP_TRIGGERS,
+    }.get(step_type, [])
+
+
+def _split_pipeline_segments(msg: str) -> List[str]:
+    """Split a message into pipeline segments on connector phrases.
+
+    Uses placeholder substitution so multi-word connectors are handled
+    before single-word ones, preventing double-splits.
+    """
+    text = msg
+    for i, conn in enumerate(_PIPELINE_CONNECTORS):
+        text = text.replace(conn, f"\x00P{i}\x00")
+    raw = text.split("\x00")
+    segments: List[str] = []
+    for s in raw:
+        s = s.strip()
+        # Drop bare connector artifacts
+        if s and not re.fullmatch(r"P\d+", s):
+            segments.append(s)
+    return segments
+
+
+def _detect_step_type(segment_lower: str) -> Optional[str]:
+    """Identify the pipeline node type for a single segment.
+
+    Returns one of: generate_image, generate_3d, generate_video,
+    generate_animation, tts, image_to_3d, llm_complete, or None.
+    """
+    if any(k in segment_lower for k in _IMAGE_TRIGGERS):
+        return "generate_image"
+    if any(k in segment_lower for k in _3D_ASSET_TRIGGERS):
+        return "generate_3d"
+    if any(k in segment_lower for k in _VIDEO_TRIGGERS):
+        return "generate_video"
+    if any(k in segment_lower for k in _ANIMATION_TRIGGERS):
+        return "generate_animation"
+    if any(k in segment_lower for k in _SPEECH_TRIGGERS):
+        return "tts"
+    if any(k in segment_lower for k in _IMG_TO_3D_STEP_TRIGGERS):
+        return "image_to_3d"
+    if any(k in segment_lower for k in _LLM_STEP_TRIGGERS):
+        return "llm_complete"
+    return None
+
+
+def _parse_pipeline_intent(msg_lower: str, msg_original: str) -> Optional[ParsedIntent]:
+    """Detect a multi-step pipeline request and build a node list.
+
+    Triggers on either an explicit pipeline/workflow keyword or a connector
+    phrase joining two or more generation steps. Each segment is classified
+    into a node type (image / 3D / video / animation / speech / LLM) and
+    wired to its predecessor: LLM output feeds the next prompt, and image
+    output feeds an image-to-3D reconstruction step.
+
+    Returns a ParsedIntent with tool_name="run_pipeline" and a list of
+    pipeline node definitions, or None when the message is not a pipeline.
+    """
+    has_keyword = any(k in msg_lower for k in _PIPELINE_KEYWORDS)
+    has_connector = any(c in msg_lower for c in _PIPELINE_CONNECTORS)
+    if not (has_keyword or has_connector):
+        return None
+
+    segments = _split_pipeline_segments(msg_original)
+    if len(segments) < 2:
+        return None
+
+    # Classify each segment; bail out if any segment is not a generation step
+    steps: List[Tuple[str, str]] = []
+    for seg in segments:
+        seg_lower = seg.lower()
+        step_type = _detect_step_type(seg_lower)
+        if step_type is None:
+            return None
+        prompt = _strip_trigger(seg, _triggers_for_step(step_type))
+        steps.append((step_type, prompt))
+
+    if len(steps) < 2:
+        return None
+
+    # Build pipeline nodes with inter-node output wiring
+    nodes: List[Dict[str, Any]] = []
+    prev_id: Optional[str] = None
+    prev_type: Optional[str] = None
+
+    for idx, (step_type, prompt) in enumerate(steps):
+        node_id = f"step_{idx + 1}"
+        inputs: Dict[str, Any] = {}
+
+        if prev_type == "llm_complete" and step_type in (
+            "generate_image", "generate_3d", "generate_video", "generate_animation"
+        ):
+            # LLM output becomes the prompt for this generation step
+            inputs["prompt"] = {"from": prev_id, "output": "content"}
+        elif prev_type == "generate_image" and step_type in ("image_to_3d", "generate_3d"):
+            # Image feeds 3D reconstruction — normalize text-to-3D into
+            # image_to_3d so the image payload is consumed
+            step_type = "image_to_3d"
+            inputs["image_base64"] = {"from": prev_id, "output": "base64_data"}
+            if prompt:
+                inputs["prompt"] = prompt
+        else:
+            if step_type == "tts":
+                inputs["text"] = prompt or "Hello from Trigen."
+            elif step_type == "llm_complete":
+                inputs["prompt"] = prompt or "Describe a vivid scene."
+            else:
+                inputs["prompt"] = prompt or "a 3D scene"
+
+        nodes.append({"id": node_id, "type": step_type, "inputs": inputs})
+        prev_id = node_id
+        prev_type = step_type
+
+    return ParsedIntent(
+        tool_name="run_pipeline",
+        arguments={"nodes": nodes},
+        description=f"Pipeline: {' -> '.join(s[0] for s in steps)}",
+    )
