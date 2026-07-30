@@ -1,7 +1,8 @@
 // Message bubble: user messages on the right, assistant messages on the left, supports streaming cursor and tool calls
 import { motion } from 'framer-motion'
-import { AlertTriangle, Brain, ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { AlertTriangle, Brain, ChevronDown, ChevronRight, RefreshCw, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { useChat } from '../../store/useChat'
 import type { ChatMessage, ThinkingTrace } from '../../store/useChat'
 import { ToolCallCard } from './ToolCallCard'
 
@@ -13,16 +14,26 @@ interface MessageBubbleProps {
 function ThinkingCard({ traces }: { traces: ThinkingTrace[] }) {
   const [open, setOpen] = useState(false)
   const lastPhase = traces[traces.length - 1]?.phase ?? ''
+  const reflectionCount = traces.filter((t) => t.phase === 'reflection').length
+  const isReflecting = lastPhase === 'reflection'
 
   return (
-    <div className="rounded-md border border-accent-gold/25 bg-accent-gold/5 overflow-hidden">
+    <div className={`rounded-md border overflow-hidden ${
+      isReflecting ? 'border-rose-400/30 bg-rose-500/5' : 'border-accent-gold/25 bg-accent-gold/5'
+    }`}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 text-left"
       >
-        <Brain size={13} className="text-accent-gold" />
+        <Brain size={13} className={isReflecting ? 'text-rose-400' : 'text-accent-gold'} />
         <span className="text-[11px] font-medium text-fg-secondary">
           Reasoning · {lastPhase || 'thinking'}
+          {traces.length > 1 && (
+            <span className="text-fg-muted ml-1">({traces.length} steps)</span>
+          )}
+          {reflectionCount > 0 && (
+            <span className="text-rose-400 ml-1">· {reflectionCount} reflection{reflectionCount > 1 ? 's' : ''}</span>
+          )}
         </span>
         {open ? (
           <ChevronDown size={12} className="ml-auto text-fg-muted" />
@@ -32,15 +43,20 @@ function ThinkingCard({ traces }: { traces: ThinkingTrace[] }) {
       </button>
       {open && (
         <div className="px-3 pb-2 space-y-1.5">
-          {traces.map((t, i) => (
-            <div key={i} className="text-[11px] text-fg-secondary leading-relaxed">
-              <span className="text-accent-gold/80 font-mono">[{t.phase}]</span>{' '}
-              {t.content}
-              {t.tools && t.tools.length > 0 && (
-                <span className="text-fg-muted"> → {t.tools.join(', ')}</span>
-              )}
-            </div>
-          ))}
+          {traces.map((t, i) => {
+            const isReflection = t.phase === 'reflection'
+            return (
+              <div key={i} className={`text-[11px] leading-relaxed ${
+                isReflection ? 'text-rose-300' : 'text-fg-secondary'
+              }`}>
+                <span className={`font-mono ${isReflection ? 'text-rose-400' : 'text-accent-gold/80'}`}>[{t.phase}]</span>{' '}
+                {t.content}
+                {t.tools && t.tools.length > 0 && (
+                  <span className="text-fg-muted"> → {t.tools.join(', ')}</span>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -49,6 +65,8 @@ function ThinkingCard({ traces }: { traces: ThinkingTrace[] }) {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const retry = useChat((s) => s.retry)
+  const isResponding = useChat((s) => s.isResponding)
 
   if (isUser) {
     return (
@@ -104,9 +122,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Error */}
         {message.error && (
-          <div className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span className="break-words">{message.error}</span>
+          <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span className="break-words flex-1">{message.error}</span>
+            </div>
+            <button
+              onClick={() => retry()}
+              disabled={isResponding}
+              className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw size={10} className={isResponding ? 'animate-spin' : ''} />
+              {isResponding ? 'Retrying…' : 'Retry'}
+            </button>
           </div>
         )}
       </div>
