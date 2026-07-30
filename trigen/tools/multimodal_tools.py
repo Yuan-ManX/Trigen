@@ -440,3 +440,69 @@ class TranscribeAudioTool(ToolBase):
                 "text": transcript,
             },
         )
+
+
+class GenerateMusicTool(ToolBase):
+    """Generate a short music clip from a text prompt using a text-to-music model."""
+
+    name = "generate_music"
+    description = (
+        "Generate a short music clip from a text prompt using models like Suno. "
+        "Returns the audio URL when the async job completes. If no model is "
+        "provided, the first available music-generation model is used."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Text description of the music to generate (style, mood, instruments).",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional music-generation model id, e.g. suno/v4.5.",
+                },
+                "duration": {
+                    "type": "integer",
+                    "description": "Clip duration in seconds (default 30).",
+                },
+            },
+            "required": ["prompt"],
+        }
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        prompt = arguments.get("prompt", "").strip()
+        if not prompt:
+            return ToolResult(success=False, message="Prompt is required for music generation.")
+        model = arguments.get("model") or _pick_model_by_modality(Modality.MUSIC)
+        if not model:
+            return ToolResult(
+                success=False,
+                message="No music-generation model is configured. Set a Suno API key to enable text-to-music.",
+            )
+        try:
+            duration = int(arguments.get("duration") or 30)
+        except (TypeError, ValueError):
+            duration = 30
+
+        result = await multimodal_dispatcher.generate_music(
+            model_id=model, prompt=prompt, duration=duration
+        )
+        if not result.success:
+            return ToolResult(success=False, message=result.error or "Music generation failed.")
+
+        msg = _result_message("Music", model, result.url, False)
+        return ToolResult(
+            success=True,
+            message=msg,
+            data={
+                "modality": result.modality,
+                "model": result.model,
+                "url": result.url,
+                "mime_type": result.mime_type,
+                "prompt": prompt,
+                "duration": duration,
+            },
+        )
