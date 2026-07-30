@@ -203,11 +203,23 @@ class LLMClient:
     def _get_chat_transport(params: Dict[str, Any]):
         """Look up the chat transport for the resolved provider.
 
+        Catalog ids prefixed with ``gemini-native/`` route to the native
+        Gemini transport (REST + SSE format) regardless of provider, so
+        Gemini 2.5 native models bypass the OpenAI-compatible shim.
+
         Falls back to the OpenAI transport when the provider has no
         dedicated transport registered (preserves the prior behaviour of
         routing unknown non-OpenAI providers through the OpenAI client).
         """
         from trigen.llm.transports import registry
+        from trigen.llm.transports.gemini_transport import GeminiTransport
+
+        model_id = params.get("model", "") or ""
+        if model_id.startswith("gemini-native/"):
+            native = getattr(GeminiTransport, "_native_instance", None)
+            if native is None:
+                native = GeminiTransport()
+            return native
 
         provider = params.get("provider")
         transport = registry.get_chat(provider) if provider is not None else None
