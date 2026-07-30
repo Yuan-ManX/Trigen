@@ -40,6 +40,8 @@ from trigen.scene import Scene, LightObject
 from trigen.tools import (
     AddCameraTool,
     AddLightTool,
+    AlignObjectsTool,
+    AnimateCameraTool,
     ApplyMaterialTool,
     ApplyMaterialPresetTool,
     ArrangeLayoutTool,
@@ -47,6 +49,7 @@ from trigen.tools import (
     DeleteLightTool,
     DeleteObjectTool,
     DispatchSubagentTool,
+    DistributeObjectsTool,
     DuplicateObjectTool,
     ExportSceneTool,
     FocusObjectTool,
@@ -57,15 +60,18 @@ from trigen.tools import (
     GenerateVideoTool,
     GroupObjectsTool,
     ListObjectsTool,
+    MeasureDistanceTool,
     ModifyCameraTool,
     ModifyGeometryTool,
     ModifyLightTool,
     SceneInfoTool,
     SelectObjectTool,
     SetBackgroundTool,
+    SetEnvironmentTool,
     SetFogTool,
     SetGridSizeTool,
     SetViewTool,
+    SnapshotViewTool,
     SmartComposeTool,
     SynthesizeSpeechTool,
     ToggleGridTool,
@@ -157,6 +163,13 @@ class AgentOrchestrator:
         registry.register(SetBackgroundTool())
         registry.register(SetFogTool())
         registry.register(ArrangeLayoutTool())
+        # Spatial manipulation & measurement
+        registry.register(AlignObjectsTool())
+        registry.register(DistributeObjectsTool())
+        registry.register(AnimateCameraTool())
+        registry.register(SetEnvironmentTool())
+        registry.register(SnapshotViewTool())
+        registry.register(MeasureDistanceTool())
         # Scene inspection
         registry.register(SceneInfoTool())
         # Grid control
@@ -359,6 +372,8 @@ class AgentOrchestrator:
         tried_models: set = {model} if model else set()
         retry_count = 0
         max_retries = 3
+        max_reflections = 2  # Cap reflection rounds to avoid loops
+        reflection_count = 0
         edit_ops_applied = 0
         total_tool_calls = 0
         for iteration in range(self.config.max_iterations):
@@ -468,6 +483,7 @@ class AgentOrchestrator:
                 )
 
             results = await self.executor.execute_plan(scene, plan)
+            failed_steps: List[tuple] = []  # (step, result) pairs for reflection
             for i, result in enumerate(results):
                 step = plan.steps[i] if i < len(plan.steps) else None
                 yield AgentEvent(
@@ -489,6 +505,8 @@ class AgentOrchestrator:
                             "content": result.message,
                         }
                     )
+                    if not result.success:
+                        failed_steps.append((step, result))
 
             # Scene mutation event
             deltas = self.executor.collect_deltas(results)
@@ -498,6 +516,34 @@ class AgentOrchestrator:
                     data={
                         "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in deltas],
                         "scene": scene.to_dict(),
+                    },
+                )
+
+            # Reflection: when one or more tool calls failed, surface a
+            # structured reflection prompt to the LLM so the next iteration
+            # can adjust arguments and retry. Capped to avoid loops.
+            if failed_steps and reflection_count < max_reflections and iteration < self.config.max_iterations - 1:
+                reflection_count += 1
+                lines = [
+                    f"One or more tool calls failed (reflection {reflection_count}/{max_reflections}).",
+                    "Review the failures below, identify the root cause (wrong id, bad argument, missing prerequisite), and retry with corrected parameters.",
+                    "",
+                ]
+                for s, r in failed_steps:
+                    lines.append(
+                        f"- tool={s.tool_name} arguments={json.dumps(s.arguments, ensure_ascii=False)} error={r.message}"
+                    )
+                lines.append("")
+                lines.append("Do NOT repeat the exact same arguments. Adjust them or call a different tool.")
+                reflection_msg = {"role": "system", "content": "\n".join(lines)}
+                messages.append(reflection_msg)
+                yield AgentEvent(
+                    type=EventType.THINKING,
+                    data={
+                        "phase": "reflection",
+                        "content": f"{len(failed_steps)} tool call(s) failed; asking model to reflect and retry ({reflection_count}/{max_reflections})",
+                        "failed_tools": [s.tool_name for s, _ in failed_steps],
+                        "iteration": iteration,
                     },
                 )
 
