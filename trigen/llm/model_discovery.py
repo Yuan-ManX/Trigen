@@ -64,6 +64,38 @@ def _guess_modalities(model_id: str, labels: List[str] = None) -> List[Modality]
     if any(kw in text for kw in audio_keywords):
         modalities.append(Modality.AUDIO)
 
+    # Image generation: diffusion / DALL·E / FLUX / SD / Ideogram / Leonardo / Recraft / Imagen.
+    image_gen_keywords = [
+        "dall-e", "dalle", "flux", "stable-diffusion", "stablediffusion", "sd3",
+        "sd-xl", "sdxl", "ideogram", "leonardo", "recraft", "imagen", "kandinsky",
+        "midjourney", "playground", "deepfloyd", "pixart",
+    ]
+    if any(kw in text for kw in image_gen_keywords):
+        modalities.append(Modality.IMAGE_GEN)
+
+    # Video generation: Sora / Runway / Luma / Pika / Kling.
+    video_keywords = ["sora", "runway", "luma", "pika", "kling", "text-to-video",
+                      "text2video", "video-gen", "gen-3", "gen3", "dream-machine"]
+    if any(kw in text for kw in video_keywords):
+        modalities.append(Modality.VIDEO)
+
+    # 3D generation: Meshy / Tripo / text-to-3d.
+    threed_keywords = ["meshy", "tripo", "text-to-3d", "text23d", "image-to-3d",
+                       "3d-gen", "point-e", "shap-e", "instant-3d"]
+    if any(kw in text for kw in threed_keywords):
+        modalities.append(Modality.THREE_D)
+
+    # Animation: animation / sprite / frame-sequence.
+    animation_keywords = ["anim", "sprite", "frame-sequence", "animation"]
+    if any(kw in text for kw in animation_keywords):
+        modalities.append(Modality.ANIMATION)
+
+    # Music: Suno / music-gen.
+    music_keywords = ["suno", "music-gen", "musicgen", "music-gen", "text-to-music",
+                      "text2music", "audiogen"]
+    if any(kw in text for kw in music_keywords):
+        modalities.append(Modality.MUSIC)
+
     return modalities
 
 
@@ -495,6 +527,200 @@ async def discover_stability(router: ModelRouter) -> int:
     return count
 
 
+async def discover_openai(router: ModelRouter) -> int:
+    """Discover models from the OpenAI ``/v1/models`` endpoint."""
+    api_key = _get_api_key("OPENAI_API_KEY")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    data = await _fetch_json("https://api.openai.com/v1/models", headers)
+    if not data or not isinstance(data, dict):
+        return 0
+
+    models = data.get("data", [])
+    if not isinstance(models, list):
+        return 0
+
+    count = 0
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        model_id = m.get("id", "")
+        if not model_id or router.get_model(model_id):
+            continue
+        owned_by = m.get("owned_by", "") or ""
+        entry = ModelEntry(
+            id=model_id,
+            label=model_id[:60],
+            provider=ProviderType.OPENAI,
+            base_url="https://api.openai.com/v1",
+            api_key_env="OPENAI_API_KEY",
+            description=f"{model_id} ({owned_by})" if owned_by else f"{model_id} on OpenAI",
+            modalities=_guess_modalities(model_id),
+            max_tokens=4096,
+            context_window=32768,
+            openai_compatible=True,
+            is_open_source=False,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("OpenAI discovery: registered %d new models", count)
+    return count
+
+
+async def discover_cohere(router: ModelRouter) -> int:
+    """Discover models from Cohere's ``/v1/models`` endpoint."""
+    api_key = _get_api_key("COHERE_API_KEY")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    data = await _fetch_json("https://api.cohere.com/v1/models", headers)
+    if not isinstance(data, list):
+        return 0
+
+    count = 0
+    for m in data:
+        if not isinstance(m, dict):
+            continue
+        model_id = m.get("name", "") or m.get("id", "")
+        if not model_id or router.get_model(model_id):
+            continue
+        endpoints = m.get("endpoints", []) or []
+        if endpoints and "chat" not in [e.lower() for e in endpoints]:
+            continue
+        entry = ModelEntry(
+            id=model_id,
+            label=model_id[:60],
+            provider=ProviderType.COHERE,
+            base_url="https://api.cohere.com/v1",
+            api_key_env="COHERE_API_KEY",
+            description=f"{model_id} on Cohere",
+            modalities=_guess_modalities(model_id),
+            max_tokens=4096,
+            context_window=128000,
+            openai_compatible=True,
+            is_open_source=False,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("Cohere discovery: registered %d new models", count)
+    return count
+
+
+async def discover_ai21(router: ModelRouter) -> int:
+    """Discover models from AI21's ``/studio/v1/models`` endpoint."""
+    api_key = _get_api_key("AI21_API_KEY")
+    if not api_key:
+        return 0
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    data = await _fetch_json("https://api.ai21.com/studio/v1/models", headers)
+    if not isinstance(data, list):
+        return 0
+
+    count = 0
+    for m in data:
+        if not isinstance(m, dict):
+            continue
+        model_id = m.get("name", "") or m.get("id", "")
+        if not model_id or router.get_model(model_id):
+            continue
+        entry = ModelEntry(
+            id=model_id,
+            label=model_id[:60],
+            provider=ProviderType.AI21,
+            base_url="https://api.ai21.com/studio/v1",
+            api_key_env="AI21_API_KEY",
+            description=f"{model_id} on AI21",
+            modalities=_guess_modalities(model_id),
+            max_tokens=8192,
+            context_window=256000,
+            openai_compatible=True,
+            is_open_source=False,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("AI21 discovery: registered %d new models", count)
+    return count
+
+
+async def discover_gemini(router: ModelRouter) -> int:
+    """Discover Google Gemini models from the native ``/v1beta/models`` endpoint.
+
+    Registers each model under the ``GOOGLE`` provider with the OpenAI-compatible
+    base URL so existing chat / vision flows can use them. Models with names
+    starting with ``gemini-`` are registered; embedding / TTS variants are skipped.
+    """
+    api_key = _get_api_key("GOOGLE_API_KEY")
+    if not api_key:
+        return 0
+
+    data = await _fetch_json(
+        f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", {}
+    )
+    if not data or not isinstance(data, dict):
+        return 0
+
+    models = data.get("models", [])
+    if not isinstance(models, list):
+        return 0
+
+    count = 0
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        name = m.get("name", "")
+        # Gemini returns "models/gemini-2.0-flash" — strip the "models/" prefix.
+        model_id = name.split("/", 1)[-1] if name.startswith("models/") else name
+        if not model_id or router.get_model(model_id):
+            continue
+        # Only register text-capable Gemini models. Skip embedding / TTS / vision-only.
+        supported = m.get("supportedGenerationMethods", []) or []
+        if supported and "generateContent" not in supported:
+            continue
+        display_name = m.get("displayName", model_id)
+        entry = ModelEntry(
+            id=model_id,
+            label=display_name[:60],
+            provider=ProviderType.GOOGLE,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key_env="GOOGLE_API_KEY",
+            description=f"{display_name} on Google Gemini",
+            modalities=_guess_modalities(model_id),
+            max_tokens=8192,
+            context_window=int(m.get("inputTokenLimit", 1048576) or 1048576),
+            openai_compatible=True,
+            is_open_source=False,
+        )
+        router.register(entry)
+        count += 1
+
+    logger.info("Gemini discovery: registered %d new models", count)
+    return count
+
+
+async def discover_fal(router: ModelRouter) -> int:
+    """Discover fal.ai generation models.
+
+    fal.ai does not expose a public model-listing endpoint, so this
+    adapter registers a curated set of high-value generation models
+    (FLUX / Kling / Tripo) when an API key is present. The curated ids
+    already exist in the static catalog, so this function primarily
+    serves as a no-op marker for the discovery summary.
+    """
+    api_key = _get_api_key("FAL_API_KEY")
+    if not api_key:
+        return 0
+    # Catalog already contains the fal.ai models; nothing to register.
+    logger.info("fal.ai discovery: catalog already populated, 0 new models")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -519,6 +745,11 @@ async def discover_all(router: ModelRouter = None) -> Dict[str, int]:
         ("huggingface", discover_huggingface(r)),
         ("replicate", discover_replicate(r)),
         ("stability", discover_stability(r)),
+        ("openai", discover_openai(r)),
+        ("cohere", discover_cohere(r)),
+        ("ai21", discover_ai21(r)),
+        ("gemini", discover_gemini(r)),
+        ("fal", discover_fal(r)),
     ]
 
     gathered = await asyncio.gather(
