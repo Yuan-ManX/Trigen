@@ -25,9 +25,15 @@ from trigen.llm.provider_registry import (
     CustomProvider,
     registry as provider_registry,
 )
-from trigen.llm.pipeline import orchestrator as pipeline_orchestrator, parse_pipeline
+from trigen.llm.pipeline import (
+    NODE_SCHEMAS,
+    orchestrator as pipeline_orchestrator,
+    parse_pipeline,
+    PipelineValidationError,
+)
 from trigen.llm.key_store import store as key_store
 from trigen.llm.model_discovery import discover_all
+from trigen.llm.blueprint import ModelBlueprint, store as blueprint_store
 
 logger = logging.getLogger("trigen.api.models")
 router = APIRouter(tags=["models"])
@@ -342,7 +348,10 @@ class RunPipelineRequest(BaseModel):
 async def run_pipeline(req: RunPipelineRequest) -> Dict[str, Any]:
     """Execute a multi-step generation pipeline (ComfyUI-style DAG)."""
     definition = {"name": req.name, "nodes": req.nodes}
-    pipeline = parse_pipeline(definition)
+    try:
+        pipeline = parse_pipeline(definition)
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     results = await pipeline_orchestrator.execute(pipeline)
     return {
         "name": pipeline.name,
@@ -358,6 +367,28 @@ async def run_pipeline(req: RunPipelineRequest) -> Dict[str, Any]:
             for r in results
         ],
     }
+
+
+@router.get("/models/pipeline/node_types")
+async def list_pipeline_node_types() -> Dict[str, Any]:
+    """Introspect the available pipeline node types and their I/O schemas.
+
+    Returns each registered node type together with its declared input and
+    output field schemas (key -> type label). The frontend uses this to
+    render a node palette and validate connections in the pipeline editor.
+    """
+    # Merge built-in schemas with runtime-registered handlers (which have no
+    # declared schema and are reported with empty inputs/outputs).
+    types: Dict[str, Dict[str, Any]] = {}
+    for node_type, schema in NODE_SCHEMAS.items():
+        types[node_type] = {
+            "inputs": dict(schema.get("inputs", {})),
+            "outputs": dict(schema.get("outputs", {})),
+        }
+    for node_type in pipeline_orchestrator._handlers:
+        if node_type not in types:
+            types[node_type] = {"inputs": {}, "outputs": {}}
+    return {"node_types": types, "count": len(types)}
 
 
 # ===== Model connection testing =====
@@ -528,7 +559,10 @@ async def run_pipeline_stream(req: RunPipelineRequest) -> Dict[str, Any]:
     from trigen.llm.pipeline import PipelineNode, Pipeline as PipelineDef
 
     definition = {"name": req.name, "nodes": req.nodes}
-    pipeline = parse_pipeline(definition)
+    try:
+        pipeline = parse_pipeline(definition)
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     start = time.time()
     results = await pipeline_orchestrator.execute(pipeline)
     total_elapsed = int((time.time() - start) * 1000)
@@ -569,7 +603,10 @@ async def run_pipeline_sse(req: RunPipelineRequest):
     from fastapi.responses import StreamingResponse
 
     definition = {"name": req.name, "nodes": req.nodes}
-    pipeline = parse_pipeline(definition)
+    try:
+        pipeline = parse_pipeline(definition)
+    except PipelineValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     async def event_stream():
         async for event in pipeline_orchestrator.execute_stream(pipeline):
@@ -673,9 +710,10 @@ async def clear_all_api_keys() -> Dict[str, Any]:
 async def run_model_discovery() -> Dict[str, Any]:
     """Trigger dynamic model discovery across all configured providers.
 
-    Queries OpenRouter, Ollama, Together, Groq, and Mistral for their live
-    model listings and registers any new models in the router catalog.
-    Returns per-provider counts of newly discovered models.
+    Queries OpenRouter, Ollama, Together, Groq, Mistral, Hugging Face,
+    Replicate, and Stability AI for their live model listings and registers
+    any new models in the router catalog. Returns per-provider counts of
+    newly discovered models.
     """
     counts = await discover_all(model_router)
     total = sum(counts.values())
@@ -685,4 +723,55 @@ async def run_model_discovery() -> Dict[str, Any]:
         "new_count": total,
         "total_catalog": catalog_count,
     }
+
+
+class BlueprintRequest(BaseModel):
+    """Request body for setting a per-model generation blueprint."""
+
+    temperature: Optional[float] = Field(default=None, description="Sampling temperature")
+    max_tokens: Optional[int] = Field(default=None, description="Max tokens to generate")
+    stop: Optional[List[str]] = Field(default=None, description="Stop sequences")
+    template: Optional[str] = Field(default=None, description="Prompt template prepended to the system prompt")
+    system_override: Optional[str] = Field(default=None, description="Fully replaces the system prompt")
+    reasoning_effort: Optional[str] = Field(default=None, description="Reasoning effort: low|medium|high")
+
+
+@router.get("/models/{model_id}/blueprint")
+async def get_blueprint(model_id: str) -> Dict[str, Any]:
+    """Return the runtime blueprint for a model id (empty when none is set)."""
+    bp = blueprint_store.get(model_id)
+    if bp is None:
+        return {"model_id": model_id, "blueprint": None}
+    return {"model_id": model_id, "blueprint": bp.to_dict()}
+
+
+@router.put("/models/{model_id}/blueprint")
+async def set_blueprint(model_id: str, req: BlueprintRequest) -> Dict[str, Any]:
+    """Create, update, or clear the runtime blueprint for a model id.
+
+    Sending an all-null body clears the blueprint (reverts to defaults).
+    Unknown model ids are accepted so blueprints can be staged before a
+    custom provider is registered.
+    """
+    bp = ModelBlueprint(
+        temperature=req.temperature,
+        max_tokens=req.max_tokens,
+        stop=list(req.stop) if req.stop else None,
+        template=req.template,
+        system_override=req.system_override,
+        reasoning_effort=req.reasoning_effort,
+    )
+    blueprint_store.set(model_id, bp)
+    saved = blueprint_store.get(model_id)
+    return {
+        "model_id": model_id,
+        "blueprint": saved.to_dict() if saved is not None else None,
+    }
+
+
+@router.delete("/models/{model_id}/blueprint")
+async def delete_blueprint(model_id: str) -> Dict[str, Any]:
+    """Remove the runtime blueprint for a model id."""
+    removed = blueprint_store.delete(model_id)
+    return {"model_id": model_id, "removed": removed}
 
