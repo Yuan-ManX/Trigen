@@ -45,6 +45,18 @@ class ProviderType(str, Enum):
     STABILITY = "stability"
     RUNWAY = "runway"
     MESHY = "meshy"
+    # Multimodal generation providers (added for broad coverage).
+    FAL = "fal"
+    ELEVENLABS = "elevenlabs"
+    TRIPO = "tripo"
+    LUMA = "luma"
+    IDEOGRAM = "ideogram"
+    LEONARDO = "leonardo"
+    RECRAFT = "recraft"
+    PIKA = "pika"
+    KLING = "kling"
+    ASSEMBLYAI = "assemblyai"
+    SUNO = "suno"
     LOCAL = "local"
 
 
@@ -59,6 +71,7 @@ class Modality(str, Enum):
     THREE_D = "3d"
     ANIMATION = "animation"
     VOICE = "voice"
+    MUSIC = "music"
 
 
 @dataclass
@@ -77,6 +90,19 @@ class ModelEntry:
     openai_compatible: bool = True
     is_open_source: bool = False
     is_local: bool = False
+    # Routing hints used by ``ModelRouter.select_best_for_task``. Lower is
+    # cheaper / faster. ``cost_tier`` ranges 0 (free/local) to 4 (premium
+    # frontier). ``latency_tier`` ranges 0 (instant) to 4 (multi-minute
+    # async jobs). ``capabilities`` carries opt-in features such as
+    # ``function_calling``, ``reasoning``, ``json_mode``.
+    cost_tier: int = 2
+    latency_tier: int = 2
+    capabilities: List[str] = field(default_factory=list)
+    # Optional default blueprint shipped with the model. Runtime overrides
+    # set via the API live in ``blueprint.store`` and take precedence.
+    # Imported lazily via ``ModelEntry.blueprint`` property-free annotation
+    # to avoid a router <-> blueprint import cycle at module load.
+    blueprint: Any = None
 
 
 # Full model catalog — text, multimodal, open-source, and local models
@@ -923,6 +949,319 @@ MODEL_CATALOG: List[ModelEntry] = [
         max_tokens=1,
         context_window=4000,
     ),
+    # === fal.ai (multimodal generation aggregator) ===
+    ModelEntry(
+        id="fal-ai/flux-pro",
+        label="FLUX Pro (fal)",
+        provider=ProviderType.FAL,
+        base_url="https://fal.run",
+        api_key_env="FAL_API_KEY",
+        description="FLUX Pro image generation via fal.ai",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=2,
+    ),
+    ModelEntry(
+        id="fal-ai/flux-dev",
+        label="FLUX Dev (fal)",
+        provider=ProviderType.FAL,
+        base_url="https://fal.run",
+        api_key_env="FAL_API_KEY",
+        description="FLUX Dev image generation via fal.ai",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=2,
+    ),
+    ModelEntry(
+        id="fal-ai/kling-video",
+        label="Kling Video (fal)",
+        provider=ProviderType.FAL,
+        base_url="https://fal.run",
+        api_key_env="FAL_API_KEY",
+        description="Kling text-to-video via fal.ai",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    ModelEntry(
+        id="fal-ai/tripo-3d",
+        label="Tripo 3D (fal)",
+        provider=ProviderType.FAL,
+        base_url="https://fal.run",
+        api_key_env="FAL_API_KEY",
+        description="Tripo text-to-3D via fal.ai",
+        modalities=[Modality.THREE_D],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    # === ElevenLabs (TTS) ===
+    ModelEntry(
+        id="eleven-multilingual-v2",
+        label="ElevenLabs Multilingual V2",
+        provider=ProviderType.ELEVENLABS,
+        base_url="https://api.elevenlabs.io/v1",
+        api_key_env="ELEVENLABS_API_KEY",
+        description="ElevenLabs multilingual text-to-speech",
+        modalities=[Modality.VOICE],
+        max_tokens=4096, context_window=4096,
+        cost_tier=3, latency_tier=1,
+    ),
+    ModelEntry(
+        id="eleven-turbo-v2-5",
+        label="ElevenLabs Turbo V2.5",
+        provider=ProviderType.ELEVENLABS,
+        base_url="https://api.elevenlabs.io/v1",
+        api_key_env="ELEVENLABS_API_KEY",
+        description="ElevenLabs low-latency TTS",
+        modalities=[Modality.VOICE],
+        max_tokens=4096, context_window=4096,
+        cost_tier=2, latency_tier=0,
+    ),
+    ModelEntry(
+        id="eleven-monolingual-v1",
+        label="ElevenLabs Monolingual V1",
+        provider=ProviderType.ELEVENLABS,
+        base_url="https://api.elevenlabs.io/v1",
+        api_key_env="ELEVENLABS_API_KEY",
+        description="ElevenLabs English-only TTS",
+        modalities=[Modality.VOICE],
+        max_tokens=4096, context_window=4096,
+        cost_tier=2, latency_tier=1,
+    ),
+    # === Tripo (direct 3D) ===
+    ModelEntry(
+        id="tripo-direct/text-to-3d",
+        label="Tripo Text-to-3D (Direct)",
+        provider=ProviderType.TRIPO,
+        base_url="https://api.tripo3d.ai/v2",
+        api_key_env="TRIPO_API_KEY",
+        description="Tripo direct text-to-3D mesh generation",
+        modalities=[Modality.THREE_D],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    ModelEntry(
+        id="tripo-direct/image-to-3d",
+        label="Tripo Image-to-3D (Direct)",
+        provider=ProviderType.TRIPO,
+        base_url="https://api.tripo3d.ai/v2",
+        api_key_env="TRIPO_API_KEY",
+        description="Tripo direct image-to-3D reconstruction",
+        modalities=[Modality.THREE_D],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    # === Luma (video) ===
+    ModelEntry(
+        id="luma/ray2",
+        label="Luma Ray 2",
+        provider=ProviderType.LUMA,
+        base_url="https://api.lumalabs.ai/v1",
+        api_key_env="LUMA_API_KEY",
+        description="Luma Ray 2 text-to-video",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    ModelEntry(
+        id="luma/dream-machine",
+        label="Luma Dream Machine",
+        provider=ProviderType.LUMA,
+        base_url="https://api.lumalabs.ai/v1",
+        api_key_env="LUMA_API_KEY",
+        description="Luma Dream Machine video generation",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=4,
+    ),
+    # === Ideogram (image) ===
+    ModelEntry(
+        id="ideogram-v3",
+        label="Ideogram V3",
+        provider=ProviderType.IDEOGRAM,
+        base_url="https://api.ideogram.ai/v1",
+        api_key_env="IDEOGRAM_API_KEY",
+        description="Ideogram V3 image generation with strong typography",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=2,
+    ),
+    ModelEntry(
+        id="ideogram-v2-turbo",
+        label="Ideogram V2 Turbo",
+        provider=ProviderType.IDEOGRAM,
+        base_url="https://api.ideogram.ai/v1",
+        api_key_env="IDEOGRAM_API_KEY",
+        description="Ideogram V2 Turbo fast image generation",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=1, latency_tier=1,
+    ),
+    # === Leonardo (image) ===
+    ModelEntry(
+        id="leonardo/phoenix",
+        label="Leonardo Phoenix",
+        provider=ProviderType.LEONARDO,
+        base_url="https://cloud.leonardo.ai/api/rest/v1",
+        api_key_env="LEONARDO_API_KEY",
+        description="Leonardo Phoenix flagship image model",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=2,
+    ),
+    ModelEntry(
+        id="leonardo/lightning",
+        label="Leonardo Lightning",
+        provider=ProviderType.LEONARDO,
+        base_url="https://cloud.leonardo.ai/api/rest/v1",
+        api_key_env="LEONARDO_API_KEY",
+        description="Leonardo Lightning fast image generation",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=1, latency_tier=1,
+    ),
+    # === Recraft (image) ===
+    ModelEntry(
+        id="recraft-v3",
+        label="Recraft V3",
+        provider=ProviderType.RECRAFT,
+        base_url="https://external.api.recraft.ai/v1",
+        api_key_env="RECRAFT_API_KEY",
+        description="Recraft V3 image generation with vector output",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=2,
+    ),
+    ModelEntry(
+        id="recraft-20b",
+        label="Recraft 20B",
+        provider=ProviderType.RECRAFT,
+        base_url="https://external.api.recraft.ai/v1",
+        api_key_env="RECRAFT_API_KEY",
+        description="Recraft 20B high-fidelity image model",
+        modalities=[Modality.IMAGE_GEN],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=2,
+    ),
+    # === Pika (video) ===
+    ModelEntry(
+        id="pika/pika-2.0",
+        label="Pika 2.0",
+        provider=ProviderType.PIKA,
+        base_url="https://api.pika.art/v1",
+        api_key_env="PIKA_API_KEY",
+        description="Pika 2.0 text-to-video generation",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=4,
+    ),
+    ModelEntry(
+        id="pika/pika-scenes",
+        label="Pika Scenes",
+        provider=ProviderType.PIKA,
+        base_url="https://api.pika.art/v1",
+        api_key_env="PIKA_API_KEY",
+        description="Pika Scenes cinematic video generation",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    # === Kling (video, direct) ===
+    ModelEntry(
+        id="kling/v2-master",
+        label="Kling V2 Master",
+        provider=ProviderType.KLING,
+        base_url="https://api.klingai.com/v1",
+        api_key_env="KLING_API_KEY",
+        description="Kling V2 Master text-to-video direct API",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=3, latency_tier=4,
+    ),
+    ModelEntry(
+        id="kling/v1-6-pro",
+        label="Kling V1.6 Pro",
+        provider=ProviderType.KLING,
+        base_url="https://api.klingai.com/v1",
+        api_key_env="KLING_API_KEY",
+        description="Kling V1.6 Pro text-to-video direct API",
+        modalities=[Modality.VIDEO],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=4,
+    ),
+    # === AssemblyAI (transcription) ===
+    ModelEntry(
+        id="assemblyai/best",
+        label="AssemblyAI Best",
+        provider=ProviderType.ASSEMBLYAI,
+        base_url="https://api.assemblyai.com/v2",
+        api_key_env="ASSEMBLYAI_API_KEY",
+        description="AssemblyAI Best-NL speech-to-text",
+        modalities=[Modality.AUDIO],
+        max_tokens=1, context_window=32000,
+        cost_tier=2, latency_tier=1,
+    ),
+    ModelEntry(
+        id="assemblyai/nano",
+        label="AssemblyAI Nano",
+        provider=ProviderType.ASSEMBLYAI,
+        base_url="https://api.assemblyai.com/v2",
+        api_key_env="ASSEMBLYAI_API_KEY",
+        description="AssemblyAI Nano fast streaming transcription",
+        modalities=[Modality.AUDIO],
+        max_tokens=1, context_window=32000,
+        cost_tier=1, latency_tier=0,
+    ),
+    # === Suno (music) ===
+    ModelEntry(
+        id="suno/v4.5",
+        label="Suno V4.5",
+        provider=ProviderType.SUNO,
+        base_url="https://api.suno.ai/v1",
+        api_key_env="SUNO_API_KEY",
+        description="Suno V4.5 music generation",
+        modalities=[Modality.MUSIC],
+        max_tokens=1, context_window=4000,
+        cost_tier=2, latency_tier=4,
+    ),
+    ModelEntry(
+        id="suno/v3.5",
+        label="Suno V3.5",
+        provider=ProviderType.SUNO,
+        base_url="https://api.suno.ai/v1",
+        api_key_env="SUNO_API_KEY",
+        description="Suno V3.5 music generation",
+        modalities=[Modality.MUSIC],
+        max_tokens=1, context_window=4000,
+        cost_tier=1, latency_tier=3,
+    ),
+    # === Google Gemini (native API format) ===
+    ModelEntry(
+        id="gemini-native/gemini-2.5-pro",
+        label="Gemini 2.5 Pro (Native)",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+        api_key_env="GOOGLE_API_KEY",
+        description="Gemini 2.5 Pro via native API format",
+        modalities=[Modality.TEXT, Modality.VISION, Modality.AUDIO],
+        max_tokens=8192, context_window=2097152,
+        cost_tier=3, latency_tier=2,
+        openai_compatible=False,
+        capabilities=["function_calling", "json_mode"],
+    ),
+    ModelEntry(
+        id="gemini-native/gemini-2.5-flash",
+        label="Gemini 2.5 Flash (Native)",
+        provider=ProviderType.GOOGLE,
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+        api_key_env="GOOGLE_API_KEY",
+        description="Gemini 2.5 Flash via native API format",
+        modalities=[Modality.TEXT, Modality.VISION, Modality.AUDIO],
+        max_tokens=8192, context_window=1048576,
+        cost_tier=1, latency_tier=1,
+        openai_compatible=False,
+        capabilities=["function_calling", "json_mode"],
+    ),
 ]
 
 
@@ -978,6 +1317,7 @@ class ModelRouter:
             Modality.ANIMATION,
             Modality.VOICE,
             Modality.AUDIO,
+            Modality.MUSIC,
         }
         return any(mod in generation_modalities for mod in entry.modalities) and not any(
             mod in (Modality.TEXT, Modality.VISION) for mod in entry.modalities
@@ -1005,6 +1345,7 @@ class ModelRouter:
                 "model": model_id,
                 "base_url": fallback_url or os.environ.get("TRIGEN_LLM_BASE_URL", "https://api.openai.com/v1"),
                 "api_key": fallback_key or os.environ.get("TRIGEN_LLM_API_KEY", ""),
+                "api_key_env": "TRIGEN_LLM_API_KEY",
                 "openai_compatible": True,
                 "provider": ProviderType.OPENAI,
                 "modalities": [Modality.TEXT],
@@ -1038,6 +1379,7 @@ class ModelRouter:
             "model": entry.id,
             "base_url": entry.base_url,
             "api_key": api_key,
+            "api_key_env": entry.api_key_env,
             "openai_compatible": entry.openai_compatible,
             "provider": entry.provider,
             "modalities": entry.modalities,
@@ -1072,6 +1414,11 @@ class ModelRouter:
         models are appended in priority order: large cloud models first,
         then open-source hosted models, then local Ollama models, and
         finally the offline default. Duplicates are removed.
+
+        When ``preferred_modality`` is VISION, models that actually declare
+        the VISION capability are sorted ahead of text-only models so the
+        first attempt can handle image input. Cost and latency tiers act
+        as tiebreakers (cheaper and faster first).
         """
         chain: List[str] = []
         seen: set[str] = set()
@@ -1085,24 +1432,70 @@ class ModelRouter:
             _add(primary)
 
         available = self.list_available_chat_models()
-        # Sort by priority: cloud non-OSS → cloud OSS → local → default
-        def _priority(mid: str) -> int:
+
+        def _priority(mid: str) -> tuple:
             entry = self._models.get(mid)
             if not entry:
-                return 99
+                return (99, 99, 99)
             if entry.id == "trigen-default":
-                return 90
-            if entry.is_local:
-                return 80
-            if entry.is_open_source:
-                return 50
-            return 10
+                return (90, 0, 0)
+            tier = 80 if entry.is_local else (50 if entry.is_open_source else 10)
+            # Prefer models that declare the requested modality.
+            modality_bonus = 0 if preferred_modality in entry.modalities else 20
+            return (tier + modality_bonus, entry.cost_tier, entry.latency_tier)
 
         for mid in sorted(available, key=_priority):
             _add(mid)
 
         _add("trigen-default")
         return chain
+
+    def select_best_for_task(
+        self,
+        modality: Modality,
+        preferred: Optional[str] = None,
+        max_cost_tier: int = 4,
+        max_latency_tier: int = 4,
+        require_capability: Optional[str] = None,
+    ) -> Optional[str]:
+        """Pick the best model for a task given modality + constraints.
+
+        Considers only models that declare ``modality`` and have an API key
+        configured (or are the offline default). Filters by cost / latency
+        caps and optional capability tag, then picks the (cost, latency,
+        tier) minimum. Returns ``None`` when nothing satisfies the filter.
+
+        This is the modality-aware entry point that generation tools use
+        when no explicit model id is supplied by the caller.
+        """
+        if preferred:
+            entry = self.get_model(preferred)
+            if entry and modality in entry.modalities:
+                resolved = self.resolve(preferred)
+                if resolved.get("api_key") or entry.id == "trigen-default":
+                    if (entry.cost_tier <= max_cost_tier
+                            and entry.latency_tier <= max_latency_tier
+                            and (not require_capability
+                                 or require_capability in entry.capabilities)):
+                        return preferred
+
+        candidates: List[tuple] = []
+        for entry in self.list_by_modality(modality):
+            if entry.cost_tier > max_cost_tier:
+                continue
+            if entry.latency_tier > max_latency_tier:
+                continue
+            if require_capability and require_capability not in entry.capabilities:
+                continue
+            resolved = self.resolve(entry.id)
+            if not (resolved.get("api_key") or entry.id == "trigen-default"):
+                continue
+            candidates.append((entry.cost_tier, entry.latency_tier, entry.id))
+
+        if not candidates:
+            return None
+        candidates.sort()
+        return candidates[0][2]
 
     def to_catalog_dict(self) -> List[Dict[str, Any]]:
         """Serialize the catalog for the frontend model selector."""
@@ -1120,6 +1513,9 @@ class ModelRouter:
                     "is_open_source": m.is_open_source,
                     "is_local": m.is_local,
                     "api_key_env": m.api_key_env,
+                    "cost_tier": m.cost_tier,
+                    "latency_tier": m.latency_tier,
+                    "capabilities": list(m.capabilities),
                 }
             )
         return result
