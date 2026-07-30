@@ -10,9 +10,12 @@ as a pluggable connector: a provider is described by a small descriptor
 object, and the registry is the single source of truth that the router
 consults at request time.
 
-Custom providers are persisted to a JSON file under the workspace so they
-survive restarts. The registry is safe to call concurrently — all writes
-go through a single async flush.
+Custom provider metadata (name, base_url, models) is persisted to a JSON
+file under the workspace so registrations survive restarts. API keys are
+NOT written to that file — they are handed to the runtime ``key_store``,
+which is the single secure home for secrets. The registry file only stores
+a key handle (the env-name under which the key was stored) so the key can
+be retrieved at request time without leaking it to disk alongside metadata.
 """
 
 from __future__ import annotations
@@ -28,11 +31,19 @@ from trigen.llm.router import Modality, ModelEntry, ProviderType, router as mode
 
 logger = logging.getLogger("trigen.llm.provider_registry")
 
-# Persistence path for registered custom providers
+# Persistence path for registered custom providers (metadata only — no keys)
 _REGISTRY_FILE = os.path.join(
     os.environ.get("TRIGEN_WORKSPACE", os.path.join(os.getcwd(), ".trigen", "workspace")),
     "custom_providers.json",
 )
+
+
+def _key_handle(provider_name: str) -> str:
+    """Build the env-name handle under which a provider's key is stored."""
+    # Sanitize the provider name into a stable env-style handle. The handle
+    # is only used as a lookup key in the key_store, never as a real env var.
+    safe = "".join(c if c.isalnum() else "_" for c in provider_name).upper()
+    return f"CUSTOM_PROVIDER_{safe}_API_KEY"
 
 
 @dataclass
@@ -49,7 +60,7 @@ class CustomModel:
 
 @dataclass
 class CustomProvider:
-    """Descriptor for a user-registered provider endpoint."""
+    """Descriptor of a user-registered provider endpoint."""
 
     name: str
     base_url: str
@@ -73,7 +84,11 @@ class ProviderRegistry:
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
-        """Lazily load persisted providers on first access."""
+        """Lazily load persisted providers on first access.
+
+        API keys are rehydrated from the key_store (which has its own
+        persistence), not from the registry JSON.
+        """
         if self._loaded:
             return
         self._loaded = True
@@ -83,14 +98,26 @@ class ProviderRegistry:
                     data = json.load(f)
                 for prov_data in data.get("providers", []):
                     models = [CustomModel(**m) for m in prov_data.get("models", [])]
+                    handle = prov_data.get("key_handle", "")
+                    # Rehydrate the key from the secure key_store
+                    api_key = ""
+                    if handle:
+                        try:
+                            from trigen.llm.key_store import store as _key_store
+
+                            api_key = _key_store.get_key(handle)
+                        except Exception:
+                            api_key = ""
                     prov = CustomProvider(
                         name=prov_data["name"],
                         base_url=prov_data["base_url"],
-                        api_key=prov_data.get("api_key", ""),
+                        api_key=api_key,
                         openai_compatible=prov_data.get("openai_compatible", True),
                         is_local=prov_data.get("is_local", False),
                         models=models,
                     )
+                    # Stash the handle so resolve_api_key can find it
+                    prov._key_handle = handle  # type: ignore[attr-defined]
                     self._providers[prov.name] = prov
                     self._sync_to_router(prov)
                 logger.info("Loaded %d custom providers from %s", len(self._providers), _REGISTRY_FILE)
@@ -115,7 +142,7 @@ class ProviderRegistry:
                 label=m.label,
                 provider=ProviderType.LOCAL if prov.is_local else ProviderType.OPENROUTER,
                 base_url=prov.base_url,
-                api_key_env="",  # Custom providers store the key directly
+                api_key_env="",  # Custom providers store the key in key_store
                 description=m.description or f"Custom model from {prov.name}",
                 modalities=mods,
                 max_tokens=m.max_tokens,
@@ -129,11 +156,25 @@ class ProviderRegistry:
     async def register_provider(self, prov: CustomProvider) -> Dict[str, Any]:
         """Register a new custom provider and persist it.
 
-        Returns a summary of the registered models. If a provider with the
-        same name already exists, it is overwritten.
+        The API key is moved into the runtime key_store under a derived
+        handle; only the handle is written to the registry JSON. This keeps
+        secrets out of the metadata file. If a provider with the same name
+        already exists, it is overwritten.
         """
         async with self._lock:
             self._ensure_loaded()
+            handle = _key_handle(prov.name)
+            # Hand the key to the secure store; clear it from the in-memory
+            # descriptor so it is never accidentally serialized.
+            if prov.api_key:
+                try:
+                    from trigen.llm.key_store import store as _key_store
+
+                    _key_store.set_key(handle, prov.api_key)
+                except Exception as exc:
+                    logger.warning("Failed to store key for %s: %s", prov.name, exc)
+            prov._key_handle = handle  # type: ignore[attr-defined]
+            prov.api_key = ""  # Never hold the raw key in the descriptor
             self._providers[prov.name] = prov
             self._sync_to_router(prov)
             await self._persist()
@@ -146,11 +187,21 @@ class ProviderRegistry:
         }
 
     async def remove_provider(self, name: str) -> bool:
-        """Remove a custom provider. Returns True if it existed."""
+        """Remove a custom provider. Returns True if it existed.
+
+        Also clears the provider's key from the key_store.
+        """
         async with self._lock:
             self._ensure_loaded()
             if name not in self._providers:
                 return False
+            handle = _key_handle(name)
+            try:
+                from trigen.llm.key_store import store as _key_store
+
+                _key_store.delete_key(handle)
+            except Exception:
+                pass
             del self._providers[name]
             await self._persist()
         logger.info("Removed custom provider '%s'", name)
@@ -181,9 +232,8 @@ class ProviderRegistry:
     def resolve_api_key(self, model_id: str) -> Optional[str]:
         """Return the API key for a custom-model id, if registered.
 
-        The router falls back to environment variables for built-in models;
-        for custom models we store the key alongside the provider descriptor
-        and expose it through this method so the LLMClient can retrieve it.
+        The key is retrieved from the runtime key_store using the handle
+        derived from the provider name — never from the registry JSON.
         """
         self._ensure_loaded()
         if not model_id.startswith("custom/"):
@@ -195,17 +245,27 @@ class ProviderRegistry:
         prov = self._providers.get(prov_name)
         if prov is None:
             return None
-        return prov.api_key or None
+        handle = getattr(prov, "_key_handle", "") or _key_handle(prov_name)
+        if not handle:
+            return None
+        try:
+            from trigen.llm.key_store import store as _key_store
+
+            key = _key_store.get_key(handle)
+            return key or None
+        except Exception:
+            return None
 
     async def _persist(self) -> None:
-        """Write the current registry to disk."""
+        """Write provider metadata (no keys) to disk."""
         os.makedirs(os.path.dirname(_REGISTRY_FILE), exist_ok=True)
         data = {
             "providers": [
                 {
                     "name": prov.name,
                     "base_url": prov.base_url,
-                    "api_key": prov.api_key,
+                    # Store the handle, never the raw key
+                    "key_handle": getattr(prov, "_key_handle", _key_handle(prov.name)),
                     "openai_compatible": prov.openai_compatible,
                     "is_local": prov.is_local,
                     "models": [asdict(m) for m in prov.models],
