@@ -385,7 +385,7 @@ async def list_pipeline_node_types() -> Dict[str, Any]:
             "inputs": dict(schema.get("inputs", {})),
             "outputs": dict(schema.get("outputs", {})),
         }
-    for node_type in pipeline_orchestrator._handlers:
+    for node_type in pipeline_orchestrator._node_registry:
         if node_type not in types:
             types[node_type] = {"inputs": {}, "outputs": {}}
     return {"node_types": types, "count": len(types)}
