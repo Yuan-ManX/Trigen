@@ -128,4 +128,12 @@ class FalTransport(ImageTransport, VideoTransport, ThreeDTransport):
         model_urls = data.get("model_urls") or []
         if not model_urls:
             return GenerationResult(
-                success
+                success=False, modality=modality, model=params["model"],
+                error="fal.ai returned no 3D model urls",
+            )
+        first = model_urls[0]
+        url = first.get("url", "") if isinstance(first, dict) else str(first)
+        return GenerationResult(
+            success=True, modality=modality, model=params["model"],
+            url=url, mime_type=mime_type, raw=data,
+        )
