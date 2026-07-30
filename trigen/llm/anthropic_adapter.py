@@ -21,7 +21,7 @@ import json
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from trigen.llm.client import LLMStreamChunk, ToolCall
+from trigen.llm.types import LLMStreamChunk, ToolCall
 
 logger = logging.getLogger("trigen.llm.anthropic")
 
@@ -233,6 +233,119 @@ class AnthropicAdapter:
             yield LLMStreamChunk(
                 content=f"[Anthropic call failed] {exc}", finish_reason="error"
             )
+
+    async def complete(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        system: Optional[str] = None,
+        model: str = "",
+        temperature: float = 0.6,
+        max_tokens: int = 2048,
+    ):
+        """Non-streaming completion from the Anthropic Messages API.
+
+        Returns an LLMResponse. Translates Anthropic's content-block response
+        shape into the unified Trigen LLMResponse structure.
+        """
+        from trigen.llm.types import LLMResponse, ToolCall
+
+        payload = _build_request(model, messages, tools, system, temperature, max_tokens)
+        client = self._get_client()
+
+        try:
+            resp = await client.post("/messages", json=payload)
+            if resp.status_code >= 400:
+                err_msg = resp.text[:200]
+                logger.error("Anthropic API error %d: %s", resp.status_code, err_msg)
+                return LLMResponse(
+                    content=f"[Anthropic API error {resp.status_code}] {err_msg}",
+                    finish_reason="error",
+                )
+            data = resp.json()
+        except Exception as exc:
+            logger.error("Anthropic complete failed: %s", exc)
+            return LLMResponse(content=f"[Anthropic call failed] {exc}", finish_reason="error")
+
+        content_text = ""
+        tool_calls: List[ToolCall] = []
+        for block in data.get("content", []):
+            btype = block.get("type", "")
+            if btype == "text":
+                content_text += block.get("text", "")
+            elif btype == "tool_use":
+                raw_input = block.get("input", {})
+                args = raw_input if isinstance(raw_input, dict) else {"_raw": raw_input}
+                tool_calls.append(
+                    ToolCall(
+                        id=block.get("id", ""),
+                        name=block.get("name", ""),
+                        arguments=args,
+                    )
+                )
+
+        stop_reason = data.get("stop_reason", "end_turn")
+        finish_reason = "stop"
+        if stop_reason == "tool_use":
+            finish_reason = "tool_calls"
+        elif stop_reason == "max_tokens":
+            finish_reason = "length"
+
+        usage = data.get("usage", {})
+        usage_dict = {
+            "prompt_tokens": usage.get("input_tokens", 0),
+            "completion_tokens": usage.get("output_tokens", 0),
+            "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+        }
+        return LLMResponse(
+            content=content_text,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            usage=usage_dict,
+        )
+
+    async def stream_vision(
+        self,
+        text: str,
+        image_base64: str,
+        image_mime: str = "image/png",
+        system: Optional[str] = None,
+        model: str = "",
+        temperature: float = 0.6,
+        max_tokens: int = 2048,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Stream a vision request using Anthropic's native image content block.
+
+        Anthropic accepts base64 image data inside a content block of type
+        ``image`` with a ``source`` object, which differs from the OpenAI
+        ``image_url`` shape. This method builds the Anthropic-native message
+        and delegates to the standard streaming path.
+        """
+        messages: List[Dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image_mime,
+                            "data": image_base64,
+                        },
+                    },
+                ],
+            }
+        ]
+        async for chunk in self.stream(
+            messages=messages,
+            tools=None,
+            system=system,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            yield chunk
 
     async def close(self) -> None:
         if self._client is not None:
