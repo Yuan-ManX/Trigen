@@ -189,6 +189,26 @@ class MultimodalDispatcher:
                 success=False, modality=Modality.AUDIO.value, model=model_id, error=str(exc),
             )
 
+    async def generate_music(
+        self, model_id: str, prompt: str, duration: int = 30
+    ) -> GenerationResult:
+        """Generate a music clip from a text prompt via Suno / compatible providers."""
+        params = self._resolve(model_id)
+        if not params.get("api_key"):
+            return self._no_key(model_id, Modality.MUSIC)
+
+        provider = params["provider"]
+        transport = self._registry().get_music(provider)
+        if transport is None:
+            return self._no_transport(model_id, Modality.MUSIC, provider)
+        try:
+            return await transport.generate_music(params, prompt, duration)
+        except Exception as exc:
+            logger.exception("Music generation failed")
+            return GenerationResult(
+                success=False, modality=Modality.MUSIC.value, model=model_id, error=str(exc),
+            )
+
 
 # Global dispatcher instance
 dispatcher = MultimodalDispatcher()
