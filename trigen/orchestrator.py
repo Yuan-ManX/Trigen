@@ -44,7 +44,9 @@ from trigen.tools import (
     AnimateCameraTool,
     ApplyMaterialTool,
     ApplyMaterialPresetTool,
+    ArrayPatternTool,
     ArrangeLayoutTool,
+    BooleanOperationTool,
     CreateObjectTool,
     DeleteLightTool,
     DeleteObjectTool,
@@ -53,6 +55,7 @@ from trigen.tools import (
     DuplicateObjectTool,
     ExportSceneTool,
     FocusObjectTool,
+    FrameViewTool,
     Generate3DAssetTool,
     GenerateAnimationTool,
     GenerateImageTool,
@@ -60,17 +63,23 @@ from trigen.tools import (
     GenerateVideoTool,
     GroupObjectsTool,
     ListObjectsTool,
+    LockObjectTool,
     MeasureDistanceTool,
+    MirrorObjectTool,
     ModifyCameraTool,
     ModifyGeometryTool,
     ModifyLightTool,
+    RenameObjectTool,
     SceneInfoTool,
     SelectObjectTool,
     SetBackgroundTool,
     SetEnvironmentTool,
     SetFogTool,
     SetGridSizeTool,
+    SetTransformModeTool,
     SetViewTool,
+    SetVisibilityTool,
+    SnapToGridTool,
     SnapshotViewTool,
     SmartComposeTool,
     SynthesizeSpeechTool,
@@ -170,6 +179,11 @@ class AgentOrchestrator:
         registry.register(SetEnvironmentTool())
         registry.register(SnapshotViewTool())
         registry.register(MeasureDistanceTool())
+        # Composite modelling
+        registry.register(ArrayPatternTool())
+        registry.register(MirrorObjectTool())
+        registry.register(BooleanOperationTool())
+        registry.register(SnapToGridTool())
         # Scene inspection
         registry.register(SceneInfoTool())
         # Grid control
@@ -180,6 +194,11 @@ class AgentOrchestrator:
         # Editor control
         registry.register(SelectObjectTool())
         registry.register(FocusObjectTool())
+        registry.register(LockObjectTool())
+        registry.register(SetVisibilityTool())
+        registry.register(RenameObjectTool())
+        registry.register(SetTransformModeTool())
+        registry.register(FrameViewTool())
         # Export
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
         # Multimodal reconstruction
@@ -305,6 +324,107 @@ class AgentOrchestrator:
             if result.deltas:
                 all_deltas.extend(result.deltas)
         return all_deltas
+
+    # Tools that mutate an existing object's transform/properties — used by
+    # self-verification to decide whether a later step overrides an earlier
+    # absolute-transform intent on the same object.
+    _PER_TARGET_MUTATORS = {
+        "transform_object", "modify_geometry", "apply_material",
+        "apply_material_preset", "delete_object", "snap_to_grid",
+        "lock_object", "set_visibility", "rename_object",
+    }
+    _MULTI_TARGET_MUTATORS = {"align_objects", "distribute_objects"}
+    _CREATION_TOOLS_VER = {"create_object", "add_light", "add_camera"}
+
+    def _step_touched_ids(self, scene: Scene, step) -> set:
+        """Return ids of existing objects a step mutates (heuristic).
+
+        Creation tools return an empty set since they introduce new objects
+        rather than touching existing ones. Used only by self-verification.
+        """
+        name = step.tool_name
+        if name in self._CREATION_TOOLS_VER:
+            return set()
+        if name in self._PER_TARGET_MUTATORS:
+            obj = scene.find_object(str(step.arguments.get("target", "")))
+            return {obj.id} if obj else set()
+        if name in self._MULTI_TARGET_MUTATORS:
+            targets = step.arguments.get("targets", [])
+            if not isinstance(targets, list):
+                return set()
+            ids = set()
+            for t in targets:
+                obj = scene.find_object(str(t))
+                if obj:
+                    ids.add(obj.id)
+            return ids
+        if name == "boolean_operation":
+            ids = set()
+            for key in ("target_a", "target_b"):
+                obj = scene.find_object(str(step.arguments.get(key, "")))
+                if obj:
+                    ids.add(obj.id)
+            return ids
+        if name in ("modify_light", "delete_light", "modify_camera"):
+            return set()
+        return set()
+
+    def _collect_corrections(self, scene: Scene, plan) -> list:
+        """Inspect post-execution scene state and produce correction steps.
+
+        For each ``transform_object`` step using an absolute position/scale
+        that is the *last* mutation of that object in the plan, verify the
+        object's final state matches. When a mismatch is detected, emit a
+        correction ``transform_object`` step restoring the intended value.
+        Returns at most 3 corrections to bound the cost per turn.
+        """
+        from trigen.planner import TaskStep
+
+        # Map obj_id -> index of the last step that mutated it
+        last_touch: Dict[str, int] = {}
+        for i, step in enumerate(plan.steps):
+            for oid in self._step_touched_ids(scene, step):
+                last_touch[oid] = i
+
+        corrections = []
+        for i, step in enumerate(plan.steps):
+            if step.tool_name != "transform_object":
+                continue
+            if bool(step.arguments.get("relative", False)):
+                continue
+            obj = scene.find_object(str(step.arguments.get("target", "")))
+            if not obj:
+                continue
+            # Skip when a later step also mutated this object — its intent wins
+            if last_touch.get(obj.id, i) != i:
+                continue
+
+            pos_arg = step.arguments.get("position")
+            if isinstance(pos_arg, list) and len(pos_arg) == 3:
+                expected = [float(v) for v in pos_arg]
+                actual = obj.transform.position
+                if any(abs(actual[k] - expected[k]) > 1e-2 for k in range(3)):
+                    corrections.append(TaskStep(
+                        tool_name="transform_object",
+                        arguments={"target": obj.id, "position": expected, "relative": False},
+                        tool_call_id=f"verify_pos_{obj.id}_{i}",
+                        description="Self-verification: restore absolute position",
+                    ))
+                    continue  # one correction per object
+
+            scale_arg = step.arguments.get("scale")
+            if isinstance(scale_arg, list) and len(scale_arg) == 3:
+                expected = [float(v) for v in scale_arg]
+                actual = obj.transform.scale
+                if any(abs(actual[k] - expected[k]) > 1e-2 for k in range(3)):
+                    corrections.append(TaskStep(
+                        tool_name="transform_object",
+                        arguments={"target": obj.id, "scale": expected, "relative": False},
+                        tool_call_id=f"verify_scale_{obj.id}_{i}",
+                        description="Self-verification: restore absolute scale",
+                    ))
+
+        return corrections[:3]
 
     async def _run_turn(self, user_message: str, session_id: str = "default", model: Optional[str] = None) -> AsyncIterator[AgentEvent]:
         """Run a conversation turn, streaming out events. Overrides LLM model if provided."""
@@ -518,6 +638,64 @@ class AgentOrchestrator:
                         "scene": scene.to_dict(),
                     },
                 )
+
+            # Self-verification: inspect the final scene state against each
+            # step's intent and emit lightweight correction tool calls when a
+            # mismatch is detected (e.g. a later op clobbered an absolute
+            # transform). Skipped for intents overridden by a subsequent step
+            # targeting the same object. Capped at 3 corrections/turn.
+            try:
+                corrections = self._collect_corrections(scene, plan)
+            except Exception:
+                logger.exception("Self-verification collection failed")
+                corrections = []
+            if corrections:
+                yield AgentEvent(
+                    type=EventType.THINKING,
+                    data={
+                        "phase": "verification",
+                        "content": f"Self-verification found {len(corrections)} mismatch(es); applying correction(s)",
+                        "corrections": [c.tool_name for c in corrections],
+                        "iteration": iteration,
+                    },
+                )
+                for c in corrections:
+                    yield AgentEvent(
+                        type=EventType.TOOL_CALL,
+                        data={
+                            "id": c.tool_call_id,
+                            "name": c.tool_name,
+                            "arguments": c.arguments,
+                        },
+                    )
+                correction_plan = self.planner.from_tool_calls(
+                    [], reasoning="self-verification"
+                )
+                correction_plan.steps = list(corrections)
+                correction_results = await self.executor.execute_plan(scene, correction_plan)
+                for ci, cr in enumerate(correction_results):
+                    cstep = corrections[ci]
+                    yield AgentEvent(
+                        type=EventType.TOOL_RESULT,
+                        data={
+                            "id": cstep.tool_call_id,
+                            "name": cstep.tool_name,
+                            "success": cr.success,
+                            "message": cr.message,
+                            "data": cr.data,
+                        },
+                    )
+                correction_deltas = self.executor.collect_deltas(correction_results)
+                if correction_deltas:
+                    yield AgentEvent(
+                        type=EventType.SCENE_UPDATE,
+                        data={
+                            "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in correction_deltas],
+                            "scene": scene.to_dict(),
+                            "source": "verification",
+                        },
+                    )
+                results.extend(correction_results)
 
             # Reflection: when one or more tool calls failed, surface a
             # structured reflection prompt to the LLM so the next iteration
