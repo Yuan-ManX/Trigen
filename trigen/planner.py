@@ -37,16 +37,57 @@ class TaskPlan:
         return not self.steps
 
 
-# Tools that can be safely executed in parallel within a single batch
+# Tools that can be safely executed in parallel within a single batch.
+# Conservative policy: read-only tools and tools that mutate independent
+# targets are eligible. The executor further filters by distinct target id
+# so two transforms on the same object are never batched together.
 _PARALLEL_SAFE_TOOLS = {
+    # Material / geometry on distinct targets
     "apply_material",
     "apply_material_preset",
     "transform_object",
     "modify_geometry",
+    # Independent appends (auto-naming handles uniqueness)
+    "create_object",
+    "add_light",
+    "add_camera",
+    # Per-target deletion / modification
+    "delete_object",
+    "delete_light",
+    "modify_light",
+    "modify_camera",
+    # Scene-level attributes (different fields, no cross-interference)
     "set_background",
     "set_fog",
+    "toggle_grid",
+    "set_grid_size",
+    "set_view",
+    "set_environment",
+    # Multi-target spatial operations (each call independently mutates its target set)
+    "align_objects",
+    "distribute_objects",
+    # Camera-level operations (independent camera objects)
+    "animate_camera",
+    "snapshot_view",
+    # Read-only inspection
+    "scene_info",
+    "list_objects",
+    "analyze_scene",
+    "export_scene",
+    "measure_distance",
+    # Editor control (no scene mutation)
     "select_object",
     "focus_object",
+    # Isolated LLM call
+    "dispatch_subagent",
+    # Independent multimodal generation (external API calls)
+    "generate_image",
+    "generate_3d_asset",
+    "generate_video",
+    "generate_animation",
+    "generate_music",
+    "synthesize_speech",
+    "transcribe_audio",
 }
 
 
