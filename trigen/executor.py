@@ -108,11 +108,22 @@ class TaskExecutor:
             "apply_material_preset", "delete_object", "focus_object",
             "select_object", "lock_object", "set_visibility", "rename_object",
             "snap_to_grid", "array_pattern", "mirror_object",
+            # Advanced material & animation — all keyed by their target object
+            "gradient_material", "keyframe_animation", "orbit_animation",
+            "wave_animation", "bounce_animation",
         }:
             return str(step.arguments.get("target", "")) or None
         if name in {"modify_light", "delete_light"}:
             return str(step.arguments.get("target", "")) or None
         if name in {"modify_camera"}:
+            return str(step.arguments.get("target", "")) or None
+        # Material blend — two-operand; serialize when either operand overlaps
+        if name == "material_blend":
+            a = step.arguments.get("target_a", "")
+            b = step.arguments.get("target_b", "")
+            return f"blend:{','.join(sorted(str(x) for x in [a, b] if x))}"
+        # Voronoi shatter — single source target
+        if name == "voronoi_shatter":
             return str(step.arguments.get("target", "")) or None
         # Multi-target spatial ops — conflict if two calls share any target id
         if name in {"align_objects", "distribute_objects"}:
@@ -204,4 +215,21 @@ _PARALLEL_SAFE_TOOLS = {
     "rename_object",
     "set_transform_mode",
     "frame_view",
+    # Advanced material tools
+    "gradient_material",
+    "material_blend",
+    # Object animation
+    "keyframe_animation",
+    "orbit_animation",
+    "wave_animation",
+    "bounce_animation",
+    # Procedural generation
+    "terrain_generator",
+    "l_system",
+    "create_spiral_staircase",
+    "voronoi_shatter",
+    # Creative skills
+    "invoke_skill",
+    # Scene-wide palette
+    "randomize_palette",
 }
