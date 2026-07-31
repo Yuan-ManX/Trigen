@@ -208,6 +208,17 @@ def parse_message(
     if any(kw in msg_lower for kw in list(GEO_MAP.keys())[:20]) and any(
         w in msg_lower for w in ["create", "add", "make", "生成", "创建", "添加", "做一个", "来一个"]
     ):
+        # Parse explicit position / rotation / scale from the message
+        init_position = _parse_number_list(msg_lower)
+        # Disambiguate: a 3-tuple after "position/at/到" is a position; otherwise
+        # treat the first 3-tuple as position (most common create intent).
+        pos_match = re.search(r'(?:position|at|到|位于)\s*[\[\(]?\s*([\d.\-,\s]+)\s*[\]\)]?', msg_lower)
+        if pos_match:
+            try:
+                parts = re.split(r'[,\s]+', pos_match.group(1).strip())
+                init_position = [float(p) for p in parts if p][:3]
+            except ValueError:
+                init_position = None
         matched_types = set()
         for kw, geo_type in GEO_MAP.items():
             if kw in msg_lower and geo_type not in matched_types:
@@ -221,6 +232,13 @@ def parse_message(
                 elif detected_preset == "glass":
                     args["opacity"] = 0.35
                     args["roughness"] = 0.05
+                if init_position and len(init_position) >= 3:
+                    args["position"] = init_position[:3]
+                # Optional scale keyword: "scale 2" or "size 1.5"
+                scale_match = re.search(r'(?:scale|size|缩放|大小)\s*(\d+(?:\.\d+)?)', msg_lower)
+                if scale_match:
+                    s = float(scale_match.group(1))
+                    args["scale"] = [s, s, s]
                 intents.append(ParsedIntent(
                     tool_name="create_object",
                     arguments=args,
