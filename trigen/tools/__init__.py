@@ -38,6 +38,14 @@ from trigen.tools.multimodal_tools import (
     SynthesizeSpeechTool,
     TranscribeAudioTool,
 )
+from trigen.tools.spatial_tools import (
+    AlignObjectsTool,
+    AnimateCameraTool,
+    DistributeObjectsTool,
+    MeasureDistanceTool,
+    SetEnvironmentTool,
+    SnapshotViewTool,
+)
 from trigen.tools.subagent_tool import DispatchSubagentTool
 
 __all__ = [
@@ -69,6 +77,13 @@ __all__ = [
     "SetBackgroundTool",
     "SetFogTool",
     "ArrangeLayoutTool",
+    # Spatial manipulation & measurement
+    "AlignObjectsTool",
+    "DistributeObjectsTool",
+    "AnimateCameraTool",
+    "SetEnvironmentTool",
+    "SnapshotViewTool",
+    "MeasureDistanceTool",
     # Scene inspection
     "SceneInfoTool",
     # Grid control
