@@ -98,6 +98,23 @@ _PARALLEL_SAFE_TOOLS = {
     "rename_object",
     "set_transform_mode",
     "frame_view",
+    # Advanced material tools (per-target)
+    "gradient_material",
+    "material_blend",
+    # Object animation (per-target descriptor attachment)
+    "keyframe_animation",
+    "orbit_animation",
+    "wave_animation",
+    "bounce_animation",
+    # Procedural generation (independent appends; per-call target key handles conflicts)
+    "terrain_generator",
+    "l_system",
+    "create_spiral_staircase",
+    "voronoi_shatter",
+    # Creative skills — each invocation is independent
+    "invoke_skill",
+    # Suggestions / palette are scene-wide but read-mostly
+    "randomize_palette",
 }
 
 
