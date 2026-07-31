@@ -1,11 +1,14 @@
 // Single mesh object rendering: maps R3F geometry based on geometry.type, handles selection highlight
-// Includes optional TransformControls gizmo for direct viewport manipulation
+// Includes optional TransformControls gizmo for direct viewport manipulation.
+// When an object carries an animation descriptor, a useFrame hook overrides
+// its transform every frame from the shared playback clock.
 import { Edges, TransformControls } from '@react-three/drei'
 import { memo, useMemo, useState } from 'react'
-import type { ThreeEvent } from '@react-three/fiber'
+import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
+import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
-import type { Geometry, SceneObject, Vec3 } from '../../types'
+import type { Geometry, ObjectAnimation, SceneObject, Vec3 } from '../../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 
@@ -108,13 +111,136 @@ interface SceneMeshProps {
   transformMode?: TransformMode
 }
 
+interface AnimTransform {
+  position: [number, number, number]
+  rotation: [number, number, number]
+  scale: [number, number, number]
+}
+
+/**
+ * Solve an object's animated transform for a given absolute time.
+ * Returns position / rotation / scale to apply imperatively each frame.
+ * When the descriptor is missing or the type is unknown, the base transform
+ * is returned unchanged so the mesh stays at its authored pose.
+ */
+function solveAnimation(
+  anim: ObjectAnimation,
+  time: number,
+  basePos: Vec3,
+  baseRot: Vec3,
+  baseScale: Vec3,
+): AnimTransform {
+  const dur = Math.max(0.001, anim.duration)
+  const phase = anim.loop ? (time % dur) / dur : Math.min(1, time / dur)
+
+  switch (anim.type) {
+    case 'orbit': {
+      const center = anim.center ?? [0, 0, 0]
+      const radius = anim.radius ?? 3
+      const height = anim.height ?? basePos[1]
+      const axis = anim.axis ?? 'y'
+      const angle = phase * Math.PI * 2
+      let pos: [number, number, number]
+      if (axis === 'y') {
+        pos = [center[0] + Math.cos(angle) * radius, height, center[2] + Math.sin(angle) * radius]
+      } else if (axis === 'x') {
+        pos = [center[0], center[1] + Math.cos(angle) * radius, center[2] + Math.sin(angle) * radius]
+      } else {
+        pos = [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius, center[2]]
+      }
+      const rotation: [number, number, number] = anim.face_center && axis === 'y'
+        ? [0, -angle + Math.PI / 2, 0]
+        : [baseRot[0], baseRot[1], baseRot[2]]
+      return { position: pos, rotation, scale: [baseScale[0], baseScale[1], baseScale[2]] }
+    }
+    case 'wave': {
+      const amp = anim.amplitude ?? 1
+      const freq = anim.frequency ?? 0.5
+      const y = Math.sin(time * Math.PI * 2 * freq) * amp
+      return {
+        position: [basePos[0], basePos[1] + y, basePos[2]],
+        rotation: [baseRot[0], baseRot[1], baseRot[2]],
+        scale: [baseScale[0], baseScale[1], baseScale[2]],
+      }
+    }
+    case 'bounce': {
+      const height = anim.height ?? 1.5
+      const bounces = anim.bounces ?? 3
+      const b = Math.abs(Math.sin(phase * Math.PI * bounces))
+      const y = b * height
+      let scale: [number, number, number] = [baseScale[0], baseScale[1], baseScale[2]]
+      if (anim.squash) {
+        // Compress Y and expand XZ near the ground (b small)
+        const squashAmt = (1 - b) * 0.15
+        scale = [baseScale[0] * (1 + squashAmt), baseScale[1] * (1 - squashAmt), baseScale[2] * (1 + squashAmt)]
+      }
+      return {
+        position: [basePos[0], basePos[1] + y, basePos[2]],
+        rotation: [baseRot[0], baseRot[1], baseRot[2]],
+        scale,
+      }
+    }
+    case 'keyframe': {
+      const kfs = anim.keyframes ?? []
+      if (kfs.length === 0) return { position: basePos, rotation: baseRot, scale: baseScale }
+      const t = phase
+      let a = kfs[0]
+      let bKf = kfs[kfs.length - 1]
+      for (let i = 0; i < kfs.length - 1; i++) {
+        if (t >= kfs[i].t && t <= kfs[i + 1].t) {
+          a = kfs[i]
+          bKf = kfs[i + 1]
+          break
+        }
+      }
+      const span = bKf.t - a.t || 1
+      const lt = Math.max(0, Math.min(1, (t - a.t) / span))
+      const easing = anim.easing ?? 'linear'
+      let eased = lt
+      if (easing === 'easeIn') eased = lt * lt
+      else if (easing === 'easeOut') eased = 1 - (1 - lt) * (1 - lt)
+      else if (easing === 'easeInOut') eased = lt < 0.5 ? 2 * lt * lt : 1 - Math.pow(-2 * lt + 2, 2) / 2
+      const lerpN = (x?: number, y?: number) => (x !== undefined && y !== undefined ? x + (y - x) * eased : x ?? y ?? 0)
+      const lerp3 = (x?: Vec3, y?: Vec3): [number, number, number] => [
+        lerpN(x?.[0], y?.[0]),
+        lerpN(x?.[1], y?.[1]),
+        lerpN(x?.[2], y?.[2]),
+      ]
+      return {
+        position: lerp3(a.position, bKf.position),
+        rotation: lerp3(a.rotation, bKf.rotation),
+        scale: lerp3(a.scale, bKf.scale),
+      }
+    }
+    default:
+      return { position: basePos, rotation: baseRot, scale: baseScale }
+  }
+}
+
 function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }: SceneMeshProps) {
   const selectedId = useScene((s) => s.selectedId)
   const selectedIds = useScene((s) => s.selectedIds)
   const select = useScene((s) => s.select)
   const updateTransform = useScene((s) => s.updateTransform)
+  const currentTime = usePlayback((s) => s.currentTime)
   // Use callback ref so re-render fires when mesh mounts
   const [meshObj, setMeshObj] = useState<THREE.Mesh | null>(null)
+
+  // Apply the animation descriptor every frame so orbit / wave / bounce /
+  // keyframe motions stay in sync with the shared playback playhead.
+  useFrame(() => {
+    if (!meshObj || !object.animation) return
+    const solved = solveAnimation(
+      object.animation,
+      currentTime,
+      object.transform.position,
+      object.transform.rotation,
+      object.transform.scale,
+    )
+    meshObj.position.set(solved.position[0], solved.position[1], solved.position[2])
+    meshObj.rotation.set(solved.rotation[0], solved.rotation[1], solved.rotation[2])
+    meshObj.scale.set(solved.scale[0], solved.scale[1], solved.scale[2])
+  })
 
   const isSelected = selectedIds.includes(object.id)
   // Gizmo attaches to the primary (last-clicked) selection only, so multi-select
@@ -143,7 +269,9 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
 
   if (!object.visible) return null
 
-  const showGizmo = isPrimary && isSelected && editMode && meshObj !== null
+  // Disable the gizmo for animated objects: the playback loop owns their
+  // transform, so manual dragging would immediately be overwritten.
+  const showGizmo = isPrimary && isSelected && editMode && meshObj !== null && !object.animation
   // Secondary selections render in a warmer accent so the user can tell the
   // primary gizmo target apart from the rest of the multi-selection.
   const edgeColor = isPrimary ? '#00F0FF' : '#FFB800'
