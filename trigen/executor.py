@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from trigen.planner import TaskPlan, TaskStep
 from trigen.scene import Scene
@@ -106,7 +106,8 @@ class TaskExecutor:
         if name in {
             "transform_object", "modify_geometry", "apply_material",
             "apply_material_preset", "delete_object", "focus_object",
-            "select_object",
+            "select_object", "lock_object", "set_visibility", "rename_object",
+            "snap_to_grid", "array_pattern", "mirror_object",
         }:
             return str(step.arguments.get("target", "")) or None
         if name in {"modify_light", "delete_light"}:
@@ -119,6 +120,20 @@ class TaskExecutor:
             if isinstance(targets, list) and targets:
                 return f"{name}:{','.join(sorted(str(t) for t in targets))}"
             return None
+        if name == "frame_view":
+            targets = step.arguments.get("targets", [])
+            if isinstance(targets, list) and targets:
+                return f"frame:{','.join(sorted(str(t) for t in targets))}"
+            # Single target frame
+            return f"frame:{step.arguments.get('target', '')}"
+        if name == "boolean_operation":
+            # Two-operand op — serialize when either operand overlaps
+            a = step.arguments.get("target_a", "")
+            b = step.arguments.get("target_b", "")
+            return f"bool:{','.join(sorted(str(x) for x in [a, b] if x))}"
+        # Editor-mode mutation — global gizmo state, two calls always conflict
+        if name == "set_transform_mode":
+            return "editor:transform_mode"
         # Camera-level ops — batch by explicit camera arg; two calls with no
         # camera both resolve to the first camera, so they conflict and must
         # serialize (identical empty key enforces this).
@@ -180,4 +195,13 @@ _PARALLEL_SAFE_TOOLS = {
     "generate_music",
     "synthesize_speech",
     "transcribe_audio",
+    "array_pattern",
+    "mirror_object",
+    "boolean_operation",
+    "snap_to_grid",
+    "lock_object",
+    "set_visibility",
+    "rename_object",
+    "set_transform_mode",
+    "frame_view",
 }
