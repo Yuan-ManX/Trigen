@@ -70,6 +70,7 @@ interface ChatState {
   connect: () => void
   disconnect: () => void
   send: (text: string) => void
+  retry: () => void
   setModel: (model: string) => void
   clearMessages: () => void
   toggleHistory: () => void
@@ -395,6 +396,40 @@ export const useChat = create<ChatState>((set, get) => {
       sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
 
       s.send({ type: 'message', data: { message: trimmed, session_id: sessionId, model: get().model } })
+    },
+
+    retry: () => {
+      const state = get()
+      if (state.isResponding) return
+      const msgs = [...state.messages]
+      // Find the last user message (skipping any trailing errored assistant message)
+      let lastUserText = ''
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'user') {
+          lastUserText = msgs[i].content
+          break
+        }
+      }
+      if (!lastUserText) return
+      // Drop trailing errored assistant messages so the retry produces a fresh response
+      const cleaned: ChatMessage[] = []
+      for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i]
+        // Keep everything up to and including the last user message;
+        // drop any trailing assistant error/empty messages after it
+        if (m.role === 'user') {
+          cleaned.push(m)
+          continue
+        }
+        // Only keep assistant messages that appear before the last user message
+        const hasLaterUser = msgs.slice(i + 1).some((x) => x.role === 'user')
+        if (hasLaterUser) {
+          cleaned.push(m)
+        }
+      }
+      set({ messages: cleaned })
+      // Re-send the last user message
+      get().send(lastUserText)
     },
 
     setModel: (model) => set({ model }),
