@@ -46,6 +46,7 @@ from trigen.tools import (
     ApplyMaterialPresetTool,
     ArrayPatternTool,
     ArrangeLayoutTool,
+    BounceAnimationTool,
     BooleanOperationTool,
     CreateObjectTool,
     DeleteLightTool,
@@ -61,14 +62,21 @@ from trigen.tools import (
     GenerateImageTool,
     GenerateMusicTool,
     GenerateVideoTool,
+    GradientMaterialTool,
     GroupObjectsTool,
+    InvokeSkillTool,
+    KeyframeAnimationTool,
+    LSystemTool,
     ListObjectsTool,
     LockObjectTool,
+    MaterialBlendTool,
     MeasureDistanceTool,
     MirrorObjectTool,
     ModifyCameraTool,
     ModifyGeometryTool,
     ModifyLightTool,
+    OrbitAnimationTool,
+    RandomizePaletteTool,
     RenameObjectTool,
     SceneInfoTool,
     SelectObjectTool,
@@ -82,11 +90,15 @@ from trigen.tools import (
     SnapToGridTool,
     SnapshotViewTool,
     SmartComposeTool,
+    SpiralStaircaseTool,
     SynthesizeSpeechTool,
+    TerrainGeneratorTool,
     ToggleGridTool,
     TranscribeAudioTool,
     TransformObjectTool,
     UngroupObjectsTool,
+    VoronoiShatterTool,
+    WaveAnimationTool,
 )
 from trigen.tools.base import ToolRegistry
 from trigen.tools.img2threejs_tool import ImageToThreeJSTool
@@ -215,6 +227,22 @@ class AgentOrchestrator:
         registry.register(GenerateMusicTool())
         registry.register(SynthesizeSpeechTool())
         registry.register(TranscribeAudioTool())
+        # Procedural generation
+        registry.register(TerrainGeneratorTool())
+        registry.register(LSystemTool())
+        registry.register(SpiralStaircaseTool())
+        registry.register(VoronoiShatterTool())
+        # Object animation
+        registry.register(KeyframeAnimationTool())
+        registry.register(OrbitAnimationTool())
+        registry.register(WaveAnimationTool())
+        registry.register(BounceAnimationTool())
+        # Advanced material
+        registry.register(GradientMaterialTool())
+        registry.register(MaterialBlendTool())
+        registry.register(RandomizePaletteTool())
+        # Creative skills — receives the registry so expanded steps can execute
+        registry.register(InvokeSkillTool(registry=registry))
         return registry
 
     def get_memory(self, session_id: str) -> ConversationMemory:
