@@ -153,6 +153,7 @@ class CameraObject:
     fov: float = 45.0
     near: float = 0.1
     far: float = 1000.0
+    animation: Optional[Dict[str, Any]] = None  # orbit/flythrough animation descriptor
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -164,6 +165,7 @@ class CameraObject:
             "fov": self.fov,
             "near": self.near,
             "far": self.far,
+            "animation": self.animation,
             "_kind": "camera",
         }
 
