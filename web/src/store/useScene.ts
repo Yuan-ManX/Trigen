@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import {
   EMPTY_SCENE,
+  type CameraObject,
   type FogConfig,
   type Material,
   type SceneData,
@@ -19,7 +20,10 @@ function cloneScene(scene: SceneData): SceneData {
 
 interface SceneState {
   scene: SceneData
+  /** Primary (last-clicked) selected object id; null when nothing is selected */
   selectedId: string | null
+  /** Full multi-selection set; selectedId is always the last entry when non-empty */
+  selectedIds: string[]
   past: SceneData[]
   future: SceneData[]
 
@@ -34,8 +38,15 @@ interface SceneState {
   /** Reset to an empty scene (records history) */
   clear: () => void
 
-  /** Select an object by id; pass null to clear the selection */
-  select: (id: string | null) => void
+  /** Select an object by id; pass null to clear the selection. When additive is true, toggle id in the multi-selection. */
+  select: (id: string | null, additive?: boolean) => void
+  /** Toggle membership of an id in the multi-selection */
+  toggleSelect: (id: string) => void
+  /** Clear the entire selection */
+  clearSelection: () => void
+  /** Select every object in the scene */
+  selectAll: () => void
+  /** Primary selected object (mirrors selectedId) */
   selected: () => SceneObject | null
 
   /** Toggle visibility (records history) */
@@ -65,6 +76,10 @@ interface SceneState {
   setFog: (fog: FogConfig | null) => void
   /** Scene-level: set grid visibility and size (records history) */
   setGrid: (visible: boolean, size?: number) => void
+  /** Scene-level: set HDRI environment string ("url|intensity" or null) (records history) */
+  setEnvironment: (env: string | null) => void
+  /** Scene-level: replace the camera list (records history) */
+  setCameras: (cameras: CameraObject[]) => void
 
   /** Undo the last action */
   undo: () => void
@@ -93,21 +108,25 @@ function clampAxis(v: number, field: 'position' | 'rotation' | 'scale'): number 
 export const useScene = create<SceneState>((set, get) => ({
   scene: EMPTY_SCENE,
   selectedId: null,
+  selectedIds: [],
   past: [],
   future: [],
 
-  setScene: (scene) => set({ scene, past: [], future: [] }),
+  setScene: (scene) => set({ scene, past: [], future: [], selectedIds: [], selectedId: null }),
 
   applyScene: (incoming) =>
     set((state) => {
-      const selectedStillExists =
-        state.selectedId &&
-        (incoming.objects.some((o) => o.id === state.selectedId) ||
-          incoming.lights.some((l) => l.id === state.selectedId))
+      const validIds = new Set<string>([
+        ...incoming.objects.map((o) => o.id),
+        ...incoming.lights.map((l) => l.id),
+      ])
+      const nextSelectedIds = state.selectedIds.filter((id) => validIds.has(id))
+      const selectedStillExists = state.selectedId && validIds.has(state.selectedId)
       const past = [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY)
       return {
         scene: incoming,
-        selectedId: selectedStillExists ? state.selectedId : null,
+        selectedId: selectedStillExists ? state.selectedId : nextSelectedIds[nextSelectedIds.length - 1] ?? null,
+        selectedIds: nextSelectedIds,
         past,
         future: [],
       }
@@ -115,26 +134,32 @@ export const useScene = create<SceneState>((set, get) => ({
 
   replaceScene: (incoming) =>
     set((state) => {
-      const selectedStillExists =
-        state.selectedId &&
-        (incoming.objects.some((o) => o.id === state.selectedId) ||
-          incoming.lights.some((l) => l.id === state.selectedId))
+      const validIds = new Set<string>([
+        ...incoming.objects.map((o) => o.id),
+        ...incoming.lights.map((l) => l.id),
+      ])
+      const nextSelectedIds = state.selectedIds.filter((id) => validIds.has(id))
+      const selectedStillExists = state.selectedId && validIds.has(state.selectedId)
       return {
         scene: incoming,
-        selectedId: selectedStillExists ? state.selectedId : null,
+        selectedId: selectedStillExists ? state.selectedId : nextSelectedIds[nextSelectedIds.length - 1] ?? null,
+        selectedIds: nextSelectedIds,
       }
     }),
 
   commitScene: (newScene, previousScene) =>
     set((state) => {
-      const selectedStillExists =
-        state.selectedId &&
-        (newScene.objects.some((o) => o.id === state.selectedId) ||
-          newScene.lights.some((l) => l.id === state.selectedId))
+      const validIds = new Set<string>([
+        ...newScene.objects.map((o) => o.id),
+        ...newScene.lights.map((l) => l.id),
+      ])
+      const nextSelectedIds = state.selectedIds.filter((id) => validIds.has(id))
+      const selectedStillExists = state.selectedId && validIds.has(state.selectedId)
       const past = [...state.past, cloneScene(previousScene)].slice(-MAX_HISTORY)
       return {
         scene: newScene,
-        selectedId: selectedStillExists ? state.selectedId : null,
+        selectedId: selectedStillExists ? state.selectedId : nextSelectedIds[nextSelectedIds.length - 1] ?? null,
+        selectedIds: nextSelectedIds,
         past,
         future: [],
       }
@@ -144,11 +169,38 @@ export const useScene = create<SceneState>((set, get) => ({
     set((state) => ({
       scene: EMPTY_SCENE,
       selectedId: null,
+      selectedIds: [],
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
       future: [],
     })),
 
-  select: (id) => set({ selectedId: id }),
+  select: (id, additive = false) =>
+    set((state) => {
+      if (id === null) {
+        return { selectedId: null, selectedIds: [] }
+      }
+      if (additive) {
+        const has = state.selectedIds.includes(id)
+        const next = has
+          ? state.selectedIds.filter((x) => x !== id)
+          : [...state.selectedIds, id]
+        return {
+          selectedIds: next,
+          selectedId: next.length ? next[next.length - 1] : null,
+        }
+      }
+      return { selectedIds: [id], selectedId: id }
+    }),
+
+  toggleSelect: (id) => get().select(id, true),
+
+  clearSelection: () => set({ selectedId: null, selectedIds: [] }),
+
+  selectAll: () =>
+    set((state) => ({
+      selectedIds: state.scene.objects.map((o) => o.id),
+      selectedId: state.scene.objects[state.scene.objects.length - 1]?.id ?? null,
+    })),
 
   selected: () => {
     const { scene, selectedId } = get()
@@ -178,6 +230,7 @@ export const useScene = create<SceneState>((set, get) => ({
         objects: state.scene.objects.filter((o) => o.id !== id),
       },
       selectedId: state.selectedId === id ? null : state.selectedId,
+      selectedIds: state.selectedIds.filter((x) => x !== id),
     })),
 
   duplicateObject: (id) =>
@@ -284,6 +337,20 @@ export const useScene = create<SceneState>((set, get) => ({
       },
     })),
 
+  setEnvironment: (env) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: { ...state.scene, environment: env },
+    })),
+
+  setCameras: (cameras) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: { ...state.scene, cameras },
+    })),
+
   undo: () =>
     set((state) => {
       if (state.past.length === 0) return state
@@ -294,6 +361,7 @@ export const useScene = create<SceneState>((set, get) => ({
         past: newPast,
         future: [cloneScene(state.scene), ...state.future].slice(0, MAX_HISTORY),
         selectedId: null,
+        selectedIds: [],
       }
     }),
 
@@ -307,6 +375,7 @@ export const useScene = create<SceneState>((set, get) => ({
         past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
         future: newFuture,
         selectedId: null,
+        selectedIds: [],
       }
     }),
 
