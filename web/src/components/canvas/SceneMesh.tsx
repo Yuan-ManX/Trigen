@@ -110,18 +110,25 @@ interface SceneMeshProps {
 
 function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }: SceneMeshProps) {
   const selectedId = useScene((s) => s.selectedId)
+  const selectedIds = useScene((s) => s.selectedIds)
   const select = useScene((s) => s.select)
   const updateTransform = useScene((s) => s.updateTransform)
   // Use callback ref so re-render fires when mesh mounts
   const [meshObj, setMeshObj] = useState<THREE.Mesh | null>(null)
 
-  const isSelected = selectedId === object.id
+  const isSelected = selectedIds.includes(object.id)
+  // Gizmo attaches to the primary (last-clicked) selection only, so multi-select
+  // stays inspectable without stacking multiple transform handles.
+  const isPrimary = selectedId === object.id
   const mat = object.material
   const transparent = mat.opacity < 1
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
-    if (!object.locked) select(object.id)
+    if (object.locked) return
+    // Shift/Meta click toggles membership in the multi-selection
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    select(object.id, additive)
   }
 
   // Cache rotation/scale/position to avoid creating new arrays every time
@@ -136,7 +143,10 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
 
   if (!object.visible) return null
 
-  const showGizmo = isSelected && editMode && meshObj !== null
+  const showGizmo = isPrimary && isSelected && editMode && meshObj !== null
+  // Secondary selections render in a warmer accent so the user can tell the
+  // primary gizmo target apart from the rest of the multi-selection.
+  const edgeColor = isPrimary ? '#00F0FF' : '#FFB800'
 
   return (
     <>
@@ -164,7 +174,7 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
           side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
         />
         {isSelected && (
-          <Edges threshold={15} color="#00F0FF" renderOrder={2} scale={1.02} />
+          <Edges threshold={15} color={edgeColor} renderOrder={2} scale={1.02} />
         )}
       </mesh>
       {showGizmo && meshObj && (
