@@ -88,7 +88,23 @@ _PARALLEL_SAFE_TOOLS = {
     "generate_music",
     "synthesize_speech",
     "transcribe_audio",
+    # Composite & editor state tools (per-target mutations handled by _target_key)
+    "array_pattern",
+    "mirror_object",
+    "boolean_operation",
+    "snap_to_grid",
+    "lock_object",
+    "set_visibility",
+    "rename_object",
+    "set_transform_mode",
+    "frame_view",
 }
+
+
+# Tools that introduce a new named entity into the scene. The planner uses
+# these to derive name-based dependencies: any subsequent step referencing
+# the produced name must execute after the producing step.
+_CREATION_TOOLS = {"create_object", "add_light", "add_camera"}
 
 
 class TaskPlanner:
@@ -105,7 +121,75 @@ class TaskPlanner:
                     description=f"Call {tc.name}",
                 )
             )
+        steps = self._order_by_dependencies(steps)
         return TaskPlan(steps=steps, reasoning=reasoning)
+
+    @staticmethod
+    def _step_target_names(step: TaskStep) -> List[str]:
+        """Extract target name references from a step's arguments.
+
+        Returns a de-duplicated list of string names. Handles both single
+        ``target`` args and multi-target ``targets`` args. Used only for
+        dependency ordering — resolution to real objects happens at execution.
+        """
+        names: List[str] = []
+        for key in ("target", "target_a", "target_b"):
+            val = step.arguments.get(key)
+            if isinstance(val, str) and val:
+                names.append(val)
+        targets = step.arguments.get("targets")
+        if isinstance(targets, list):
+            for t in targets:
+                if isinstance(t, str) and t:
+                    names.append(t)
+        # De-duplicate preserving order
+        seen: set = set()
+        unique: List[str] = []
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                unique.append(n)
+        return unique
+
+    def _order_by_dependencies(self, steps: List[TaskStep]) -> List[TaskStep]:
+        """Stable topological sort enforcing name dependencies.
+
+        Ensures any creation step (create_object/add_light/add_camera) that
+        produces a referenced name executes before any later step that targets
+        that same name. Only adds constraints when a real name dependency
+        exists; unrelated steps retain their original relative order. This
+        keeps the common LLM pattern (create then transform then material)
+        correct even when the model emits steps out of order.
+        """
+        ordered = list(steps)
+        max_iter = len(ordered) * len(ordered) + 1
+        changed = True
+        iterations = 0
+        while changed and iterations < max_iter:
+            changed = False
+            iterations += 1
+            creator_idx: Dict[str, int] = {}
+            for i, s in enumerate(ordered):
+                if s.tool_name in _CREATION_TOOLS:
+                    name = s.arguments.get("name")
+                    if isinstance(name, str) and name and name not in creator_idx:
+                        creator_idx[name] = i
+            if not creator_idx:
+                break
+            for j, s in enumerate(ordered):
+                targets = self._step_target_names(s)
+                moved = False
+                for t in targets:
+                    ci = creator_idx.get(t)
+                    if ci is not None and ci > j:
+                        creator = ordered.pop(ci)
+                        ordered.insert(j, creator)
+                        changed = True
+                        moved = True
+                        break
+                if moved:
+                    break
+        return ordered
 
     def build_context_message(self, scene_snapshot: Dict[str, Any]) -> str:
         """Build the current scene context message so the LLM can perceive
