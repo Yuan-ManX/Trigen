@@ -69,18 +69,25 @@ class TaskExecutor:
             )
 
     def _group_batches(self, steps: List[TaskStep]) -> List[List[TaskStep]]:
-        """Group consecutive parallel-safe steps into batches."""
-        # Conservative: only batch steps that operate on distinct targets
+        """Group consecutive parallel-safe steps into batches.
+
+        Target key derivation:
+        - Tools with a ``target`` arg batch by distinct target id.
+        - create_object batches by distinct name (or geometry_type fallback).
+        - add_light / add_camera batch by distinct name (or type fallback).
+        - Read-only / scene-level / generation tools always batch together.
+        """
         batches: List[List[TaskStep]] = []
         current: List[TaskStep] = []
         seen_targets = set()
         for step in steps:
             is_safe = step.tool_name in _PARALLEL_SAFE_TOOLS
-            target = str(step.arguments.get("target", step.tool_name))
-            conflict = target in seen_targets
+            target = self._target_key(step)
+            conflict = target is not None and target in seen_targets
             if is_safe and not conflict:
                 current.append(step)
-                seen_targets.add(target)
+                if target is not None:
+                    seen_targets.add(target)
             else:
                 if current:
                     batches.append(current)
@@ -91,6 +98,42 @@ class TaskExecutor:
             batches.append(current)
         return batches
 
+    @staticmethod
+    def _target_key(step: TaskStep) -> Optional[str]:
+        """Derive a conflict key for batching. None means always batchable."""
+        name = step.tool_name
+        # Per-target mutation tools
+        if name in {
+            "transform_object", "modify_geometry", "apply_material",
+            "apply_material_preset", "delete_object", "focus_object",
+            "select_object",
+        }:
+            return str(step.arguments.get("target", "")) or None
+        if name in {"modify_light", "delete_light"}:
+            return str(step.arguments.get("target", "")) or None
+        if name in {"modify_camera"}:
+            return str(step.arguments.get("target", "")) or None
+        # Multi-target spatial ops — conflict if two calls share any target id
+        if name in {"align_objects", "distribute_objects"}:
+            targets = step.arguments.get("targets", [])
+            if isinstance(targets, list) and targets:
+                return f"{name}:{','.join(sorted(str(t) for t in targets))}"
+            return None
+        # Camera-level ops — batch by explicit camera arg; two calls with no
+        # camera both resolve to the first camera, so they conflict and must
+        # serialize (identical empty key enforces this).
+        if name == "animate_camera":
+            return f"anim_cam:{step.arguments.get('camera', '')}"
+        if name == "snapshot_view":
+            return f"snap:{step.arguments.get('camera', '') or step.arguments.get('name', '')}"
+        # Independent appends — batch by name so duplicates don't collide
+        if name == "create_object":
+            return f"create:{step.arguments.get('name', step.arguments.get('geometry_type', ''))}"
+        if name in {"add_light", "add_camera"}:
+            return f"{name}:{step.arguments.get('name', step.arguments.get('light_type', step.arguments.get('camera_type', '')))}"
+        # Read-only / scene-level / generation — always batchable
+        return None
+
     def collect_deltas(self, results: List[ToolResult]) -> List[SceneDelta]:
         deltas: List[SceneDelta] = []
         for r in results:
@@ -98,14 +141,43 @@ class TaskExecutor:
         return deltas
 
 
-# Tools that can be safely executed in parallel within a single batch
+# Tools that can be safely executed in parallel within a single batch.
+# Must stay in sync with trigen.planner._PARALLEL_SAFE_TOOLS.
 _PARALLEL_SAFE_TOOLS = {
     "apply_material",
     "apply_material_preset",
     "transform_object",
     "modify_geometry",
+    "create_object",
+    "add_light",
+    "add_camera",
+    "delete_object",
+    "delete_light",
+    "modify_light",
+    "modify_camera",
     "set_background",
     "set_fog",
+    "toggle_grid",
+    "set_grid_size",
+    "set_view",
+    "set_environment",
+    "align_objects",
+    "distribute_objects",
+    "animate_camera",
+    "snapshot_view",
+    "scene_info",
+    "list_objects",
+    "analyze_scene",
+    "export_scene",
+    "measure_distance",
     "select_object",
     "focus_object",
+    "dispatch_subagent",
+    "generate_image",
+    "generate_3d_asset",
+    "generate_video",
+    "generate_animation",
+    "generate_music",
+    "synthesize_speech",
+    "transcribe_audio",
 }
