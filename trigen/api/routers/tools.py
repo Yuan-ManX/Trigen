@@ -112,3 +112,36 @@ async def execute_tool(req: ExecuteToolRequest) -> Dict[str, Any]:
         "data": result.data,
         "scene": scene.to_dict(),
     }
+
+
+@router.get("/skills")
+async def list_skills() -> Dict[str, Any]:
+    """List all available creative skills with their parameter schemas.
+
+    Skills are higher-level recipes that expand into ordered tool-call
+    sequences (e.g. spiral staircase, colonnade, forest). The frontend
+    renders this catalog in the sidebar so users can one-click invoke
+    a multi-step composition without scripting each tool call.
+    """
+    from trigen.skills import build_default_registry
+
+    reg = build_default_registry()
+    skills = reg.schemas()
+    return {"skills": skills, "count": len(skills)}
+
+
+@router.get("/suggestions")
+async def get_suggestions(session_id: str = "default") -> Dict[str, Any]:
+    """Generate proactive creative suggestions for the current scene.
+
+    Returns 2-3 next-step suggestions tailored to the scene's content,
+    lighting, and palette so the frontend can surface a "You might try…"
+    strip in the editor.
+    """
+    from trigen.suggestions import generate_suggestions
+
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    scene = orch.get_scene(session_id)
+    suggestions = generate_suggestions(scene.to_dict())
+    return {"suggestions": suggestions, "count": len(suggestions)}
