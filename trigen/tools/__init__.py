@@ -23,7 +23,15 @@ from trigen.tools.scene_tools import (
     SetFogTool,
     UngroupObjectsTool,
 )
-from trigen.tools.editor_tools import FocusObjectTool, SelectObjectTool
+from trigen.tools.editor_tools import (
+    FocusObjectTool,
+    FrameViewTool,
+    LockObjectTool,
+    RenameObjectTool,
+    SelectObjectTool,
+    SetTransformModeTool,
+    SetVisibilityTool,
+)
 from trigen.tools.exporter import ExportSceneTool
 from trigen.tools.camera_tools import AddCameraTool, ModifyCameraTool, SetViewTool
 from trigen.tools.scene_info_tool import SceneInfoTool
@@ -47,6 +55,12 @@ from trigen.tools.spatial_tools import (
     SnapshotViewTool,
 )
 from trigen.tools.subagent_tool import DispatchSubagentTool
+from trigen.tools.composite_tools import (
+    ArrayPatternTool,
+    BooleanOperationTool,
+    MirrorObjectTool,
+    SnapToGridTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -84,6 +98,11 @@ __all__ = [
     "SetEnvironmentTool",
     "SnapshotViewTool",
     "MeasureDistanceTool",
+    # Composite modelling
+    "ArrayPatternTool",
+    "MirrorObjectTool",
+    "BooleanOperationTool",
+    "SnapToGridTool",
     # Scene inspection
     "SceneInfoTool",
     # Grid control
@@ -94,6 +113,11 @@ __all__ = [
     # Editor control
     "SelectObjectTool",
     "FocusObjectTool",
+    "LockObjectTool",
+    "SetVisibilityTool",
+    "RenameObjectTool",
+    "SetTransformModeTool",
+    "FrameViewTool",
     # Export
     "ExportSceneTool",
     # Multimodal generation
