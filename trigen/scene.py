@@ -71,6 +71,7 @@ class SceneObject:
     locked: bool = False
     group_id: Optional[str] = None  # parent group id
     tags: List[str] = field(default_factory=list)
+    animation: Optional[Dict[str, Any]] = None  # keyframe/orbit/wave/bounce descriptor
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -84,6 +85,7 @@ class SceneObject:
             "locked": self.locked,
             "group_id": self.group_id,
             "tags": list(self.tags),
+            "animation": self.animation,
         }
 
     @classmethod
@@ -102,6 +104,7 @@ class SceneObject:
             locked=data.get("locked", False),
             group_id=data.get("group_id"),
             tags=list(data.get("tags", [])),
+            animation=data.get("animation"),
         )
 
 
