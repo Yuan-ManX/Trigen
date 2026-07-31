@@ -1,10 +1,13 @@
-// 3D canvas container: R3F Canvas, renders scene objects / lights / grid ground
-// Supports edit mode (interactive selection + transform gizmo) and run mode (auto-rotating showcase)
-import { Canvas } from '@react-three/fiber'
-import { Grid } from '@react-three/drei'
+// 3D canvas container: R3F Canvas, renders scene objects / lights / grid ground.
+// Supports edit mode (interactive selection + transform gizmo) and run mode
+// (auto-rotating showcase / camera animation playback).
+import { Canvas, useThree } from '@react-three/fiber'
+import { Environment, Grid, Html } from '@react-three/drei'
 import { Move, RotateCw, Scaling } from 'lucide-react'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three'
 import { useScene } from '../../store/useScene'
+import type { CameraObject } from '../../types'
 import { CameraRig } from './CameraRig'
 import { SceneLight } from './SceneLight'
 import { SceneMesh, type TransformMode } from './SceneMesh'
@@ -68,6 +71,95 @@ function ViewportBaseLights({ hasLights }: { hasLights: boolean }) {
   )
 }
 
+// drei <Environment> ships a fixed set of built-in HDRIs. Map the backend's
+// friendly preset names onto them; anything else falls back to a URL load.
+const DREI_ENV_PRESETS = new Set([
+  'apartment', 'city', 'dawn', 'forest', 'lobby',
+  'night', 'park', 'studio', 'sunset', 'warehouse',
+])
+
+interface ParsedEnvironment {
+  preset?: string
+  url?: string
+  intensity: number
+}
+
+function parseEnvironment(env: string | null): ParsedEnvironment | null {
+  if (!env) return null
+  const [rawUrl, intensityStr] = env.split('|')
+  const url = (rawUrl ?? '').trim()
+  if (!url) return null
+  const intensity = parseFloat(intensityStr ?? '1')
+  const norm = url.replace(/\.hdr$/i, '').toLowerCase()
+  if (DREI_ENV_PRESETS.has(norm)) {
+    return { preset: norm, intensity: Number.isFinite(intensity) ? intensity : 1 }
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return { url, intensity: Number.isFinite(intensity) ? intensity : 1 }
+  }
+  // Unknown bare filename (e.g. "neutral.hdr") — no HDRI to load, but we still
+  // want the intensity applied to whatever environment the scene already has.
+  return { intensity: Number.isFinite(intensity) ? intensity : 1 }
+}
+
+/** Renders the HDRI environment and applies the intensity to the scene. */
+function EnvironmentLayer({ env }: { env: string | null }) {
+  const scene = useThree((s) => s.scene)
+  const parsed = useMemo(() => parseEnvironment(env), [env])
+
+  useEffect(() => {
+    // three.js r0.163+ exposes scene.environmentIntensity for fine-grained
+    // control over image-based lighting strength.
+    ;(scene as any).environmentIntensity = parsed?.intensity ?? 1
+  }, [scene, parsed?.intensity])
+
+  if (!parsed) return null
+  if (parsed.preset) {
+    return <Environment preset={parsed.preset as any} />
+  }
+  if (parsed.url) {
+    return <Environment files={parsed.url} />
+  }
+  return null
+}
+
+/** A small gizmo marking a scene camera's position and look direction. */
+function CameraMarker({ camera }: { camera: CameraObject }) {
+  const groupRef = useRef<THREE.Group>(null)
+  useEffect(() => {
+    if (!groupRef.current) return
+    const pos = new THREE.Vector3(camera.position[0], camera.position[1], camera.position[2])
+    const target = new THREE.Vector3(camera.target[0], camera.target[1], camera.target[2])
+    groupRef.current.position.copy(pos)
+    // Orient the group so its -Z axis faces the target (Three.js camera convention)
+    const dir = target.clone().sub(pos)
+    if (dir.lengthSq() > 1e-6) {
+      const m = new THREE.Matrix4().lookAt(pos, target, new THREE.Vector3(0, 1, 0))
+      groupRef.current.quaternion.setFromRotationMatrix(m)
+    }
+  }, [camera.position, camera.target])
+
+  return (
+    <group ref={groupRef}>
+      {/* Camera body */}
+      <mesh>
+        <boxGeometry args={[0.3, 0.2, 0.2]} />
+        <meshStandardMaterial color="#FFB800" emissive="#FFB800" emissiveIntensity={0.4} />
+      </mesh>
+      {/* Lens (points toward -Z, i.e. the target) */}
+      <mesh position={[0, 0, -0.2]}>
+        <coneGeometry args={[0.12, 0.2, 16]} />
+        <meshStandardMaterial color="#FFB800" emissive="#FFB800" emissiveIntensity={0.4} />
+      </mesh>
+      <Html distanceFactor={10} position={[0, 0.35, 0]} center>
+        <div className="pointer-events-none whitespace-nowrap rounded bg-bg-panel/80 px-1.5 py-0.5 text-[10px] text-accent-cyan border border-accent-cyan/30">
+          {camera.name}
+        </div>
+      </Html>
+    </group>
+  )
+}
+
 function SceneContent({
   mode,
   transformMode,
@@ -80,12 +172,26 @@ function SceneContent({
   const fogNear = scene.fog?.near ?? 18
   const fogFar = scene.fog?.far ?? 55
 
+  // Pick the first camera carrying an animation descriptor; in run mode the
+  // viewport plays it, in edit mode we leave the camera interactive.
+  const animation = useMemo(() => {
+    if (mode !== 'run') return null
+    for (const c of scene.cameras) {
+      if (c.animation) return c.animation
+    }
+    return null
+  }, [scene.cameras, mode])
+
+  // Render markers for scene cameras except the internal ViewportCamera.
+  const visibleCameras = scene.cameras.filter((c) => c.name !== 'ViewportCamera')
+
   return (
     <>
       <color attach="background" args={[scene.background]} />
       <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
 
       <ViewportBaseLights hasLights={scene.lights.length > 0} />
+      <EnvironmentLayer env={scene.environment} />
 
       {/* Lights */}
       {scene.lights.map((l) => (
@@ -127,7 +233,12 @@ function SceneContent({
         />
       ))}
 
-      <CameraRig autoRotate={mode === 'run'} />
+      {/* Scene camera markers (gizmo + label) */}
+      {visibleCameras.map((c) => (
+        <CameraMarker key={c.id} camera={c} />
+      ))}
+
+      <CameraRig autoRotate={mode === 'run'} animation={animation} />
     </>
   )
 }
