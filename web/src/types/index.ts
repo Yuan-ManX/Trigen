@@ -80,6 +80,17 @@ export interface LightObject {
   decay?: number
 }
 
+/** Camera animation descriptor (orbit/flythrough) */
+export interface CameraAnimation {
+  type: 'orbit' | 'flythrough'
+  duration: number
+  loop: boolean
+  target?: Vec3
+  radius?: number
+  height?: number
+  points?: Vec3[]
+}
+
 /** Camera object */
 export interface CameraObject {
   id: string
@@ -90,6 +101,7 @@ export interface CameraObject {
   fov: number
   near: number
   far: number
+  animation?: CameraAnimation | null
 }
 
 /** Group object */
