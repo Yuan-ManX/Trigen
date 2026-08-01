@@ -521,6 +521,9 @@ class MeasureDistanceTool(ToolBase):
         pb = [float(v) for v in b.transform.position]
         dx, dy, dz = pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]
         dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        # Emit an editor_measure delta so the frontend can render a viewport
+        # overlay (line + distance label) between the two measured objects.
+        # This delta is editor-only: it does not mutate the backend Scene.
         return ToolResult(
             success=True,
             message=f"Distance between '{a.name}' and '{b.name}' is {dist:.4f} (dx={dx:.3f}, dy={dy:.3f}, dz={dz:.3f})",
@@ -530,4 +533,19 @@ class MeasureDistanceTool(ToolBase):
                 "distance": dist,
                 "delta": {"x": dx, "y": dy, "z": dz},
             },
+            deltas=[
+                SceneDelta(
+                    action="editor_measure",
+                    payload={
+                        "a_id": a.id,
+                        "b_id": b.id,
+                        "a_name": a.name,
+                        "b_name": b.name,
+                        "a_position": pa,
+                        "b_position": pb,
+                        "distance": dist,
+                        "delta": {"x": dx, "y": dy, "z": dz},
+                    },
+                )
+            ],
         )
