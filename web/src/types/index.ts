@@ -59,6 +59,37 @@ export interface SceneObject {
   locked: boolean
   group_id?: string | null
   tags?: string[]
+  animation?: ObjectAnimation | null
+}
+
+/** Object animation descriptor (keyframe/orbit/wave/bounce) */
+export interface ObjectAnimation {
+  type: 'keyframe' | 'orbit' | 'wave' | 'bounce'
+  duration: number
+  loop: boolean
+  // keyframe
+  keyframes?: Array<{
+    t: number
+    position?: Vec3
+    rotation?: Vec3
+    scale?: Vec3
+  }>
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+  // orbit
+  center?: Vec3
+  radius?: number
+  height?: number
+  axis?: 'x' | 'y' | 'z'
+  face_center?: boolean
+  // wave
+  amplitude?: number
+  frequency?: number
+  // bounce
+  bounces?: number
+  squash?: boolean
+  // internal captured state
+  start_position?: Vec3
+  start_scale?: Vec3
 }
 
 /** Light types */
