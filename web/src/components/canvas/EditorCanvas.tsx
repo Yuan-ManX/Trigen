@@ -1,16 +1,18 @@
 // 3D canvas container: R3F Canvas, renders scene objects / lights / grid ground.
 // Supports edit mode (interactive selection + transform gizmo) and run mode
 // (auto-rotating showcase / camera animation playback).
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Grid, Html } from '@react-three/drei'
-import { Move, RotateCw, Scaling } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Magnet, Move, RotateCw, Scaling } from 'lucide-react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import { useEditor, type TransformMode } from '../../store/useEditor'
+import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
 import type { CameraObject } from '../../types'
 import { CameraRig } from './CameraRig'
 import { SceneLight } from './SceneLight'
-import { SceneMesh, type TransformMode } from './SceneMesh'
+import { SceneMesh } from './SceneMesh'
 
 interface EditorCanvasProps {
   mode?: 'edit' | 'run'
@@ -26,6 +28,9 @@ function TransformToolbar({
   current: TransformMode
   onChange: (m: TransformMode) => void
 }) {
+  const gridSnapEnabled = useEditor((s) => s.gridSnapEnabled)
+  const snapIncrement = useEditor((s) => s.snapIncrement)
+  const setGridSnap = useEditor((s) => s.setGridSnap)
   if (mode !== 'edit') return null
   const buttons: Array<{ id: TransformMode; icon: typeof Move; label: string }> = [
     { id: 'translate', icon: Move, label: 'Move' },
@@ -53,6 +58,25 @@ function TransformToolbar({
           </button>
         )
       })}
+      {/* Snap-to-grid toggle: when enabled, gizmo drags round to snapIncrement */}
+      <div className="mx-1 h-4 w-px bg-border-subtle" />
+      <button
+        onClick={() => setGridSnap(!gridSnapEnabled, snapIncrement)}
+        className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+          gridSnapEnabled
+            ? 'bg-accent-gold/15 text-accent-gold'
+            : 'text-fg-muted hover:text-fg-secondary'
+        }`}
+        title={
+          gridSnapEnabled
+            ? `Grid snap ON (increment ${snapIncrement})`
+            : 'Grid snap OFF'
+        }
+        aria-pressed={gridSnapEnabled}
+      >
+        <Magnet size={12} />
+        <span>Snap {gridSnapEnabled ? `${snapIncrement}` : 'Off'}</span>
+      </button>
     </div>
   )
 }
@@ -160,6 +184,125 @@ function CameraMarker({ camera }: { camera: CameraObject }) {
   )
 }
 
+/**
+ * Single-frame clock driver for object animations. Mounted once inside the
+ * Canvas; calls the playback store's tick so the Timeline playhead advances
+ * in lockstep with the viewport render loop.
+ */
+function PlaybackDriver() {
+  const tick = usePlayback((s) => s.tick)
+  useFrame(() => tick(performance.now()))
+  return null
+}
+
+/**
+ * Syncs the viewport camera when the Agent requests an explicit position +
+ * target via set_viewport_camera / focus_object. Watches the token counter so
+ * repeated identical requests still trigger a move.
+ */
+function ViewportCameraSync() {
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => (s as any).controls)
+  const vc = useEditor((s) => s.viewportCamera)
+  useEffect(() => {
+    if (!vc) return
+    const target = new THREE.Vector3(vc.target[0], vc.target[1], vc.target[2])
+    camera.position.set(vc.position[0], vc.position[1], vc.position[2])
+    camera.lookAt(target)
+    if (controls) {
+      controls.target.copy(target)
+      controls.update()
+    }
+  }, [vc?.token, camera, controls])
+  return null
+}
+
+/**
+ * Captures the viewport as a PNG download when the Agent requests it via
+ * capture_viewport. Watches the capture counter so repeated requests fire.
+ */
+function ViewportCapture() {
+  const gl = useThree((s) => s.gl)
+  const counter = useEditor((s) => s.captureCounter)
+  const filename = useEditor((s) => s.captureFilename)
+  useEffect(() => {
+    if (counter === 0) return
+    // preserveDrawingBuffer is enabled on the Canvas, so the framebuffer
+    // contents persist and toDataURL captures the current viewport.
+    const dataUrl = gl.domElement.toDataURL('image/png')
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = `${filename}.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }, [counter, gl, filename])
+  return null
+}
+
+/**
+ * Renders the active measurement overlay: a line between two world positions
+ * with a distance label at the midpoint, plus endpoint markers. Driven by the
+ * editor_measure delta emitted from the measure_distance tool.
+ */
+function MeasurementOverlay() {
+  const measurement = useEditor((s) => s.measurement)
+  const clearMeasurement = useEditor((s) => s.clearMeasurement)
+  // Re-mount the overlay whenever a new measurement token arrives so the
+  // auto-clear timer resets cleanly.
+  const token = measurement?.token ?? 0
+  useEffect(() => {
+    if (token === 0) return
+    const id = window.setTimeout(() => clearMeasurement(), 8000)
+    return () => window.clearTimeout(id)
+  }, [token, clearMeasurement])
+
+  if (!measurement) return null
+  const { aPosition, bPosition, label } = measurement
+  const mid: [number, number, number] = [
+    (aPosition[0] + bPosition[0]) / 2,
+    (aPosition[1] + bPosition[1]) / 2 + 0.15,
+    (aPosition[2] + bPosition[2]) / 2,
+  ]
+  return (
+    <group>
+      {/* Dashed line between the two measured positions */}
+      <line>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[new Float32Array([...aPosition, ...bPosition]), 3]}
+          />
+        </bufferGeometry>
+        <lineDashedMaterial
+          color="#00F0FF"
+          dashSize={0.2}
+          gapSize={0.1}
+          linewidth={2}
+          depthTest={false}
+          transparent
+          opacity={0.9}
+        />
+      </line>
+      {/* Endpoint markers */}
+      <mesh position={aPosition}>
+        <sphereGeometry args={[0.06, 16, 16]} />
+        <meshBasicMaterial color="#00F0FF" depthTest={false} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={bPosition}>
+        <sphereGeometry args={[0.06, 16, 16]} />
+        <meshBasicMaterial color="#FFB800" depthTest={false} transparent opacity={0.95} />
+      </mesh>
+      {/* Distance label at the midpoint */}
+      <Html position={mid} center distanceFactor={10}>
+        <div className="pointer-events-none whitespace-nowrap rounded bg-bg-panel/90 px-2 py-1 text-[11px] font-mono text-accent-cyan border border-accent-cyan/40 shadow-glow">
+          {label}
+        </div>
+      </Html>
+    </group>
+  )
+}
+
 function SceneContent({
   mode,
   transformMode,
@@ -189,6 +332,9 @@ function SceneContent({
     <>
       <color attach="background" args={[scene.background]} />
       <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
+
+      {/* Advance the animation clock every frame; no-op when paused */}
+      <PlaybackDriver />
 
       <ViewportBaseLights hasLights={scene.lights.length > 0} />
       <EnvironmentLayer env={scene.environment} />
@@ -245,16 +391,21 @@ function SceneContent({
 
 export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
   const select = useScene((s) => s.select)
-  const [transformMode, setTransformMode] = useState<TransformMode>('translate')
+  const transformMode = useEditor((s) => s.transformMode)
+  const setTransformMode = useEditor((s) => s.setTransformMode)
+  const renderQuality = useEditor((s) => s.renderQuality)
+
+  // Map render quality to device pixel ratio range
+  const dpr: [number, number] = renderQuality === 'low' ? [1, 1] : renderQuality === 'medium' ? [1, 1.5] : [1, 2]
 
   return (
     <>
       <TransformToolbar mode={mode} current={transformMode} onChange={setTransformMode} />
       <Canvas
         shadows
-        dpr={[1, 2]}
+        dpr={dpr}
         camera={{ fov: 45, near: 0.1, far: 1000, position: [5, 4, 7] }}
-        gl={{ antialias: true, preserveDrawingBuffer: true }}
+        gl={{ antialias: renderQuality !== 'low', preserveDrawingBuffer: true }}
         // Click on blank area to deselect (only in edit mode)
         onPointerMissed={() => {
           if (mode === 'edit') select(null)
@@ -263,6 +414,9 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
       >
         <Suspense fallback={null}>
           <SceneContent mode={mode} transformMode={transformMode} />
+          <ViewportCameraSync />
+          <ViewportCapture />
+          <MeasurementOverlay />
         </Suspense>
       </Canvas>
     </>
