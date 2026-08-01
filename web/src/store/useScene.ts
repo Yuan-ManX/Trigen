@@ -4,7 +4,11 @@ import {
   EMPTY_SCENE,
   type CameraObject,
   type FogConfig,
+  type Geometry,
+  type GroupObject,
+  type LightObject,
   type Material,
+  type ObjectAnimation,
   type SceneData,
   type SceneObject,
   type Transform,
@@ -51,10 +55,16 @@ interface SceneState {
 
   /** Toggle visibility (records history) */
   toggleVisible: (id: string) => void
+  /** Toggle lock state (records history) */
+  toggleLock: (id: string) => void
   /** Remove an object (records history) */
   removeObject: (id: string) => void
   /** Duplicate an object with a new id and slight position offset (records history) */
   duplicateObject: (id: string) => void
+  /** Group the given object ids under a new group (records history) */
+  groupObjects: (ids: string[], name?: string) => void
+  /** Move an object into a group (used by drag-to-group) */
+  assignToGroup: (objectId: string, groupId: string | null) => void
 
   /** Update transform (partial fields, records history) */
   updateTransform: (id: string, partial: Partial<Transform>) => void
@@ -67,8 +77,30 @@ interface SceneState {
   ) => void
   /** Update material (partial fields, records history) */
   updateMaterial: (id: string, partial: Partial<Material>) => void
+  /** Update geometry params (partial merge of `geometry.params`, records history) */
+  updateGeometry: (id: string, partial: Record<string, number | number[]>) => void
+  /** Replace the geometry entirely (records history) */
+  setGeometry: (id: string, geometry: Geometry) => void
+  /** Set / clear object animation descriptor (records history) */
+  updateAnimation: (id: string, animation: ObjectAnimation | null) => void
   /** Rename (records history) */
   renameObject: (id: string, name: string) => void
+  /** Move an object to a new index in scene.objects (records history) */
+  reorderObject: (id: string, toIndex: number) => void
+  /** Reorder objects by an explicit id list (records history) */
+  reorderObjectsById: (orderedIds: string[]) => void
+
+  /** Update a light (partial fields, records history) */
+  updateLight: (id: string, partial: Partial<LightObject>) => void
+  /** Remove a light (records history) */
+  removeLight: (id: string) => void
+  /** Rename a group (records history) */
+  renameGroup: (id: string, name: string) => void
+
+  /** Update a scene camera (partial fields, records history) */
+  updateCamera: (id: string, partial: Partial<CameraObject>) => void
+  /** Remove a scene camera (records history) */
+  removeCamera: (id: string) => void
 
   /** Scene-level: set background color (records history) */
   setBackground: (color: string) => void
@@ -80,6 +112,8 @@ interface SceneState {
   setEnvironment: (env: string | null) => void
   /** Scene-level: replace the camera list (records history) */
   setCameras: (cameras: CameraObject[]) => void
+  /** Scene-level: replace the light list (records history) */
+  setLights: (lights: LightObject[]) => void
 
   /** Undo the last action */
   undo: () => void
@@ -221,6 +255,19 @@ export const useScene = create<SceneState>((set, get) => ({
       },
     })),
 
+  toggleLock: (id) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, id, (o) => ({
+          ...o,
+          locked: !o.locked,
+        })),
+      },
+    })),
+
   removeObject: (id) =>
     set((state) => ({
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
@@ -262,6 +309,60 @@ export const useScene = create<SceneState>((set, get) => ({
       }
     }),
 
+  groupObjects: (ids, name) =>
+    set((state) => {
+      if (ids.length === 0) return state
+      const idSet = new Set(ids)
+      const groupId = `group-${Date.now().toString(36)}`
+      const groupName = name ?? `Group ${state.scene.groups.length + 1}`
+      const group: GroupObject = {
+        id: groupId,
+        name: groupName,
+        child_ids: [...ids],
+        visible: true,
+        locked: false,
+      }
+      return {
+        past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+        future: [],
+        scene: {
+          ...state.scene,
+          groups: [...state.scene.groups, group],
+          objects: state.scene.objects.map((o) =>
+            idSet.has(o.id) ? { ...o, group_id: groupId } : o,
+          ),
+        },
+        selectedId: groupId,
+        selectedIds: [groupId],
+      }
+    }),
+
+  assignToGroup: (objectId, groupId) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, objectId, (o) => ({
+          ...o,
+          group_id: groupId,
+        })),
+        groups: state.scene.groups.map((g) => {
+          if (groupId === g.id) {
+            if (!g.child_ids.includes(objectId)) {
+              return { ...g, child_ids: [...g.child_ids, objectId] }
+            }
+            return g
+          }
+          // Remove from any previous group
+          if (g.child_ids.includes(objectId)) {
+            return { ...g, child_ids: g.child_ids.filter((id) => id !== objectId) }
+          }
+          return g
+        }),
+      },
+    })),
+
   updateTransform: (id, partial) =>
     set((state) => ({
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
@@ -302,6 +403,39 @@ export const useScene = create<SceneState>((set, get) => ({
       },
     })),
 
+  updateGeometry: (id, partial) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, id, (o) => ({
+          ...o,
+          geometry: { ...o.geometry, params: { ...o.geometry.params, ...partial } },
+        })),
+      },
+    })),
+
+  setGeometry: (id, geometry) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, id, (o) => ({ ...o, geometry })),
+      },
+    })),
+
+  updateAnimation: (id, animation) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, id, (o) => ({ ...o, animation })),
+      },
+    })),
+
   renameObject: (id, name) =>
     set((state) => ({
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
@@ -310,6 +444,96 @@ export const useScene = create<SceneState>((set, get) => ({
         ...state.scene,
         objects: mapObject(state.scene.objects, id, (o) => ({ ...o, name })),
       },
+    })),
+
+  reorderObject: (id, toIndex) =>
+    set((state) => {
+      const from = state.scene.objects.findIndex((o) => o.id === id)
+      if (from < 0 || from === toIndex) return state
+      const next = [...state.scene.objects]
+      const [moved] = next.splice(from, 1)
+      const clamped = Math.max(0, Math.min(toIndex, next.length))
+      next.splice(clamped, 0, moved)
+      return {
+        past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+        future: [],
+        scene: { ...state.scene, objects: next },
+      }
+    }),
+
+  reorderObjectsById: (orderedIds) =>
+    set((state) => {
+      const byId = new Map(state.scene.objects.map((o) => [o.id, o] as const))
+      const next: SceneObject[] = []
+      for (const id of orderedIds) {
+        const o = byId.get(id)
+        if (o) {
+          next.push(o)
+          byId.delete(id)
+        }
+      }
+      // Append any objects not in the ordered list (e.g. new ones) at the end
+      for (const o of byId.values()) next.push(o)
+      if (next.length !== state.scene.objects.length) return state
+      return {
+        past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+        future: [],
+        scene: { ...state.scene, objects: next },
+      }
+    }),
+
+  updateLight: (id, partial) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        lights: state.scene.lights.map((l) => (l.id === id ? { ...l, ...partial } : l)),
+      },
+    })),
+
+  removeLight: (id) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        lights: state.scene.lights.filter((l) => l.id !== id),
+      },
+      selectedId: state.selectedId === id ? null : state.selectedId,
+      selectedIds: state.selectedIds.filter((x) => x !== id),
+    })),
+
+  renameGroup: (id, name) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        groups: state.scene.groups.map((g) => (g.id === id ? { ...g, name } : g)),
+      },
+    })),
+
+  updateCamera: (id, partial) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        cameras: state.scene.cameras.map((c) => (c.id === id ? { ...c, ...partial } : c)),
+      },
+    })),
+
+  removeCamera: (id) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        cameras: state.scene.cameras.filter((c) => c.id !== id),
+      },
+      selectedId: state.selectedId === id ? null : state.selectedId,
+      selectedIds: state.selectedIds.filter((x) => x !== id),
     })),
 
   setBackground: (color) =>
@@ -349,6 +573,13 @@ export const useScene = create<SceneState>((set, get) => ({
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
       future: [],
       scene: { ...state.scene, cameras },
+    })),
+
+  setLights: (lights) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: { ...state.scene, lights },
     })),
 
   undo: () =>
