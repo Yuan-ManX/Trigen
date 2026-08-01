@@ -42,6 +42,10 @@ class AgentConfig:
     memory_window: int = field(default_factory=lambda: int(_env("TRIGEN_AGENT_MEMORY_WINDOW", "12")))
     workspace_dir: str = field(default_factory=lambda: _env("TRIGEN_WORKSPACE", os.path.join(os.getcwd(), ".trigen", "workspace")))
     enable_streaming: bool = field(default_factory=lambda: _env("TRIGEN_STREAMING", "1") == "1")
+    # Per-turn token budget (approximate, chars/4 heuristic). 0 = unlimited.
+    # Guards against runaway tool-call loops. Streaming chunks do not always
+    # carry a usage block, so we estimate conservatively.
+    max_tokens_per_turn: int = field(default_factory=lambda: int(_env("TRIGEN_AGENT_MAX_TOKENS_PER_TURN", "0")))
 
     def ensure_workspace(self) -> str:
         os.makedirs(self.workspace_dir, exist_ok=True)  # Create workspace directory
