@@ -6,7 +6,9 @@ import {
   getOrCreateSessionId,
   type SocketStatus,
 } from '../api/client'
-import type { SceneData, ServerEvent } from '../types'
+import type { SceneData, ServerEvent, Vec3 } from '../types'
+import { useEditor, type PanelTab, type RenderQuality, type TransformMode } from './useEditor'
+import { usePlayback } from './usePlayback'
 import { useScene } from './useScene'
 
 /** Tool call record (inlined within an assistant message) */
@@ -88,6 +90,100 @@ let socket: ChatSocket | null = null
 
 /** Snapshot of the scene captured when the user sends a message, used for undo history */
 let sceneBeforeResponse: SceneData | null = null
+
+/** Whether the current turn produced any scene-mutating delta. When false
+ *  (editor-only turns such as undo/redo/play/pause), the ``done`` event's
+ *  scene snapshot is skipped so it does not override local frontend state. */
+let turnHadSceneMutation = false
+
+/** Dispatch editor-control deltas to the matching local store. These deltas
+ *  do not mutate the backend Scene; they request a frontend-side action. */
+function dispatchEditorDelta(action: string, targetId: string | undefined, payload: Record<string, unknown>): void {
+  const editor = useEditor.getState()
+  const playback = usePlayback.getState()
+  const scene = useScene.getState()
+  switch (action) {
+    case 'editor_select': {
+      if (targetId) scene.select(targetId, !payload.clear)
+      break
+    }
+    case 'editor_set_selection': {
+      const ids = Array.isArray(payload.ids) ? (payload.ids as string[]) : []
+      const clear = payload.clear !== false
+      if (clear) scene.clearSelection()
+      ids.forEach((id) => scene.select(id, true))
+      break
+    }
+    case 'editor_focus':
+    case 'editor_viewport_camera': {
+      const pos = (payload.position ?? payload.camera_position) as Vec3 | undefined
+      const tgt = (payload.target ?? [0, 0.5, 0]) as Vec3
+      if (pos) editor.setViewportCamera(pos, tgt, payload.smooth !== false)
+      break
+    }
+    case 'editor_transform_mode': {
+      editor.setTransformMode(payload.mode as TransformMode)
+      break
+    }
+    case 'editor_play': {
+      if (payload.from_start) playback.seek(0)
+      playback.play()
+      break
+    }
+    case 'editor_pause': {
+      playback.pause()
+      break
+    }
+    case 'editor_seek': {
+      playback.seek(Number(payload.time ?? 0))
+      break
+    }
+    case 'editor_set_playback_speed': {
+      playback.setSpeed(Number(payload.speed ?? 1))
+      break
+    }
+    case 'editor_toggle_grid_snapping': {
+      editor.setGridSnap(Boolean(payload.enabled), Number(payload.increment ?? 0.5))
+      break
+    }
+    case 'editor_focus_panel': {
+      editor.setActivePanel(payload.panel as PanelTab)
+      break
+    }
+    case 'editor_undo': {
+      scene.undo()
+      break
+    }
+    case 'editor_redo': {
+      scene.redo()
+      break
+    }
+    case 'editor_capture_viewport': {
+      editor.requestCapture(payload.filename as string | undefined)
+      break
+    }
+    case 'editor_set_render_quality': {
+      editor.setRenderQuality(payload.quality as RenderQuality)
+      break
+    }
+    case 'editor_measure': {
+      const aPosition = (payload.a_position ?? [0, 0, 0]) as Vec3
+      const bPosition = (payload.b_position ?? [0, 0, 0]) as Vec3
+      const distance = Number(payload.distance ?? 0)
+      const aName = String(payload.a_name ?? 'A')
+      const bName = String(payload.b_name ?? 'B')
+      editor.setMeasurement({
+        aPosition,
+        bPosition,
+        distance,
+        label: `${aName} ↔ ${bName}: ${distance.toFixed(3)}`,
+      })
+      break
+    }
+    default:
+      break
+  }
+}
 
 function genId(): string {
   return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
@@ -270,10 +366,24 @@ export const useChat = create<ChatState>((set, get) => {
         break
       }
       case 'scene_update': {
-        // Intermediate scene updates during Agent execution: replace without
-        // recording history so that a single user action = a single undo step.
-        // The final history entry is committed on the `done` event below.
-        if (ev.data.scene) {
+        // Dispatch editor-control deltas (select/focus/playback/undo/etc.)
+        // to their matching local stores, and track whether the turn produced
+        // any scene mutation so the `done` handler knows whether to commit.
+        const deltas = ev.data.deltas
+        if (deltas && deltas.length > 0) {
+          for (const d of deltas) {
+            const act = String(d.action ?? '')
+            if (act.startsWith('editor_')) {
+              dispatchEditorDelta(act, d.target_id, (d.payload ?? {}) as Record<string, unknown>)
+            } else {
+              turnHadSceneMutation = true
+            }
+          }
+        }
+        // Apply the full scene snapshot for scene-mutating deltas. For
+        // editor-only turns the snapshot equals the current scene, so skip
+        // the replace to avoid clobbering local state (e.g. after undo).
+        if (ev.data.scene && turnHadSceneMutation) {
           useScene.getState().replaceScene(ev.data.scene)
         }
         break
@@ -294,16 +404,19 @@ export const useChat = create<ChatState>((set, get) => {
           }
           return { messages: msgs, isResponding: false }
         })
-        // Commit the final scene with the before-response snapshot for undo history
-        if (ev.data.scene) {
+        // Commit the final scene only when the turn mutated the backend scene.
+        // Editor-only turns (undo/redo/play/pause/viewport) leave the backend
+        // scene unchanged, so committing would clobber local frontend state.
+        if (ev.data.scene && turnHadSceneMutation) {
           const before = sceneBeforeResponse
           if (before) {
             useScene.getState().commitScene(ev.data.scene, before)
           } else {
             useScene.getState().applyScene(ev.data.scene)
           }
-          sceneBeforeResponse = null
         }
+        sceneBeforeResponse = null
+        turnHadSceneMutation = false
         // Auto-save the conversation after a complete response
         setTimeout(() => get().saveCurrentConversation(), 100)
         break
@@ -394,6 +507,7 @@ export const useChat = create<ChatState>((set, get) => {
 
       // Capture the scene snapshot before the Agent responds, for undo history
       sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
+      turnHadSceneMutation = false
 
       s.send({ type: 'message', data: { message: trimmed, session_id: sessionId, model: get().model } })
     },
