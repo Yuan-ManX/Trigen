@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from trigen.api.config import config
 from trigen.api.models.database import Database
 from trigen.api.routers import assets, chat, health, models, scene, tools
+from trigen.api.routers import agent as agent_router
 from trigen.api.services.agent_service import AgentService
 from trigen.api.services.session_service import SessionService
 
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(assets.router, prefix=api_prefix)
     app.include_router(tools.router, prefix=api_prefix)
     app.include_router(models.router, prefix=api_prefix)
+    app.include_router(agent_router.router, prefix=api_prefix)
 
     # Root route
     @app.get("/")
