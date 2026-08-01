@@ -6,6 +6,7 @@ import { Edges, TransformControls } from '@react-three/drei'
 import { memo, useMemo, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
+import { useEditor } from '../../store/useEditor'
 import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
 import type { Geometry, ObjectAnimation, SceneObject, Vec3 } from '../../types'
@@ -223,6 +224,8 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
   const select = useScene((s) => s.select)
   const updateTransform = useScene((s) => s.updateTransform)
   const currentTime = usePlayback((s) => s.currentTime)
+  const gridSnapEnabled = useEditor((s) => s.gridSnapEnabled)
+  const snapIncrement = useEditor((s) => s.snapIncrement)
   // Use callback ref so re-render fires when mesh mounts
   const [meshObj, setMeshObj] = useState<THREE.Mesh | null>(null)
 
@@ -311,10 +314,41 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
           mode={transformMode}
           onObjectChange={() => {
             if (!meshObj) return
+            let px = meshObj.position.x
+            let py = meshObj.position.y
+            let pz = meshObj.position.z
+            let rx = meshObj.rotation.x
+            let ry = meshObj.rotation.y
+            let rz = meshObj.rotation.z
+            let sx = meshObj.scale.x
+            let sy = meshObj.scale.y
+            let sz = meshObj.scale.z
+            if (gridSnapEnabled) {
+              const inc = snapIncrement > 0 ? snapIncrement : 0.5
+              const snap = (v: number, s: number) => Math.round(v / s) * s
+              px = snap(px, inc)
+              py = snap(py, inc)
+              pz = snap(pz, inc)
+              // Rotation snaps to 15° steps in radians
+              const rotInc = (15 * Math.PI) / 180
+              rx = snap(rx, rotInc)
+              ry = snap(ry, rotInc)
+              rz = snap(rz, rotInc)
+              // Scale snaps to 0.1 steps (floored to a positive minimum)
+              const scaleInc = 0.1
+              sx = Math.max(0.01, snap(sx, scaleInc))
+              sy = Math.max(0.01, snap(sy, scaleInc))
+              sz = Math.max(0.01, snap(sz, scaleInc))
+              // Write the snapped values back to the mesh so the gizmo
+              // visually hops to the grid point during the drag.
+              meshObj.position.set(px, py, pz)
+              meshObj.rotation.set(rx, ry, rz)
+              meshObj.scale.set(sx, sy, sz)
+            }
             updateTransform(object.id, {
-              position: [meshObj.position.x, meshObj.position.y, meshObj.position.z] as Vec3,
-              rotation: [meshObj.rotation.x, meshObj.rotation.y, meshObj.rotation.z] as Vec3,
-              scale: [meshObj.scale.x, meshObj.scale.y, meshObj.scale.z] as Vec3,
+              position: [px, py, pz] as Vec3,
+              rotation: [rx, ry, rz] as Vec3,
+              scale: [sx, sy, sz] as Vec3,
             })
           }}
         />
