@@ -1,33 +1,39 @@
-// Right panel: tab switching between layers / properties / scene settings, collapsible
-import { Globe, Layers, PanelRightClose, Settings2 } from 'lucide-react'
-import { useState } from 'react'
+// Right panel: tab switching between layers / outliner / timeline / properties /
+// scene settings. Uses compact icon-only tabs (with tooltips) so five panels fit
+// within the 280px sidebar. Collapsible.
+import { Clapperboard, Globe, Layers, ListTree, PanelRightClose, Settings2 } from 'lucide-react'
+import { useEditor, type PanelTab } from '../../store/useEditor'
 import { useScene } from '../../store/useScene'
 import { LayersTab } from './LayersTab'
+import { Outliner } from './Outliner'
 import { PropertiesTab } from './PropertiesTab'
 import { SceneSettingsTab } from './SceneSettingsTab'
-
-type Tab = 'layers' | 'properties' | 'scene'
+import { Timeline } from './Timeline'
 
 interface RightPanelProps {
   onCollapse: () => void
 }
 
 export function RightPanel({ onCollapse }: RightPanelProps) {
-  const [tab, setTab] = useState<Tab>('layers')
+  const tab = useEditor((s) => s.activePanel)
+  const setTab = useEditor((s) => s.setActivePanel)
   const selectedId = useScene((s) => s.selectedId)
 
-  // Auto-switch to properties when an object is selected (only from layers tab)
-  const effectiveTab: Tab = selectedId && tab === 'layers' ? 'properties' : tab
+  // Auto-switch to properties when an object is selected from a list-style tab
+  const effectiveTab: PanelTab =
+    selectedId && (tab === 'layers' || tab === 'outliner') ? 'properties' : tab
 
-  const tabs: Array<{ id: Tab; icon: typeof Layers; label: string }> = [
+  const tabs: Array<{ id: PanelTab; icon: typeof Layers; label: string }> = [
     { id: 'layers', icon: Layers, label: 'Layers' },
-    { id: 'properties', icon: Settings2, label: 'Props' },
+    { id: 'outliner', icon: ListTree, label: 'Outliner' },
+    { id: 'timeline', icon: Clapperboard, label: 'Timeline' },
+    { id: 'properties', icon: Settings2, label: 'Properties' },
     { id: 'scene', icon: Globe, label: 'Scene' },
   ]
 
   return (
     <aside className="flex flex-col w-[280px] shrink-0 border-l border-border bg-bg-panel">
-      {/* Tab header */}
+      {/* Tab header — icon-only for compactness across five panels */}
       <header className="flex items-center justify-between h-11 border-b border-border">
         <div className="flex">
           {tabs.map((t) => {
@@ -37,14 +43,15 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 h-11 px-3 text-xs font-medium border-b-2 transition-colors ${
+                title={t.label}
+                aria-label={t.label}
+                className={`flex items-center justify-center w-10 h-11 border-b-2 transition-colors ${
                   active
                     ? 'text-fg-primary border-accent-cyan'
                     : 'text-fg-muted border-transparent hover:text-fg-secondary'
                 }`}
               >
-                <Icon size={13} />
-                <span>{t.label}</span>
+                <Icon size={15} />
               </button>
             )
           })}
@@ -52,7 +59,7 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
         <button
           onClick={onCollapse}
           aria-label="Collapse right panel"
-          className="mr-3 text-fg-muted hover:text-fg-primary transition-colors"
+          className="mr-2.5 text-fg-muted hover:text-fg-primary transition-colors"
         >
           <PanelRightClose size={16} />
         </button>
@@ -61,6 +68,8 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
         {effectiveTab === 'layers' && <LayersTab />}
+        {effectiveTab === 'outliner' && <Outliner />}
+        {effectiveTab === 'timeline' && <Timeline />}
         {effectiveTab === 'properties' && <PropertiesTab />}
         {effectiveTab === 'scene' && <SceneSettingsTab />}
       </div>
