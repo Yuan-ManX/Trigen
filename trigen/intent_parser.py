@@ -103,6 +103,77 @@ COMPOSE_MAP: Dict[str, str] = {
 }
 
 
+# Creative skill triggers — when matched, route to invoke_skill with the
+# named skill so the offline engine can fire multi-step recipes.
+SKILL_TRIGGERS: List[Tuple[str, str]] = [
+    ("spiral staircase", "spiral_staircase"),
+    ("螺旋楼梯", "spiral_staircase"),
+    ("spiral stair", "spiral_staircase"),
+    ("colonnade", "colonnade"),
+    ("柱廊", "colonnade"),
+    ("列柱", "colonnade"),
+    ("forest", "forest"),
+    ("树林", "forest"),
+    ("森林", "forest"),
+    ("一片树", "forest"),
+    ("crystal garden", "crystal_garden"),
+    ("水晶花园", "crystal_garden"),
+    ("crystal cluster", "crystal_garden"),
+    ("dna helix", "dna_helix"),
+    ("dna", "dna_helix"),
+    ("双螺旋", "dna_helix"),
+    ("spiral galaxy", "spiral_galaxy"),
+    ("galaxy", "spiral_galaxy"),
+    ("星系", "spiral_galaxy"),
+    ("银河", "spiral_galaxy"),
+    ("studio lighting", "studio_lighting"),
+    ("三点光", "studio_lighting"),
+    ("三点布光", "studio_lighting"),
+]
+
+
+# Procedural / advanced tool triggers — single-shot tool invocations that
+# do not require the LLM to compose arguments. Each entry maps a phrase
+# to a (tool_name, arguments-factory) pair.
+PROCEDURAL_TRIGGERS: List[Tuple[str, str]] = [
+    ("terrain", "terrain_generator"),
+    ("地形", "terrain_generator"),
+    ("l-system", "l_system"),
+    ("lsystem", "l_system"),
+    ("plant", "l_system"),
+    ("植物", "l_system"),
+    ("tree", "l_system"),
+    ("树", "l_system"),
+    ("shatter", "voronoi_shatter"),
+    ("碎裂", "voronoi_shatter"),
+    ("碎块", "voronoi_shatter"),
+    ("碎片", "voronoi_shatter"),
+    ("random palette", "randomize_palette"),
+    ("randomize palette", "randomize_palette"),
+    ("随机配色", "randomize_palette"),
+    ("随机调色", "randomize_palette"),
+]
+
+
+# Object animation triggers — map phrases to (tool_name, default args).
+ANIMATION_TRIGGERS: List[Tuple[str, str, str]] = [
+    # (phrase, tool_name, animation_kind) — animation_kind becomes part of args
+    ("orbit animation", "orbit_animation", "orbit"),
+    ("orbit", "orbit_animation", "orbit"),
+    ("轨道动画", "orbit_animation", "orbit"),
+    ("环绕动画", "orbit_animation", "orbit"),
+    ("wave animation", "wave_animation", "wave"),
+    ("wave", "wave_animation", "wave"),
+    ("波浪动画", "wave_animation", "wave"),
+    ("正弦动画", "wave_animation", "wave"),
+    ("bounce animation", "bounce_animation", "bounce"),
+    ("bounce", "bounce_animation", "bounce"),
+    ("弹跳动画", "bounce_animation", "bounce"),
+    ("keyframe animation", "keyframe_animation", "keyframe"),
+    ("关键帧动画", "keyframe_animation", "keyframe"),
+]
+
+
 # ---------------------------------------------------------------------------
 # Parsing helpers
 # ---------------------------------------------------------------------------
@@ -191,16 +262,77 @@ def parse_message(
     text_parts: List[str] = []
     matched_any = False
 
-    # 1. Smart compose (check first to allow scene replacement)
-    for kw, template in COMPOSE_MAP.items():
-        if kw in msg_lower:
+    # 0. Creative skill invocation (checked first so multi-step recipes
+    # take precedence over generic smart_compose templates like "crystal").
+    for phrase, skill_name in SKILL_TRIGGERS:
+        if phrase in msg_lower:
             intents.append(ParsedIntent(
-                tool_name="smart_compose",
-                arguments={"template": template},
-                description=f"Generate {template} scene",
+                tool_name="invoke_skill",
+                arguments={"skill": skill_name, "arguments": {}},
+                description=f"Invoke skill {skill_name}",
             ))
             matched_any = True
             break
+
+    # 0b. Procedural generation tools (terrain / l_system / shatter / palette)
+    if not matched_any:
+        for phrase, tool_name in PROCEDURAL_TRIGGERS:
+            if phrase in msg_lower:
+                args: Dict[str, Any] = {}
+                if tool_name == "voronoi_shatter" and scene_objects:
+                    # Default to the most recently created object as the shatter target
+                    args["target"] = scene_objects[-1].get("name", "")
+                elif tool_name == "l_system":
+                    # Allow "tree" / "plant" to also set position via parse_number_list
+                    pos = _parse_number_list(msg_lower)
+                    if pos and len(pos) >= 3:
+                        args["position"] = pos[:3]
+                intents.append(ParsedIntent(
+                    tool_name=tool_name,
+                    arguments=args,
+                    description=f"Run {tool_name}",
+                ))
+                matched_any = True
+                break
+
+    # 0c. Object animation tools — require a target object to exist
+    if not matched_any and scene_objects:
+        for phrase, tool_name, kind in ANIMATION_TRIGGERS:
+            if phrase in msg_lower:
+                target_name = _find_target_name(msg_lower, scene_objects)
+                if target_name:
+                    args: Dict[str, Any] = {"target": target_name}
+                    if tool_name == "orbit_animation":
+                        args["radius"] = 3.0
+                        args["duration"] = 6.0
+                        args["loop"] = True
+                    elif tool_name == "wave_animation":
+                        args["amplitude"] = 1.0
+                        args["frequency"] = 0.5
+                        args["loop"] = True
+                    elif tool_name == "bounce_animation":
+                        args["height"] = 1.5
+                        args["bounces"] = 3
+                        args["loop"] = True
+                    intents.append(ParsedIntent(
+                        tool_name=tool_name,
+                        arguments=args,
+                        description=f"Attach {kind} animation to {target_name}",
+                    ))
+                    matched_any = True
+                    break
+
+    # 1. Smart compose (check first to allow scene replacement)
+    if not matched_any:
+        for kw, template in COMPOSE_MAP.items():
+            if kw in msg_lower:
+                intents.append(ParsedIntent(
+                    tool_name="smart_compose",
+                    arguments={"template": template},
+                    description=f"Generate {template} scene",
+                ))
+                matched_any = True
+                break
 
     # 2. Object creation
     detected_color = _find_color(msg_lower)
