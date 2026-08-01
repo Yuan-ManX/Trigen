@@ -30,7 +30,7 @@ from trigen.executor import TaskExecutor
 from trigen.hooks import HookEvent, HookRegistry
 from trigen.memory import ConversationMemory
 from trigen.memory_persistence import persistence as memory_persistence
-from trigen.planner import TaskPlanner
+from trigen.planner import TaskPlanner, TaskPlan, TokenBudget, prevalidate_step
 from trigen.llm.client import LLMClient, LLMStreamChunk
 from trigen.llm.prompts import SYSTEM_PROMPT, build_scene_summary
 from trigen.llm.router import router as model_router
@@ -48,6 +48,7 @@ from trigen.tools import (
     ArrangeLayoutTool,
     BounceAnimationTool,
     BooleanOperationTool,
+    CaptureViewportTool,
     CreateObjectTool,
     DeleteLightTool,
     DeleteObjectTool,
@@ -56,6 +57,7 @@ from trigen.tools import (
     DuplicateObjectTool,
     ExportSceneTool,
     FocusObjectTool,
+    FocusPanelTool,
     FrameViewTool,
     Generate3DAssetTool,
     GenerateAnimationTool,
@@ -76,16 +78,24 @@ from trigen.tools import (
     ModifyGeometryTool,
     ModifyLightTool,
     OrbitAnimationTool,
+    PauseAnimationTool,
+    PlayAnimationTool,
     RandomizePaletteTool,
+    RedoSceneTool,
     RenameObjectTool,
     SceneInfoTool,
+    SeekAnimationTool,
     SelectObjectTool,
     SetBackgroundTool,
     SetEnvironmentTool,
     SetFogTool,
     SetGridSizeTool,
+    SetPlaybackSpeedTool,
+    SetRenderQualityTool,
+    SetSelectionTool,
     SetTransformModeTool,
     SetViewTool,
+    SetViewportCameraTool,
     SetVisibilityTool,
     SnapToGridTool,
     SnapshotViewTool,
@@ -93,14 +103,16 @@ from trigen.tools import (
     SpiralStaircaseTool,
     SynthesizeSpeechTool,
     TerrainGeneratorTool,
+    ToggleGridSnappingTool,
     ToggleGridTool,
     TranscribeAudioTool,
     TransformObjectTool,
+    UndoSceneTool,
     UngroupObjectsTool,
     VoronoiShatterTool,
     WaveAnimationTool,
 )
-from trigen.tools.base import ToolRegistry
+from trigen.tools.base import ToolRegistry, ToolResult
 from trigen.tools.img2threejs_tool import ImageToThreeJSTool
 from trigen.tools.scene_analyzer import SceneAnalyzerTool
 
@@ -157,6 +169,14 @@ class AgentOrchestrator:
         self._sessions: Dict[str, ConversationMemory] = {}
         self._scenes: Dict[str, Scene] = {}
         self._event_seq = 0
+        # Per-session scene history stacks for undo/redo. Each entry is a
+        # full scene snapshot (dict) captured before a mutating operation.
+        self._scene_history: Dict[str, List[Dict[str, Any]]] = {}
+        self._scene_redo: Dict[str, List[Dict[str, Any]]] = {}
+        # Per-session interrupt flags. When set, the running turn exits at
+        # the next iteration boundary.
+        self._interrupts: Dict[str, bool] = {}
+        self._max_history = 50  # cap per session to bound memory
 
     def _build_registry(self) -> ToolRegistry:
         registry = ToolRegistry()
@@ -211,6 +231,19 @@ class AgentOrchestrator:
         registry.register(RenameObjectTool())
         registry.register(SetTransformModeTool())
         registry.register(FrameViewTool())
+        # Viewport / playback / session editor control
+        registry.register(SetViewportCameraTool())
+        registry.register(PlayAnimationTool())
+        registry.register(PauseAnimationTool())
+        registry.register(SeekAnimationTool())
+        registry.register(SetSelectionTool())
+        registry.register(CaptureViewportTool())
+        registry.register(SetPlaybackSpeedTool())
+        registry.register(ToggleGridSnappingTool())
+        registry.register(FocusPanelTool())
+        registry.register(UndoSceneTool())
+        registry.register(RedoSceneTool())
+        registry.register(SetRenderQualityTool())
         # Export
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
         # Multimodal reconstruction
@@ -273,7 +306,143 @@ class AgentOrchestrator:
     def reset_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._scenes.pop(session_id, None)
+        self._scene_history.pop(session_id, None)
+        self._scene_redo.pop(session_id, None)
+        self._interrupts.pop(session_id, None)
         memory_persistence.delete(session_id)
+
+    # ------------------------------------------------------------------
+    # Scene history (undo / redo) — backend snapshot stack
+    # ------------------------------------------------------------------
+
+    def push_scene_history(self, session_id: str) -> None:
+        """Snapshot the current scene before a mutating API operation."""
+        scene = self.get_scene(session_id)
+        self._scene_history.setdefault(session_id, []).append(scene.to_dict())
+        # Cap the stack to bound memory.
+        if len(self._scene_history[session_id]) > self._max_history:
+            self._scene_history[session_id].pop(0)
+        # Any new mutation clears the redo stack.
+        self._scene_redo.pop(session_id, None)
+
+    def undo_scene(self, session_id: str) -> Dict[str, Any]:
+        """Restore the previous scene snapshot.
+
+        Returns a dict with ``applied`` (bool), ``scene`` (current snapshot),
+        and ``remaining`` (how many undo entries still remain). When the
+        history stack is empty, ``applied`` is False and the scene is unchanged.
+        """
+        history = self._scene_history.get(session_id, [])
+        if not history:
+            return {"applied": False, "scene": self.get_scene(session_id).to_dict(), "remaining": 0}
+        scene = self.get_scene(session_id)
+        # Push the current state onto the redo stack before restoring.
+        self._scene_redo.setdefault(session_id, []).append(scene.to_dict())
+        prev = history.pop()
+        # Scene.from_dict returns a NEW instance; replace the stored scene
+        # so all subsequent get_scene() callers see the restored state.
+        restored = Scene.from_dict(prev)
+        self._scenes[session_id] = restored
+        return {"applied": True, "scene": restored.to_dict(), "remaining": len(history)}
+
+    def redo_scene(self, session_id: str) -> Dict[str, Any]:
+        """Re-apply the most recently undone scene snapshot.
+
+        Returns a dict with ``applied`` (bool), ``scene`` (current snapshot),
+        and ``remaining`` (how many redo entries still remain).
+        """
+        redo = self._scene_redo.get(session_id, [])
+        if not redo:
+            return {"applied": False, "scene": self.get_scene(session_id).to_dict(), "remaining": 0}
+        scene = self.get_scene(session_id)
+        # Push the current state back onto the history stack.
+        self._scene_history.setdefault(session_id, []).append(scene.to_dict())
+        nxt = redo.pop()
+        restored = Scene.from_dict(nxt)
+        self._scenes[session_id] = restored
+        return {"applied": True, "scene": restored.to_dict(), "remaining": len(redo)}
+
+    def history_status(self, session_id: str) -> Dict[str, int]:
+        """Return the undo/redo stack depths for a session."""
+        return {
+            "undo_depth": len(self._scene_history.get(session_id, [])),
+            "redo_depth": len(self._scene_redo.get(session_id, [])),
+        }
+
+    # ------------------------------------------------------------------
+    # Interrupt — cooperative cancellation of a running turn
+    # ------------------------------------------------------------------
+
+    def request_interrupt(self, session_id: str) -> bool:
+        """Request cancellation of the currently running turn for a session.
+
+        The running turn checks the flag at each iteration boundary and
+        exits cleanly. Returns True if a flag was set (a turn may or may
+        not be running — the flag is sticky until consumed).
+        """
+        self._interrupts[session_id] = True
+        return True
+
+    def _consume_interrupt(self, session_id: str) -> bool:
+        """Return True if an interrupt was requested, clearing the flag."""
+        if self._interrupts.get(session_id):
+            self._interrupts[session_id] = False
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Plan-only — produce a structured plan without executing tools
+    # ------------------------------------------------------------------
+
+    async def plan_only(
+        self, user_message: str, session_id: str = "default", model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Run a single LLM pass and return the structured plan, no execution.
+
+        Adds the user message to memory, streams the LLM once to collect
+        any tool calls + reasoning, then builds a TaskPlan via the planner
+        and returns its structured payload. Tools are NOT executed and the
+        scene is NOT mutated. Useful for previewing what the agent would do.
+        """
+        memory = self.get_memory(session_id)
+        scene = self.get_scene(session_id)
+        memory.add_user(user_message)
+
+        tool_schemas = self.registry.schemas()
+        scene_context = self.planner.build_context_message(scene.to_dict())
+        messages = memory.to_openai_messages()
+        messages.insert(-1, {"role": "system", "content": scene_context})
+
+        tool_calls_collected: List = []
+        full_text = ""
+        async for chunk in self.llm.stream(
+            messages=messages,
+            tools=tool_schemas,
+            system=SYSTEM_PROMPT,
+            model=model,
+        ):
+            if chunk.finish_reason == "error":
+                return {
+                    "error": chunk.content or "LLM streaming error",
+                    "plan": None,
+                }
+            if chunk.content:
+                full_text += chunk.content
+            if chunk.tool_calls:
+                tool_calls_collected.extend(chunk.tool_calls)
+            if chunk.finish_reason and not chunk.tool_calls:
+                break
+
+        plan = self.planner.from_tool_calls(tool_calls_collected, reasoning=full_text)
+        return {
+            "plan": plan.to_plan_payload(),
+            "reasoning": full_text,
+            "tool_calls": [
+                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                for tc in tool_calls_collected
+            ],
+            "session_id": session_id,
+        }
 
     def save_memory(self, session_id: str, model: str = "") -> None:
         """Persist the current conversation memory to disk."""
@@ -505,6 +674,15 @@ class AgentOrchestrator:
         # Inject scene context before the latest user message
         messages.insert(-1, {"role": "system", "content": scene_context})
 
+        # Per-turn token budget (approximate). 0 means unlimited.
+        budget = TokenBudget(limit=self.config.max_tokens_per_turn)
+        budget.add(scene_context)
+        budget.add(user_message)
+        # Map tool name -> schema for pre-validation lookups.
+        tool_schema_map: Dict[str, Dict[str, Any]] = {
+            s["name"]: s for s in tool_schemas
+        }
+
         # Emit a thinking event describing the plan
         yield AgentEvent(
             type=EventType.THINKING,
@@ -524,7 +702,36 @@ class AgentOrchestrator:
         reflection_count = 0
         edit_ops_applied = 0
         total_tool_calls = 0
+        budget_warning_emitted = False
         for iteration in range(self.config.max_iterations):
+            # Cooperative interrupt: if requested, stop the turn early.
+            if self._consume_interrupt(session_id):
+                yield AgentEvent(
+                    type=EventType.THINKING,
+                    data={
+                        "phase": "interrupted",
+                        "content": "Turn interrupted by user request.",
+                        "iteration": iteration,
+                    },
+                )
+                break
+            # Guard: stop if the per-turn token budget is exhausted.
+            if budget.exhausted:
+                if not budget_warning_emitted:
+                    yield AgentEvent(
+                        type=EventType.THINKING,
+                        data={
+                            "phase": "budget",
+                            "content": (
+                                f"Token budget exhausted ({budget.used}/{budget.limit}); "
+                                "stopping further iterations."
+                            ),
+                            "token_budget_used": budget.used,
+                            "token_budget_limit": budget.limit,
+                        },
+                    )
+                    budget_warning_emitted = True
+                break
             tool_calls_collected: List = []
             try:
                 async for chunk in self.llm.stream(
@@ -539,6 +746,7 @@ class AgentOrchestrator:
                         raise RuntimeError(chunk.content or "LLM streaming error")
                     if chunk.content:
                         full_text += chunk.content
+                        budget.add(chunk.content)
                         yield AgentEvent(
                             type=EventType.TEXT_DELTA,
                             data={"content": chunk.content, "iteration": iteration},
@@ -592,19 +800,27 @@ class AgentOrchestrator:
 
             total_tool_calls += len(tool_calls_collected)
 
-            # Emit thinking event for the planning phase
+            # Build the structured plan (goal/assumptions/risks + steps).
+            plan = self.planner.from_tool_calls(tool_calls_collected, reasoning=full_text)
+            plan.token_budget_used = budget.used
+            plan.token_budget_limit = budget.limit
+
+            # Emit a structured plan event so the frontend can render the
+            # agent's reasoning before any tool fires.
             yield AgentEvent(
                 type=EventType.THINKING,
                 data={
                     "phase": "planning",
-                    "content": f"Planning to execute {len(tool_calls_collected)} tool calls",
+                    "content": plan.goal or f"Planning to execute {len(tool_calls_collected)} tool calls",
                     "tools": [tc.name for tc in tool_calls_collected],
                     "iteration": iteration,
+                    "plan": plan.to_plan_payload(),
+                    "token_budget_used": budget.used,
+                    "token_budget_limit": budget.limit,
+                    "token_budget_remaining": budget.remaining,
                 },
             )
 
-            # Plan and execute tools
-            plan = self.planner.from_tool_calls(tool_calls_collected, reasoning=full_text)
             # Append assistant message (with tool_calls structure) to LLM messages
             assistant_msg: Dict[str, Any] = {"role": "assistant", "content": full_text or ""}
             assistant_msg["tool_calls"] = [
@@ -620,6 +836,21 @@ class AgentOrchestrator:
             ]
             messages.append(assistant_msg)
 
+            # Pre-validate each step's arguments against the tool schema.
+            # Invalid steps are reported as failed tool_result events and
+            # skipped — they never reach the executor. This avoids wasting
+            # a tool execution on obviously broken inputs (missing required
+            # field, wrong type, out-of-enum value) and gives the LLM a
+            # clean error to correct in the next reflection round.
+            valid_steps: List = []
+            invalid_steps: List[tuple] = []  # (step, error_list)
+            for step in plan.steps:
+                errors = prevalidate_step(step, tool_schema_map.get(step.tool_name))
+                if errors:
+                    invalid_steps.append((step, errors))
+                else:
+                    valid_steps.append(step)
+
             for step in plan.steps:
                 yield AgentEvent(
                     type=EventType.TOOL_CALL,
@@ -630,31 +861,53 @@ class AgentOrchestrator:
                     },
                 )
 
-            results = await self.executor.execute_plan(scene, plan)
+            # Execute only the valid subset; build a sub-plan so the
+            # executor's parallel batching still applies.
+            valid_plan = TaskPlan(steps=valid_steps, reasoning=plan.reasoning)
+            executed_results = await self.executor.execute_plan(scene, valid_plan)
+
+            # Build the merged result list aligned with plan.steps order so
+            # the frontend can correlate tool_call ↔ tool_result by id.
+            results_by_id: Dict[str, Any] = {}
+            for s, r in zip(valid_steps, executed_results):
+                results_by_id[s.tool_call_id] = r
+            # Synthesize failure results for invalid steps.
+            for step, errors in invalid_steps:
+                msg = "Pre-validation failed: " + "; ".join(errors)
+                results_by_id[step.tool_call_id] = ToolResult(
+                    success=False, message=msg
+                )
+
+            results: List[ToolResult] = []
             failed_steps: List[tuple] = []  # (step, result) pairs for reflection
-            for i, result in enumerate(results):
-                step = plan.steps[i] if i < len(plan.steps) else None
+            for step in plan.steps:
+                result = results_by_id.get(step.tool_call_id)
+                if result is None:
+                    # Fallback: should not happen, but stay safe.
+                    result = ToolResult(success=False, message="Step not executed")
+                    results_by_id[step.tool_call_id] = result
+                results.append(result)
                 yield AgentEvent(
                     type=EventType.TOOL_RESULT,
                     data={
-                        "id": step.tool_call_id if step else "",
-                        "name": step.tool_name if step else "",
+                        "id": step.tool_call_id,
+                        "name": step.tool_name,
                         "success": result.success,
                         "message": result.message,
                         "data": result.data,
                     },
                 )
-                # Append tool result to messages
-                if step:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": step.tool_call_id,
-                            "content": result.message,
-                        }
-                    )
-                    if not result.success:
-                        failed_steps.append((step, result))
+                # Append tool result to messages so the LLM sees the outcome.
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": step.tool_call_id,
+                        "content": result.message,
+                    }
+                )
+                budget.add(result.message)
+                if not result.success:
+                    failed_steps.append((step, result))
 
             # Scene mutation event
             deltas = self.executor.collect_deltas(results)
@@ -754,9 +1007,9 @@ class AgentOrchestrator:
                 )
 
             # Update scene context
-            messages.append(
-                {"role": "system", "content": self.planner.build_context_message(scene.to_dict())}
-            )
+            new_context = self.planner.build_context_message(scene.to_dict())
+            budget.add(new_context)
+            messages.append({"role": "system", "content": new_context})
             full_text = ""
 
         elapsed = round(time.time() - start_ts, 2)
@@ -770,6 +1023,8 @@ class AgentOrchestrator:
                 "content": f"Turn complete, {iteration + 1} iterations, elapsed {elapsed}s",
                 "elapsed": elapsed,
                 "iterations": iteration + 1,
+                "token_budget_used": budget.used,
+                "token_budget_limit": budget.limit,
             },
         )
 
@@ -784,6 +1039,8 @@ class AgentOrchestrator:
                     "iterations": iteration + 1,
                     "tool_calls": total_tool_calls,
                     "elapsed": elapsed,
+                    "token_budget_used": budget.used,
+                    "token_budget_limit": budget.limit,
                 },
             },
         )
