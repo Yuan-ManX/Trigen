@@ -32,6 +32,20 @@ from trigen.tools.editor_tools import (
     SetTransformModeTool,
     SetVisibilityTool,
 )
+from trigen.tools.editor_control_tools import (
+    CaptureViewportTool,
+    FocusPanelTool,
+    PauseAnimationTool,
+    PlayAnimationTool,
+    RedoSceneTool,
+    SeekAnimationTool,
+    SetPlaybackSpeedTool,
+    SetRenderQualityTool,
+    SetSelectionTool,
+    SetViewportCameraTool,
+    ToggleGridSnappingTool,
+    UndoSceneTool,
+)
 from trigen.tools.exporter import ExportSceneTool
 from trigen.tools.camera_tools import AddCameraTool, ModifyCameraTool, SetViewTool
 from trigen.tools.scene_info_tool import SceneInfoTool
@@ -61,6 +75,24 @@ from trigen.tools.composite_tools import (
     MirrorObjectTool,
     SnapToGridTool,
 )
+from trigen.tools.procedural_tools import (
+    LSystemTool,
+    SpiralStaircaseTool,
+    TerrainGeneratorTool,
+    VoronoiShatterTool,
+)
+from trigen.tools.animation_tools import (
+    BounceAnimationTool,
+    KeyframeAnimationTool,
+    OrbitAnimationTool,
+    WaveAnimationTool,
+)
+from trigen.tools.material_tools import (
+    GradientMaterialTool,
+    MaterialBlendTool,
+    RandomizePaletteTool,
+)
+from trigen.tools.skill_tool import InvokeSkillTool
 
 __all__ = [
     "ToolBase",
@@ -77,6 +109,9 @@ __all__ = [
     # Material
     "ApplyMaterialTool",
     "ApplyMaterialPresetTool",
+    "GradientMaterialTool",
+    "MaterialBlendTool",
+    "RandomizePaletteTool",
     # Lighting
     "AddLightTool",
     "ModifyLightTool",
@@ -103,6 +138,16 @@ __all__ = [
     "MirrorObjectTool",
     "BooleanOperationTool",
     "SnapToGridTool",
+    # Procedural generation
+    "TerrainGeneratorTool",
+    "LSystemTool",
+    "SpiralStaircaseTool",
+    "VoronoiShatterTool",
+    # Object animation
+    "KeyframeAnimationTool",
+    "OrbitAnimationTool",
+    "WaveAnimationTool",
+    "BounceAnimationTool",
     # Scene inspection
     "SceneInfoTool",
     # Grid control
@@ -118,6 +163,19 @@ __all__ = [
     "RenameObjectTool",
     "SetTransformModeTool",
     "FrameViewTool",
+    # Viewport / playback / session editor control
+    "SetViewportCameraTool",
+    "PlayAnimationTool",
+    "PauseAnimationTool",
+    "SeekAnimationTool",
+    "SetSelectionTool",
+    "CaptureViewportTool",
+    "SetPlaybackSpeedTool",
+    "ToggleGridSnappingTool",
+    "FocusPanelTool",
+    "UndoSceneTool",
+    "RedoSceneTool",
+    "SetRenderQualityTool",
     # Export
     "ExportSceneTool",
     # Multimodal generation
@@ -130,4 +188,6 @@ __all__ = [
     "TranscribeAudioTool",
     # Sub-agent
     "DispatchSubagentTool",
+    # Creative skills
+    "InvokeSkillTool",
 ]
