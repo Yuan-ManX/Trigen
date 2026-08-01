@@ -232,4 +232,17 @@ _PARALLEL_SAFE_TOOLS = {
     "invoke_skill",
     # Scene-wide palette
     "randomize_palette",
+    # Viewport / playback / session editor control (delta-only, no scene mutation)
+    "set_viewport_camera",
+    "play_animation",
+    "pause_animation",
+    "seek_animation",
+    "set_selection",
+    "capture_viewport",
+    "set_playback_speed",
+    "toggle_grid_snapping",
+    "focus_panel",
+    "undo_scene",
+    "redo_scene",
+    "set_render_quality",
 }
