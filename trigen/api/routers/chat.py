@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-from typing import Any, Dict
+import os
+import re
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -15,6 +18,58 @@ from trigen.api.services.session_service import SessionService
 
 logger = logging.getLogger("trigen.api.chat")  # Chat router logger
 router = APIRouter(tags=["chat"])  # Chat router
+
+# Matches ``[Image: media_id]`` tags embedded by the frontend when a user
+# attaches an uploaded image to a chat message. The media_id corresponds to
+# a file persisted under ``<workspace>/uploads/`` by the upload endpoint.
+_IMAGE_TAG_RE = re.compile(r"\[Image:\s*(img_[A-Za-z0-9_]+)\s*\]")
+
+# Supported upload extensions mapped to their MIME types.
+_EXT_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _resolve_image_tags(
+    message: str, workspace_dir: str
+) -> tuple[str, List[Dict[str, str]]]:
+    """Resolve ``[Image: media_id]`` tags to base64 image attachments.
+
+    For each tag, looks up the corresponding file under
+    ``<workspace>/uploads/`` and reads it as base64. Tags that cannot be
+    resolved (missing file) are left in the message as-is so the LLM sees a
+    hint that an image was intended. Successfully resolved tags are stripped
+    from the message text.
+
+    Returns ``(clean_message, images)`` where ``images`` is a list of
+    ``{"base64": ..., "mime": ...}`` dicts ready for the orchestrator.
+    """
+    images: List[Dict[str, str]] = []
+    uploads_dir = os.path.join(workspace_dir, "uploads")
+
+    def _replace(match: re.Match) -> str:
+        media_id = match.group(1)
+        # Search for a file matching the media_id with any known extension.
+        for ext, mime in _EXT_MIME.items():
+            candidate = os.path.join(uploads_dir, f"{media_id}{ext}")
+            if os.path.isfile(candidate):
+                try:
+                    with open(candidate, "rb") as fh:
+                        b64 = base64.b64encode(fh.read()).decode("ascii")
+                    images.append({"base64": b64, "mime": mime})
+                    return ""  # strip the tag from the message
+                except Exception:
+                    logger.warning("Failed reading upload %s", candidate, exc_info=True)
+                    return match.group(0)  # leave tag in place
+        logger.debug("Upload not found for media_id=%s", media_id)
+        return match.group(0)  # leave tag in place
+
+    clean = _IMAGE_TAG_RE.sub(_replace, message).strip()
+    return clean, images
 
 
 @router.websocket("/chat/ws")
@@ -46,10 +101,17 @@ async def chat_ws(websocket: WebSocket) -> None:
             if not message:
                 continue  # Skip empty message
 
+            # Resolve any [Image: media_id] tags into base64 attachments
+            # so the orchestrator can pass them to vision LLMs and the
+            # image_to_3d tool.
+            message, images = _resolve_image_tags(message, agent.config.workspace_dir)
+
             await session_svc.log_user_message(session_id, message)
 
             try:
-                async for event in agent.chat_stream(message, session_id, model=model):
+                async for event in agent.chat_stream(
+                    message, session_id, model=model, images=images
+                ):
                     await websocket.send_text(event.to_json())
                     # Persist exported assets
                     if event.type.value == "tool_result":
@@ -88,12 +150,17 @@ async def chat_rest(req: ChatRequest) -> JSONResponse:
     agent = AgentService.get()
     session_svc = SessionService.get()
 
-    await session_svc.log_user_message(req.session_id, req.message)
+    # Resolve image tags in the REST path too so POST /api/chat works with
+    # uploaded images the same way the WebSocket path does.
+    clean_message, images = _resolve_image_tags(req.message, agent.config.workspace_dir)
+    await session_svc.log_user_message(req.session_id, clean_message)
 
     final_content = ""  # Final reply content
     final_scene: Dict[str, Any] = {}  # Final scene data
     try:
-        async for event in agent.chat_stream(req.message, req.session_id, model=req.model):
+        async for event in agent.chat_stream(
+            clean_message, req.session_id, model=req.model, images=images
+        ):
             if event.type.value == "done":
                 final_content = event.data.get("content", "")
                 final_scene = event.data.get("scene", {})
