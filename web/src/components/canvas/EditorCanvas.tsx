@@ -11,6 +11,7 @@ import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
 import type { CameraObject } from '../../types'
 import { CameraRig } from './CameraRig'
+import { Minimap } from './Minimap'
 import { SceneLight } from './SceneLight'
 import { SceneMesh } from './SceneMesh'
 
@@ -303,6 +304,40 @@ function MeasurementOverlay() {
   )
 }
 
+/**
+ * Applies the active clipping plane to the WebGLRenderer. Watches the
+ * clippingPlane token so repeated identical states still re-apply. Uses
+ * the renderer's global clippingPlanes array (applies to every material).
+ *
+ * Plane convention: a point is KEPT when normal·point + constant >= 0.
+ * - invert=false → keep the positive side (normal points in +axis direction)
+ * - invert=true  → keep the negative side (normal points in -axis direction)
+ */
+function ClippingPlaneSync() {
+  const gl = useThree((s) => s.gl)
+  const cp = useEditor((s) => s.clippingPlane)
+  useEffect(() => {
+    if (!cp || !cp.enabled) {
+      gl.clippingPlanes = []
+      return
+    }
+    const sign = cp.invert ? -1 : 1
+    const normal =
+      cp.axis === 'x'
+        ? new THREE.Vector3(sign, 0, 0)
+        : cp.axis === 'z'
+          ? new THREE.Vector3(0, 0, sign)
+          : new THREE.Vector3(0, sign, 0)
+    // constant = -sign * position so the plane sits at `position` along axis.
+    const plane = new THREE.Plane(normal, -sign * cp.position)
+    gl.clippingPlanes = [plane]
+    return () => {
+      gl.clippingPlanes = []
+    }
+  }, [cp?.token, cp?.enabled, cp?.axis, cp?.position, cp?.invert, gl])
+  return null
+}
+
 function SceneContent({
   mode,
   transformMode,
@@ -394,9 +429,15 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
   const transformMode = useEditor((s) => s.transformMode)
   const setTransformMode = useEditor((s) => s.setTransformMode)
   const renderQuality = useEditor((s) => s.renderQuality)
+  const clippingPlane = useEditor((s) => s.clippingPlane)
 
   // Map render quality to device pixel ratio range
   const dpr: [number, number] = renderQuality === 'low' ? [1, 1] : renderQuality === 'medium' ? [1, 1.5] : [1, 2]
+
+  const clippingActive = !!clippingPlane?.enabled
+  const clippingLabel = clippingPlane
+    ? `Clipping: ON (${clippingPlane.axis.toUpperCase()}=${clippingPlane.position.toFixed(2)}${clippingPlane.invert ? ' ¬' : ''})`
+    : ''
 
   return (
     <>
@@ -417,8 +458,23 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
           <ViewportCameraSync />
           <ViewportCapture />
           <MeasurementOverlay />
+          <ClippingPlaneSync />
         </Suspense>
       </Canvas>
+
+      {/* Minimap overlay (top-down x,z projection). Edit mode only — in run
+          mode the viewport is a clean showcase. */}
+      {mode === 'edit' && <Minimap />}
+
+      {/* Clipping-plane active badge (sits just below the transform toolbar) */}
+      {clippingActive && (
+        <div
+          className="absolute top-14 left-1/2 -translate-x-1/2 z-10 rounded-md border border-fuchsia-500/40 bg-fuchsia-500/10 px-2.5 py-1 text-[10px] font-mono text-fuchsia-300 backdrop-blur pointer-events-none"
+          title="A clipping plane is active. Disable via set_clipping_plane(enabled=false)."
+        >
+          {clippingLabel}
+        </div>
+      )}
     </>
   )
 }
