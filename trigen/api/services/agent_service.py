@@ -63,10 +63,21 @@ class AgentService:
         }
 
     async def chat_stream(
-        self, message: str, session_id: str = "default", model: Optional[str] = None
+        self,
+        message: str,
+        session_id: str = "default",
+        model: Optional[str] = None,
+        images: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncIterator[AgentEvent]:
-        """Streaming chat, yielding a sequence of AgentEvents. Passes model override to orchestrator."""
-        async for event in self.orchestrator.run(message, session_id, model=model):
+        """Streaming chat, yielding a sequence of AgentEvents.
+
+        Passes the model override and any resolved image attachments through
+        to the orchestrator. ``images`` is a list of ``{"base64", "mime"}``
+        dicts produced by the chat router's ``_resolve_image_tags`` helper.
+        """
+        async for event in self.orchestrator.run(
+            message, session_id, model=model, images=images
+        ):
             yield event
 
     def get_scene(self, session_id: str) -> Dict[str, Any]:
