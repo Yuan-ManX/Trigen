@@ -668,6 +668,957 @@ class StudioLightingSkill(SkillBase):
 
 
 # ---------------------------------------------------------------------------
+# Abstract / science skills
+# ---------------------------------------------------------------------------
+
+class AtomSkill(SkillBase):
+    """Build a Bohr-style atom model: glowing nucleus + electron orbits."""
+
+    name = "atom"
+    description = "Generate an atom model with a glowing nucleus and three electron orbits at staggered angles, each carrying an electron."
+    category = "abstract"
+    icon = "atom"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "nucleus_radius": {"type": "number", "description": "Nucleus radius (default 0.8)"},
+                "orbit_radius": {"type": "number", "description": "Electron orbit radius (default 2.2)"},
+                "electrons": {"type": "integer", "description": "Number of orbits/electrons (default 3, max 6)"},
+                "nucleus_color": {"type": "string", "description": "Nucleus emissive color (default #FFB800)"},
+                "electron_color": {"type": "string", "description": "Electron emissive color (default #00F0FF)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        n_radius = float(arguments.get("nucleus_radius", 0.8))
+        o_radius = float(arguments.get("orbit_radius", 2.2))
+        electrons = max(1, min(6, int(arguments.get("electrons", 3))))
+        n_color = str(arguments.get("nucleus_color", "#FFB800"))
+        e_color = str(arguments.get("electron_color", "#00F0FF"))
+        result: List[TaskStep] = []
+
+        # Nucleus
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "sphere",
+                "name": f"{id_prefix}Nucleus",
+                "position": [0, 0, 0],
+                "scale": [n_radius, n_radius, n_radius],
+            },
+            f"{id_prefix}nucleus",
+            "Glowing nucleus",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {
+                "target": f"{id_prefix}Nucleus",
+                "color": n_color,
+                "emissive": n_color,
+                "emissive_intensity": 1.8,
+                "roughness": 0.3,
+            },
+            f"{id_prefix}nucleus_mat",
+            "Nucleus emissive material",
+        ))
+
+        # Orbits + electrons. Each orbit is a thin torus rotated to a different
+        # plane so the shells read as 3D rather than coplanar rings.
+        for i in range(electrons):
+            # Stagger orbit plane rotations around Z and X for a shell look.
+            rz = (i / max(1, electrons)) * math.pi
+            rx = (i / max(1, electrons)) * math.pi * 0.5
+            orbit_name = f"{id_prefix}Orbit_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "torus",
+                    "name": orbit_name,
+                    "position": [0, 0, 0],
+                    "scale": [1, 1, 1],
+                },
+                f"{id_prefix}orbit_{i}",
+                f"Orbit {i + 1}",
+            ))
+            # Torus default radius 0.6 / tube 0.2; scale uniformly to o_radius.
+            # We scale X/Y by o_radius / 0.6 and Z (tube) by 0.05 to keep it thin.
+            scale_factor = o_radius / 0.6
+            result.append(self._step(
+                "transform_object",
+                {
+                    "target": orbit_name,
+                    "rotation": [rx, 0, rz],
+                    "scale": [scale_factor, scale_factor, 0.08],
+                    "relative": False,
+                },
+                f"{id_prefix}orbit_tf_{i}",
+                f"Rotate orbit {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {
+                    "target": orbit_name,
+                    "color": "#3a4250",
+                    "metalness": 0.6,
+                    "roughness": 0.4,
+                    "opacity": 0.5,
+                },
+                f"{id_prefix}orbit_mat_{i}",
+                f"Orbit {i + 1} ring material",
+            ))
+
+            # Electron placed on the orbit at azimuth 0 in the orbit's local plane.
+            # Approximate position: rotate (o_radius, 0, 0) by rz around Z then rx around X.
+            ex = o_radius * math.cos(rz)
+            ey = o_radius * math.sin(rz) * math.cos(rx)
+            ez = o_radius * math.sin(rz) * math.sin(rx)
+            electron_name = f"{id_prefix}Electron_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "sphere",
+                    "name": electron_name,
+                    "position": [ex, ey, ez],
+                    "scale": [0.18, 0.18, 0.18],
+                },
+                f"{id_prefix}electron_{i}",
+                f"Electron {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {
+                    "target": electron_name,
+                    "color": e_color,
+                    "emissive": e_color,
+                    "emissive_intensity": 2.2,
+                    "roughness": 0.2,
+                },
+                f"{id_prefix}electron_mat_{i}",
+                f"Electron {i + 1} emissive material",
+            ))
+
+        # Dark backdrop so the emissive shells pop.
+        result.append(self._step(
+            "set_background",
+            {"color": "#05060a"},
+            f"{id_prefix}bg",
+            "Dark backdrop",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Ambient", "color": "#556677", "intensity": 0.6, "position": [0, 0, 0]},
+            f"{id_prefix}ambient",
+            "Soft ambient light",
+        ))
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Architecture skills (extended)
+# ---------------------------------------------------------------------------
+
+class BridgeSkill(SkillBase):
+    """Build a suspension bridge: deck + piers + towers + cables + hangers."""
+
+    name = "bridge"
+    description = "Generate a suspension bridge with a deck, two piers, two towers, two main cables, and a row of vertical hanger cables."
+    category = "architecture"
+    icon = "bridge"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "length": {"type": "number", "description": "Deck length (default 16)"},
+                "deck_height": {"type": "number", "description": "Deck height above water (default 1.5)"},
+                "tower_height": {"type": "number", "description": "Tower height above deck (default 4)"},
+                "hangers": {"type": "integer", "description": "Vertical hanger cables per side (default 7)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        length = float(arguments.get("length", 16))
+        deck_y = float(arguments.get("deck_height", 1.5))
+        tower_h = float(arguments.get("tower_height", 4))
+        hangers = max(2, min(14, int(arguments.get("hangers", 7))))
+        result: List[TaskStep] = []
+        half = length / 2
+        # Tower positions: 25% in from each end.
+        tower_x = half * 0.5
+
+        # Deck
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "box",
+                "name": f"{id_prefix}Deck",
+                "position": [0, deck_y, 0],
+                "scale": [length, 0.2, 1.6],
+            },
+            f"{id_prefix}deck",
+            "Bridge deck",
+        ))
+        result.append(self._step(
+            "apply_material_preset",
+            {"target": f"{id_prefix}Deck", "preset": "ceramic"},
+            f"{id_prefix}deck_mat",
+            "Deck material",
+        ))
+
+        # Piers (below deck, at tower positions)
+        for i, sx in enumerate([-tower_x, tower_x]):
+            name = f"{id_prefix}Pier_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": name,
+                    "position": [sx, deck_y / 2, 0],
+                    "scale": [0.5, deck_y, 0.5],
+                },
+                f"{id_prefix}pier_{i}",
+                f"Pier {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": name, "preset": "ceramic"},
+                f"{id_prefix}pier_mat_{i}",
+                f"Pier {i + 1} material",
+            ))
+
+        # Towers (above deck)
+        for i, sx in enumerate([-tower_x, tower_x]):
+            name = f"{id_prefix}Tower_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": name,
+                    "position": [sx, deck_y + tower_h / 2, 0],
+                    "scale": [0.3, tower_h, 0.3],
+                },
+                f"{id_prefix}tower_{i}",
+                f"Tower {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": name, "preset": "metal"},
+                f"{id_prefix}tower_mat_{i}",
+                f"Tower {i + 1} material",
+            ))
+
+        # Main cables: a thin box arched between the two tower tops, dipping
+        # toward the deck at midspan. We approximate the catenary with a long,
+        # thin, slightly downward-tilted box. One cable per side (front/back).
+        cable_y_top = deck_y + tower_h
+        for side_z in (-0.6, 0.6):
+            name = f"{id_prefix}MainCable_{'front' if side_z < 0 else 'back'}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "box",
+                    "name": name,
+                    "position": [0, (cable_y_top + deck_y + 0.4) / 2, side_z],
+                    "scale": [tower_x * 2, 0.06, 0.06],
+                },
+                f"{id_prefix}cable_{int(side_z * 10)}",
+                f"Main cable (z={side_z})",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": name, "preset": "metal"},
+                f"{id_prefix}cable_mat_{int(side_z * 10)}",
+                "Cable material",
+            ))
+
+        # Hangers: thin vertical boxes spaced between the towers.
+        span = tower_x * 2
+        spacing = span / (hangers + 1)
+        for j in range(hangers):
+            hx = -tower_x + spacing * (j + 1)
+            for side_z in (-0.6, 0.6):
+                name = f"{id_prefix}Hanger_{j + 1}_{'front' if side_z < 0 else 'back'}"
+                result.append(self._step(
+                    "create_object",
+                    {
+                        "geometry_type": "box",
+                        "name": name,
+                        "position": [hx, (cable_y_top + deck_y) / 2, side_z],
+                        "scale": [0.04, cable_y_top - deck_y, 0.04],
+                    },
+                    f"{id_prefix}hanger_{j}_{int(side_z * 10)}",
+                    f"Hanger {j + 1} (z={side_z})",
+                ))
+                result.append(self._step(
+                    "apply_material_preset",
+                    {"target": name, "preset": "metal"},
+                    f"{id_prefix}hanger_mat_{j}_{int(side_z * 10)}",
+                    f"Hanger {j + 1} material",
+                ))
+
+        # Water plane below the bridge for context.
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "plane",
+                "name": f"{id_prefix}Water",
+                "position": [0, 0, 0],
+                "scale": [length * 2, 1, length * 2],
+            },
+            f"{id_prefix}water",
+            "Water plane",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {
+                "target": f"{id_prefix}Water",
+                "color": "#1a3a5a",
+                "metalness": 0.4,
+                "roughness": 0.15,
+                "opacity": 0.85,
+            },
+            f"{id_prefix}water_mat",
+            "Water material",
+        ))
+        result.append(self._step(
+            "transform_object",
+            {
+                "target": f"{id_prefix}Water",
+                "rotation": [math.pi / 2, 0, 0],
+                "relative": False,
+            },
+            f"{id_prefix}water_tf",
+            "Lay water plane flat",
+        ))
+
+        # Lighting
+        result.append(self._step(
+            "add_light",
+            {"light_type": "directional", "name": f"{id_prefix}Sun", "color": "#fff3d6", "intensity": 1.6, "position": [6, 8, 4]},
+            f"{id_prefix}sun",
+            "Sun light",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Sky", "color": "#88aacc", "intensity": 0.4, "position": [0, 0, 0]},
+            f"{id_prefix}sky",
+            "Sky ambient",
+        ))
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Layout skills (extended)
+# ---------------------------------------------------------------------------
+
+class ZenGardenSkill(SkillBase):
+    """Build a zen garden: sand plane + rocks + rake lines."""
+
+    name = "zen_garden"
+    description = "Generate a zen garden with a raked sand plane, scattered rocks of varying sizes, and a grid of rake lines."
+    category = "layout"
+    icon = "sparkles"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "size": {"type": "number", "description": "Garden side length (default 10)"},
+                "rock_count": {"type": "integer", "description": "Number of rocks (default 5, max 12)"},
+                "rake_lines": {"type": "integer", "description": "Number of rake lines (default 8, max 16)"},
+                "sand_color": {"type": "string", "description": "Sand color (default #d9c9a3)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        import random
+        rng = random.Random(arguments.get("seed", 7))
+        size = float(arguments.get("size", 10))
+        rock_count = max(1, min(12, int(arguments.get("rock_count", 5))))
+        rake_lines = max(2, min(16, int(arguments.get("rake_lines", 8))))
+        sand_color = str(arguments.get("sand_color", "#d9c9a3"))
+        half = size / 2
+        result: List[TaskStep] = []
+
+        # Sand plane
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "plane",
+                "name": f"{id_prefix}Sand",
+                "position": [0, 0, 0],
+                "scale": [size, 1, size],
+            },
+            f"{id_prefix}sand",
+            "Sand plane",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {
+                "target": f"{id_prefix}Sand",
+                "color": sand_color,
+                "roughness": 0.95,
+                "metalness": 0.0,
+            },
+            f"{id_prefix}sand_mat",
+            "Sand material",
+        ))
+        result.append(self._step(
+            "transform_object",
+            {
+                "target": f"{id_prefix}Sand",
+                "rotation": [math.pi / 2, 0, 0],
+                "relative": False,
+            },
+            f"{id_prefix}sand_tf",
+            "Lay sand plane flat",
+        ))
+
+        # Rocks: icosahedrons of varying sizes, kept inside the sand area.
+        for i in range(rock_count):
+            rx = rng.uniform(-half * 0.75, half * 0.75)
+            rz = rng.uniform(-half * 0.75, half * 0.75)
+            rscale = rng.uniform(0.25, 0.6)
+            name = f"{id_prefix}Rock_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "icosahedron",
+                    "name": name,
+                    "position": [rx, rscale * 0.6, rz],
+                    "scale": [rscale, rscale * 0.7, rscale],
+                },
+                f"{id_prefix}rock_{i}",
+                f"Rock {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": name, "preset": "ceramic", "color_override": "#5b5447"},
+                f"{id_prefix}rock_mat_{i}",
+                f"Rock {i + 1} material",
+            ))
+            # Slight random rotation so the icosahedrons don't all look identical.
+            result.append(self._step(
+                "transform_object",
+                {
+                    "target": name,
+                    "rotation": [rng.uniform(0, 0.4), rng.uniform(0, math.pi * 2), rng.uniform(0, 0.4)],
+                    "relative": False,
+                },
+                f"{id_prefix}rock_tf_{i}",
+                f"Rotate rock {i + 1}",
+            ))
+
+        # Rake lines: thin parallel boxes sitting just above the sand.
+        # They run along X, spaced along Z, evoking the classic karesansui pattern.
+        line_spacing = (size * 0.85) / max(1, rake_lines - 1) if rake_lines > 1 else 0
+        start_z = -size * 0.425
+        for j in range(rake_lines):
+            lz = start_z + j * line_spacing
+            name = f"{id_prefix}RakeLine_{j + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "box",
+                    "name": name,
+                    "position": [0, 0.012, lz],
+                    "scale": [size * 0.92, 0.012, 0.04],
+                },
+                f"{id_prefix}rake_{j}",
+                f"Rake line {j + 1}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {
+                    "target": name,
+                    "color": "#b8a880",
+                    "roughness": 0.95,
+                    "metalness": 0.0,
+                },
+                f"{id_prefix}rake_mat_{j}",
+                f"Rake line {j + 1} material",
+            ))
+
+        # Soft daylight
+        result.append(self._step(
+            "add_light",
+            {"light_type": "directional", "name": f"{id_prefix}Sun", "color": "#fff4dc", "intensity": 1.4, "position": [4, 7, 3]},
+            f"{id_prefix}sun",
+            "Warm sun",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Sky", "color": "#c8d8e8", "intensity": 0.5, "position": [0, 0, 0]},
+            f"{id_prefix}sky",
+            "Sky ambient",
+        ))
+        result.append(self._step(
+            "set_background",
+            {"color": "#1a1c22"},
+            f"{id_prefix}bg",
+            "Muted backdrop",
+        ))
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Mechanical & character skills
+# ---------------------------------------------------------------------------
+
+class GearAssemblySkill(SkillBase):
+    """Build an interlocking gear assembly: flat cylinders with radial teeth."""
+
+    name = "gear_assembly"
+    description = "Generate a row of interlocking gears with radial teeth that visually mesh between adjacent gears."
+    category = "abstract"
+    icon = "cog"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "gear_count": {"type": "integer", "description": "Number of gears in the row (default 3, max 6)"},
+                "teeth": {"type": "integer", "description": "Teeth per gear (default 12, max 24)"},
+                "radius": {"type": "number", "description": "Gear radius (default 1.2)"},
+                "material_preset": {"type": "string", "description": "Material preset for gears (default metal)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        gear_count = max(2, min(6, int(arguments.get("gear_count", 3))))
+        teeth = max(6, min(24, int(arguments.get("teeth", 12))))
+        radius = float(arguments.get("radius", 1.2))
+        preset = str(arguments.get("material_preset", "metal"))
+        result: List[TaskStep] = []
+        tooth_angle = (math.pi * 2) / teeth
+        tooth_half = tooth_angle * 0.5
+        # Adjacent gears touch at the perimeter so teeth visually mesh.
+        spacing = radius * 2
+
+        for g in range(gear_count):
+            gx = g * spacing
+            gear_name = f"{id_prefix}Gear_{g + 1}"
+            # Disk body — flat cylinder with its long axis (Y) rotated to Z so
+            # the gear lies in the XY plane (like a wall clock).
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": gear_name,
+                    "position": [gx, 0, 0],
+                    "scale": [radius, 0.15, radius],
+                },
+                f"{id_prefix}gear_{g}",
+                f"Gear {g + 1} disk",
+            ))
+            result.append(self._step(
+                "transform_object",
+                {"target": gear_name, "rotation": [math.pi / 2, 0, 0], "relative": False},
+                f"{id_prefix}gear_tf_{g}",
+                f"Orient gear {g + 1} in plane",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": gear_name, "preset": preset},
+                f"{id_prefix}gear_mat_{g}",
+                f"Gear {g + 1} material",
+            ))
+
+            # Teeth: small radial boxes. Adjacent gears are phase-offset by
+            # half a tooth so the teeth interlock visually.
+            phase = (g % 2) * tooth_half
+            for t in range(teeth):
+                ang = t * tooth_angle + phase
+                tx = gx + math.cos(ang) * radius
+                ty = math.sin(ang) * radius
+                tooth_name = f"{id_prefix}Gear_{g + 1}_Tooth_{t + 1}"
+                result.append(self._step(
+                    "create_object",
+                    {
+                        "geometry_type": "box",
+                        "name": tooth_name,
+                        "position": [tx, ty, 0],
+                        "scale": [0.12, 0.25, 0.18],
+                    },
+                    f"{id_prefix}tooth_{g}_{t}",
+                    f"Gear {g + 1} tooth {t + 1}",
+                ))
+                # Rotate so the tooth's long axis (Y) points radially outward.
+                result.append(self._step(
+                    "transform_object",
+                    {"target": tooth_name, "rotation": [0, 0, ang - math.pi / 2], "relative": False},
+                    f"{id_prefix}tooth_tf_{g}_{t}",
+                    f"Tooth {t + 1} rotation",
+                ))
+                result.append(self._step(
+                    "apply_material_preset",
+                    {"target": tooth_name, "preset": preset},
+                    f"{id_prefix}tooth_mat_{g}_{t}",
+                    f"Tooth {t + 1} material",
+                ))
+
+            # Axle through the gear center for visual clarity.
+            axle_name = f"{id_prefix}Axle_{g + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": axle_name,
+                    "position": [gx, 0, 0],
+                    "scale": [0.08, 0.4, 0.08],
+                },
+                f"{id_prefix}axle_{g}",
+                f"Axle {g + 1}",
+            ))
+            result.append(self._step(
+                "transform_object",
+                {"target": axle_name, "rotation": [math.pi / 2, 0, 0], "relative": False},
+                f"{id_prefix}axle_tf_{g}",
+                f"Orient axle {g + 1}",
+            ))
+            result.append(self._step(
+                "apply_material_preset",
+                {"target": axle_name, "preset": "metal"},
+                f"{id_prefix}axle_mat_{g}",
+                f"Axle {g + 1} material",
+            ))
+
+        # Workshop backdrop + key light to read the metal surfaces.
+        result.append(self._step(
+            "set_background",
+            {"color": "#0d1117"},
+            f"{id_prefix}bg",
+            "Workshop backdrop",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "directional", "name": f"{id_prefix}Key", "color": "#fff3d6", "intensity": 1.4, "position": [4, 6, 5]},
+            f"{id_prefix}key",
+            "Key light",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Ambient", "color": "#445566", "intensity": 0.5, "position": [0, 0, 0]},
+            f"{id_prefix}ambient",
+            "Ambient fill",
+        ))
+        return result
+
+
+class MoleculeSkill(SkillBase):
+    """Build a ball-and-stick molecule: central atom with satellite atoms and bonds."""
+
+    name = "molecule"
+    description = "Generate a ball-and-stick molecule with a central sphere, satellite atoms arranged evenly around it, and bond cylinders connecting each satellite to the center."
+    category = "abstract"
+    icon = "atom"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "satellites": {"type": "integer", "description": "Number of satellite atoms (default 4, max 8)"},
+                "bond_length": {"type": "number", "description": "Distance from center to each satellite (default 2.0)"},
+                "center_color": {"type": "string", "description": "Central atom color (default #FF5555)"},
+                "satellite_color": {"type": "string", "description": "Satellite atom color (default #5588FF)"},
+                "bond_color": {"type": "string", "description": "Bond cylinder color (default #AAAAAA)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        satellites = max(2, min(8, int(arguments.get("satellites", 4))))
+        bond_length = float(arguments.get("bond_length", 2.0))
+        c_color = str(arguments.get("center_color", "#FF5555"))
+        s_color = str(arguments.get("satellite_color", "#5588FF"))
+        b_color = str(arguments.get("bond_color", "#AAAAAA"))
+        result: List[TaskStep] = []
+
+        # Central atom
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "sphere",
+                "name": f"{id_prefix}Center",
+                "position": [0, 0, 0],
+                "scale": [0.6, 0.6, 0.6],
+            },
+            f"{id_prefix}center",
+            "Central atom",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": f"{id_prefix}Center", "color": c_color, "roughness": 0.4, "metalness": 0.1},
+            f"{id_prefix}center_mat",
+            "Central atom material",
+        ))
+
+        # Satellites distributed evenly in the XZ plane and bonds linking
+        # each one to the origin.
+        for i in range(satellites):
+            theta = (math.tau / satellites) * i
+            sx = math.cos(theta) * bond_length
+            sz = math.sin(theta) * bond_length
+
+            sat_name = f"{id_prefix}Satellite_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "sphere",
+                    "name": sat_name,
+                    "position": [sx, 0, sz],
+                    "scale": [0.4, 0.4, 0.4],
+                },
+                f"{id_prefix}sat_{i}",
+                f"Satellite atom {i + 1}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": sat_name, "color": s_color, "roughness": 0.4, "metalness": 0.1},
+                f"{id_prefix}sat_mat_{i}",
+                f"Satellite {i + 1} material",
+            ))
+
+            # Bond cylinder from origin to satellite. Default cylinder axis
+            # is Y; rotate so the axis points along (cos theta, 0, sin theta).
+            bond_name = f"{id_prefix}Bond_{i + 1}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": bond_name,
+                    "position": [sx / 2, 0, sz / 2],
+                    "scale": [0.08, bond_length, 0.08],
+                },
+                f"{id_prefix}bond_{i}",
+                f"Bond {i + 1}",
+            ))
+            result.append(self._step(
+                "transform_object",
+                {"target": bond_name, "rotation": [0, -theta, -math.pi / 2], "relative": False},
+                f"{id_prefix}bond_tf_{i}",
+                f"Bond {i + 1} rotation",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": bond_name, "color": b_color, "roughness": 0.6, "metalness": 0.3},
+                f"{id_prefix}bond_mat_{i}",
+                f"Bond {i + 1} material",
+            ))
+
+        # Soft studio lighting and a dark backdrop so the colors read.
+        result.append(self._step(
+            "set_background",
+            {"color": "#0a0c12"},
+            f"{id_prefix}bg",
+            "Dark backdrop",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "directional", "name": f"{id_prefix}Key", "color": "#ffffff", "intensity": 1.2, "position": [5, 6, 4]},
+            f"{id_prefix}key",
+            "Key light",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Ambient", "color": "#556677", "intensity": 0.5, "position": [0, 0, 0]},
+            f"{id_prefix}ambient",
+            "Ambient fill",
+        ))
+        return result
+
+
+class SnowmanSkill(SkillBase):
+    """Build a classic snowman: stacked spheres with a carrot nose, eyes, arms, and a top hat."""
+
+    name = "snowman"
+    description = "Generate a snowman from three stacked white spheres with a carrot nose, black coal eyes, stick arms, and a top hat."
+    category = "nature"
+    icon = "snowflake"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "height": {"type": "number", "description": "Total snowman height (default 3.0)"},
+                "nose_color": {"type": "string", "description": "Carrot nose color (default #FF6A00)"},
+                "hat_color": {"type": "string", "description": "Top hat color (default #1a1a1a)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        h = float(arguments.get("height", 3.0))
+        nose_color = str(arguments.get("nose_color", "#FF6A00"))
+        hat_color = str(arguments.get("hat_color", "#1a1a1a"))
+        result: List[TaskStep] = []
+
+        # Three stacked spheres (bottom > middle > top) with slight overlap.
+        # Radii are tuned so total height from ground to hat top is roughly h.
+        r1 = h * 0.225  # bottom sphere radius
+        r2 = h * 0.175  # middle sphere radius
+        r3 = h * 0.125  # top sphere radius
+        y1 = r1
+        y2 = h * 0.60
+        y3 = h * 0.875
+
+        # Body spheres
+        for label, ry, rr in (("Bottom", y1, r1), ("Middle", y2, r2), ("Top", y3, r3)):
+            name = f"{id_prefix}{label}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "sphere",
+                    "name": name,
+                    "position": [0, ry, 0],
+                    "scale": [rr, rr, rr],
+                },
+                f"{id_prefix}body_{label.lower()}",
+                f"{label} body sphere",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": name, "color": "#f5f7fa", "roughness": 0.85, "metalness": 0.0},
+                f"{id_prefix}body_mat_{label.lower()}",
+                f"{label} snow material",
+            ))
+
+        # Carrot nose — cone attached to the middle sphere, pointing forward (+Z).
+        # Default cone has its tip at +Y; rotate around X by -pi/2 to point along +Z.
+        nose_name = f"{id_prefix}Nose"
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "cone",
+                "name": nose_name,
+                "position": [0, y2 + h * 0.05, r2 + h * 0.10],
+                "scale": [h * 0.05, h * 0.20, h * 0.05],
+            },
+            f"{id_prefix}nose",
+            "Carrot nose",
+        ))
+        result.append(self._step(
+            "transform_object",
+            {"target": nose_name, "rotation": [-math.pi / 2, 0, 0], "relative": False},
+            f"{id_prefix}nose_tf",
+            "Orient nose forward",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": nose_name, "color": nose_color, "roughness": 0.6, "metalness": 0.0},
+            f"{id_prefix}nose_mat",
+            "Carrot material",
+        ))
+
+        # Coal eyes — two small black spheres on the front of the top sphere.
+        for side, ex in (("L", -h * 0.05), ("R", h * 0.05)):
+            eye_name = f"{id_prefix}Eye_{side}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "sphere",
+                    "name": eye_name,
+                    "position": [ex, y3 + h * 0.07, r3 * 0.85],
+                    "scale": [h * 0.025, h * 0.025, h * 0.025],
+                },
+                f"{id_prefix}eye_{side}",
+                f"Eye {side}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": eye_name, "color": "#0a0a0a", "roughness": 0.5, "metalness": 0.2},
+                f"{id_prefix}eye_mat_{side}",
+                f"Eye {side} material",
+            ))
+
+        # Stick arms — thin horizontal cylinders protruding from the middle sphere.
+        for side, ax in (("L", -h * 0.30), ("R", h * 0.30)):
+            arm_name = f"{id_prefix}Arm_{side}"
+            result.append(self._step(
+                "create_object",
+                {
+                    "geometry_type": "cylinder",
+                    "name": arm_name,
+                    "position": [ax, y2 + h * 0.05, 0],
+                    "scale": [h * 0.04, h * 0.40, h * 0.04],
+                },
+                f"{id_prefix}arm_{side}",
+                f"Arm {side}",
+            ))
+            result.append(self._step(
+                "transform_object",
+                {"target": arm_name, "rotation": [0, 0, math.pi / 2], "relative": False},
+                f"{id_prefix}arm_tf_{side}",
+                f"Orient arm {side} horizontally",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": arm_name, "color": "#5a3a1a", "roughness": 0.9, "metalness": 0.0},
+                f"{id_prefix}arm_mat_{side}",
+                f"Arm {side} material",
+            ))
+
+        # Top hat — brim (flat cylinder) + top (tall box) sitting on the top sphere.
+        brim_name = f"{id_prefix}HatBrim"
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "cylinder",
+                "name": brim_name,
+                "position": [0, y3 + r3 + h * 0.02, 0],
+                "scale": [h * 0.22, h * 0.04, h * 0.22],
+            },
+            f"{id_prefix}hat_brim",
+            "Hat brim",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": brim_name, "color": hat_color, "roughness": 0.6, "metalness": 0.1},
+            f"{id_prefix}hat_brim_mat",
+            "Hat brim material",
+        ))
+        top_name = f"{id_prefix}HatTop"
+        result.append(self._step(
+            "create_object",
+            {
+                "geometry_type": "box",
+                "name": top_name,
+                "position": [0, y3 + r3 + h * 0.13, 0],
+                "scale": [h * 0.15, h * 0.18, h * 0.15],
+            },
+            f"{id_prefix}hat_top",
+            "Hat top",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": top_name, "color": hat_color, "roughness": 0.6, "metalness": 0.1},
+            f"{id_prefix}hat_top_mat",
+            "Hat top material",
+        ))
+
+        # Soft daylight so the snow reads as snow.
+        result.append(self._step(
+            "set_background",
+            {"color": "#cfe0f0"},
+            f"{id_prefix}bg",
+            "Snowy sky backdrop",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "directional", "name": f"{id_prefix}Sun", "color": "#fff6e0", "intensity": 1.5, "position": [4, 7, 3]},
+            f"{id_prefix}sun",
+            "Sun light",
+        ))
+        result.append(self._step(
+            "add_light",
+            {"light_type": "ambient", "name": f"{id_prefix}Sky", "color": "#a8c4e0", "intensity": 0.7, "position": [0, 0, 0]},
+            f"{id_prefix}sky",
+            "Sky ambient",
+        ))
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Skill registry
 # ---------------------------------------------------------------------------
 
@@ -708,4 +1659,10 @@ def build_default_registry() -> SkillRegistry:
     reg.register(DNAHelixSkill())
     reg.register(SpiralGalaxySkill())
     reg.register(StudioLightingSkill())
+    reg.register(AtomSkill())
+    reg.register(BridgeSkill())
+    reg.register(ZenGardenSkill())
+    reg.register(GearAssemblySkill())
+    reg.register(MoleculeSkill())
+    reg.register(SnowmanSkill())
     return reg
