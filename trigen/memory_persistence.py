@@ -53,6 +53,7 @@ class MemoryPersistence:
             "model": model,
             "window_size": memory.window_size,
             "compacted_summary": memory._compacted_summary,
+            "project_goal": memory.project_goal,
             "messages": [asdict(m) for m in memory._messages],
             "saved_at": time.time(),
         }
@@ -79,6 +80,7 @@ class MemoryPersistence:
             window_size=data.get("window_size", 12),
         )
         memory._compacted_summary = data.get("compacted_summary", "")
+        memory.project_goal = data.get("project_goal", "")
         for msg_data in data.get("messages", []):
             memory._messages.append(
                 MessageRecord(
