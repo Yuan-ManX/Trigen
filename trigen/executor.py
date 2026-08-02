@@ -52,21 +52,36 @@ class TaskExecutor:
         tool = self.registry.get(step.tool_name)
         if tool is None:
             return ToolResult(success=False, message=f"Unknown tool: {step.tool_name}")
-        try:
-            result = await tool.execute(scene, step.arguments)
-            logger.info(
-                "Tool %s execution %s: %s",
-                step.tool_name,
-                "succeeded" if result.success else "failed",
-                result.message,
-            )
-            return result
-        except Exception as e:
-            logger.exception("Tool %s execution exception", step.tool_name)
-            return ToolResult(
-                success=False,
-                message=f"Tool {step.tool_name} execution exception: {e}",
-            )
+        # Retry transient execution exceptions up to 2 times (3 total attempts).
+        # A logical failure (ToolResult.success=False) is NOT retried — only
+        # unexpected exceptions, which usually stem from transient state races.
+        max_attempts = 3
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = await tool.execute(scene, step.arguments)
+                logger.info(
+                    "Tool %s execution %s (attempt %d/%d): %s",
+                    step.tool_name,
+                    "succeeded" if result.success else "failed",
+                    attempt, max_attempts,
+                    result.message,
+                )
+                return result
+            except Exception as e:
+                last_exc = e
+                if attempt < max_attempts:
+                    logger.warning(
+                        "Tool %s raised %s on attempt %d/%d; retrying",
+                        step.tool_name, str(e)[:120], attempt, max_attempts,
+                    )
+                    await asyncio.sleep(0.05 * attempt)  # tiny backoff
+                else:
+                    logger.exception("Tool %s execution exception after %d attempts", step.tool_name, attempt)
+        return ToolResult(
+            success=False,
+            message=f"Tool {step.tool_name} execution exception after {max_attempts} attempts: {last_exc}",
+        )
 
     def _group_batches(self, steps: List[TaskStep]) -> List[List[TaskStep]]:
         """Group consecutive parallel-safe steps into batches.
@@ -111,6 +126,8 @@ class TaskExecutor:
             # Advanced material & animation — all keyed by their target object
             "gradient_material", "keyframe_animation", "orbit_animation",
             "wave_animation", "bounce_animation",
+            # Advanced editor control — per-target mutations
+            "reset_transform", "set_object_pivot", "set_object_layer",
         }:
             return str(step.arguments.get("target", "")) or None
         if name in {"modify_light", "delete_light"}:
@@ -157,6 +174,14 @@ class TaskExecutor:
             return f"create:{step.arguments.get('name', step.arguments.get('geometry_type', ''))}"
         if name in {"add_light", "add_camera"}:
             return f"{name}:{step.arguments.get('name', step.arguments.get('light_type', step.arguments.get('camera_type', '')))}"
+        # Mutating sub-agent — serialize exact-duplicate tasks (same task
+        # string) so two identical delegations don't race; distinct tasks
+        # batch together and run concurrently. Read-only dispatch_subagent
+        # (mutate_scene absent/false) falls through to None below and stays
+        # fully batchable.
+        if name == "dispatch_subagent" and step.arguments.get("mutate_scene"):
+            task_key = str(step.arguments.get("task", ""))[:60]
+            return f"subagent:{task_key}"
         # Read-only / scene-level / generation — always batchable
         return None
 
