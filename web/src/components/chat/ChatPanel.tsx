@@ -1,8 +1,9 @@
 // Chat panel container: header title + message list + input bar + history view
-import { Eraser, History, KeyRound, PanelLeftClose, Plus, Radio } from 'lucide-react'
+import { Eraser, History, KeyRound, PanelLeftClose, Plus, Radio, Shield, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { useChat } from '../../store/useChat'
 import { ChatHistory } from './ChatHistory'
+import { ConfirmDialog } from './ConfirmDialog'
 import { InputBar } from './InputBar'
 import { MessageList } from './MessageList'
 import { ModelSettingsPanel } from './ModelSettingsPanel'
@@ -20,6 +21,14 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const toggleHistory = useChat((s) => s.toggleHistory)
   const startNewConversation = useChat((s) => s.startNewConversation)
   const conversationsCount = useChat((s) => s.conversations.length)
+  // Destructive-action confirmation state
+  const confirmDestructive = useChat((s) => s.confirmDestructive)
+  const setConfirmDestructive = useChat((s) => s.setConfirmDestructive)
+  const pendingDestructive = useChat((s) => s.pendingDestructive)
+  const confirmPendingDestructive = useChat((s) => s.confirmPendingDestructive)
+  const cancelPendingDestructive = useChat((s) => s.cancelPendingDestructive)
+  // Token usage from the most recent DONE event
+  const lastTokenUsage = useChat((s) => s.lastTokenUsage)
   const [showSettings, setShowSettings] = useState(false)
 
   return (
@@ -48,6 +57,26 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
             className="flex items-center justify-center w-7 h-7 rounded text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors"
           >
             <Plus size={14} />
+          </button>
+          {/* Destructive-action confirmation toggle: when active, the next
+              send() is previewed via /api/agent/plan and a modal prompts the
+              user before any requires_approval tool runs. */}
+          <button
+            onClick={() => setConfirmDestructive(!confirmDestructive)}
+            aria-label="Toggle destructive-action confirmation"
+            aria-pressed={confirmDestructive}
+            title={
+              confirmDestructive
+                ? 'Destructive-action confirmation ON (plan-preview before send)'
+                : 'Destructive-action confirmation OFF (send immediately)'
+            }
+            className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              confirmDestructive
+                ? 'text-rose-400 bg-rose-500/10'
+                : 'text-fg-muted hover:text-fg-primary hover:bg-bg-hover'
+            }`}
+          >
+            {confirmDestructive ? <ShieldAlert size={14} /> : <Shield size={14} />}
           </button>
           {/* Model settings / API keys */}
           <button
@@ -104,11 +133,37 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
         <>
           <MessageList onSuggestion={send} />
           <InputBar />
+          {/* Token usage footer: shows the most recent turn's token totals.
+              Hidden when null (offline mode never reports usage). */}
+          {lastTokenUsage && (
+            <div className="flex items-center justify-end gap-2 px-3 py-1 border-t border-border-subtle bg-bg-panel text-[10px] text-fg-muted font-mono">
+              {lastTokenUsage.prompt_tokens != null &&
+              lastTokenUsage.completion_tokens != null ? (
+                <span title="Prompt / completion tokens for the last turn">
+                  <span className="text-accent-cyan/80">↑{lastTokenUsage.prompt_tokens}</span>
+                  {' '}
+                  <span className="text-accent-gold/80">↓{lastTokenUsage.completion_tokens}</span>
+                </span>
+              ) : (
+                <span title="Total tokens for the last turn">
+                  {lastTokenUsage.total_tokens ?? 0} tokens
+                </span>
+              )}
+            </div>
+          )}
         </>
       )}
 
       {/* Model settings dialog */}
       <ModelSettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
+
+      {/* Destructive-action confirmation modal */}
+      <ConfirmDialog
+        open={pendingDestructive !== null}
+        pending={pendingDestructive}
+        onConfirm={confirmPendingDestructive}
+        onCancel={cancelPendingDestructive}
+      />
     </aside>
   )
 }
