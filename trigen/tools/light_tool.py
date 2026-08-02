@@ -199,6 +199,7 @@ class DeleteLightTool(ToolBase):
 
     name = "delete_light"
     description = "Delete the specified light source."
+    requires_approval = True  # Destructive: removes a light source
 
     def schema(self) -> Dict[str, Any]:
         return _DELETE_LIGHT_PARAMS
