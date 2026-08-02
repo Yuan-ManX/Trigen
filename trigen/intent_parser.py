@@ -129,6 +129,31 @@ SKILL_TRIGGERS: List[Tuple[str, str]] = [
     ("studio lighting", "studio_lighting"),
     ("三点光", "studio_lighting"),
     ("三点布光", "studio_lighting"),
+    ("atom", "atom"),
+    ("原子", "atom"),
+    ("electron orbit", "atom"),
+    ("电子轨道", "atom"),
+    ("bridge", "bridge"),
+    ("桥", "bridge"),
+    ("桥梁", "bridge"),
+    ("拱桥", "bridge"),
+    ("zen garden", "zen_garden"),
+    ("枯山水", "zen_garden"),
+    ("禅意花园", "zen_garden"),
+    ("rock garden", "zen_garden"),
+    ("gear assembly", "gear_assembly"),
+    ("gear", "gear_assembly"),
+    ("gears", "gear_assembly"),
+    ("齿轮", "gear_assembly"),
+    ("齿轮组", "gear_assembly"),
+    ("molecule", "molecule"),
+    ("ball and stick", "molecule"),
+    ("ball-and-stick", "molecule"),
+    ("分子", "molecule"),
+    ("分子模型", "molecule"),
+    ("snowman", "snowman"),
+    ("snow man", "snowman"),
+    ("雪人", "snowman"),
 ]
 
 
@@ -152,6 +177,26 @@ PROCEDURAL_TRIGGERS: List[Tuple[str, str]] = [
     ("randomize palette", "randomize_palette"),
     ("随机配色", "randomize_palette"),
     ("随机调色", "randomize_palette"),
+    # Advanced editor-control triggers
+    ("isolate", "isolate_object"),
+    ("solo", "isolate_object"),
+    ("隔离", "isolate_object"),
+    ("单独显示", "isolate_object"),
+    ("center to origin", "reset_transform"),
+    ("ground to floor", "reset_transform"),
+    ("reset transform", "reset_transform"),
+    ("居中", "reset_transform"),
+    ("落地", "reset_transform"),
+    ("重置变换", "reset_transform"),
+    ("clipping plane", "set_clipping_plane"),
+    ("section view", "set_clipping_plane"),
+    ("cutaway", "set_clipping_plane"),
+    ("剖切", "set_clipping_plane"),
+    ("截面", "set_clipping_plane"),
+    ("set pivot", "set_object_pivot"),
+    ("change pivot", "set_object_pivot"),
+    ("设置轴心", "set_object_pivot"),
+    ("轴心", "set_object_pivot"),
 ]
 
 
@@ -287,6 +332,34 @@ def parse_message(
                     pos = _parse_number_list(msg_lower)
                     if pos and len(pos) >= 3:
                         args["position"] = pos[:3]
+                elif tool_name == "isolate_object" and scene_objects:
+                    args["target"] = scene_objects[-1].get("name", "")
+                elif tool_name == "reset_transform" and scene_objects:
+                    args["target"] = scene_objects[-1].get("name", "")
+                    # Infer the preset from the matched phrase
+                    if "ground" in phrase or "落地" in phrase:
+                        args["preset"] = "ground_to_floor"
+                    elif "center" in phrase or "居中" in phrase:
+                        args["preset"] = "center_origin"
+                    else:
+                        args["preset"] = "reset_all"
+                elif tool_name == "set_object_pivot" and scene_objects:
+                    args["target"] = scene_objects[-1].get("name", "")
+                    pos = _parse_number_list(msg_lower)
+                    if pos and len(pos) >= 3:
+                        args["pivot"] = pos[:3]
+                    else:
+                        args["pivot"] = [0.0, -0.5, 0.0]
+                elif tool_name == "set_clipping_plane":
+                    args["enabled"] = True
+                    args["axis"] = "y"
+                    if "x轴" in msg_lower or "x axis" in msg_lower:
+                        args["axis"] = "x"
+                    elif "z轴" in msg_lower or "z axis" in msg_lower:
+                        args["axis"] = "z"
+                    pos = _parse_number_list(msg_lower)
+                    if pos and len(pos) >= 1:
+                        args["position"] = float(pos[0])
                 intents.append(ParsedIntent(
                     tool_name=tool_name,
                     arguments=args,
