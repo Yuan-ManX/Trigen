@@ -2,11 +2,15 @@
 // In development, proxied to backend http://localhost:7100 via Vite proxy
 
 import type {
+  AgentStatusResponse,
   ClientMessage,
   HealthResponse,
+  InvokeSkillResponse,
+  PipelineNodeTypesResponse,
   PresetsResponse,
   SceneData,
   ServerEvent,
+  ToolCategoriesResponse,
   ToolsResponse,
 } from '../types'
 
@@ -47,11 +51,62 @@ export async function fetchTools(): Promise<ToolsResponse> {
   return res.json() as Promise<ToolsResponse>
 }
 
+/** Fetch the tool catalog grouped by functional category. The response
+ *  mirrors the backend taxonomy (creation / transform / material / etc.)
+ *  so the frontend can render a browsable catalog without re-grouping. */
+export async function fetchToolCategories(): Promise<ToolCategoriesResponse> {
+  const res = await fetch('/api/tools/categories')
+  if (!res.ok) throw new Error(`Failed to fetch tool categories: ${res.status}`)
+  return res.json() as Promise<ToolCategoriesResponse>
+}
+
+/** Fetch agent online/offline status and capability summary. Used to drive
+ *  a mode indicator in the status bar and to disable LLM-dependent UI
+ *  when the agent is running on the offline rule engine. */
+export async function fetchAgentStatus(): Promise<AgentStatusResponse> {
+  const res = await fetch('/api/agent/status')
+  if (!res.ok) throw new Error(`Failed to fetch agent status: ${res.status}`)
+  return res.json() as Promise<AgentStatusResponse>
+}
+
+/** Invoke a creative skill directly (bypasses the LLM chat flow). Returns
+ *  the aggregated result plus the updated scene so the caller can swap it
+ *  in immediately. */
+export async function invokeSkill(
+  skill: string,
+  arguments_: Record<string, unknown> = {},
+  sessionId: string = 'default',
+): Promise<InvokeSkillResponse> {
+  const res = await fetch('/api/skills/invoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skill, arguments: arguments_, session_id: sessionId }),
+  })
+  if (!res.ok) throw new Error(`Skill invocation failed: ${res.status}`)
+  return res.json() as Promise<InvokeSkillResponse>
+}
+
 /** Fetch the preset catalog (geometry / material / light) */
 export async function fetchPresets(): Promise<PresetsResponse> {
   const res = await fetch('/api/presets')
   if (!res.ok) throw new Error(`Failed to fetch preset list: ${res.status}`)
   return res.json() as Promise<PresetsResponse>
+}
+
+/** Creative skill descriptor returned by /api/skills */
+export interface SkillDescriptor {
+  name: string
+  description: string
+  category: string
+  parameters: Record<string, unknown>
+}
+
+/** Fetch the creative skill catalog (multi-tool recipes) */
+export async function fetchSkills(): Promise<SkillDescriptor[]> {
+  const res = await fetch('/api/skills')
+  if (!res.ok) throw new Error(`Failed to fetch skills: ${res.status}`)
+  const data = await res.json() as { skills: SkillDescriptor[]; count: number }
+  return data.skills
 }
 
 /** Model entry from the LLM catalog */
@@ -281,6 +336,125 @@ export async function executeTool(
   return res.json() as Promise<ToolExecutionResult>
 }
 
+/* ============ Agent-level operations ============ */
+
+/** A single tool call in an agent plan, with an approval flag for destructive tools. */
+export interface PlanToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  requires_approval?: boolean
+}
+
+/** Optional token usage breakdown returned by the orchestrator. */
+export interface TokenUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+/** Result of POST /api/agent/plan — a preview of what the Agent would do. */
+export interface AgentPlanResult {
+  plan?: unknown
+  reasoning?: string
+  tool_calls?: PlanToolCall[]
+  has_destructive_steps?: boolean
+  destructive_steps?: PlanToolCall[]
+  offline?: boolean
+  token_usage?: TokenUsage
+}
+
+/** Preview what the Agent would do for ``message`` without executing any tools. */
+export async function fetchAgentPlan(
+  message: string,
+  sessionId: string = 'default',
+  model?: string,
+): Promise<AgentPlanResult> {
+  const res = await fetch('/api/agent/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId, model }),
+  })
+  if (!res.ok) throw new Error(`Agent plan failed: ${res.status}`)
+  return res.json() as Promise<AgentPlanResult>
+}
+
+/** Tool / skill documentation returned by POST /api/agent/explain. */
+export interface ExplainResult {
+  kind: 'tool' | 'skill'
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  category?: string
+  requires_approval?: boolean
+}
+
+/** Fetch inline documentation for a tool or skill. */
+export async function explainAgentItem(kind: 'tool' | 'skill', name: string): Promise<ExplainResult> {
+  const res = await fetch('/api/agent/explain', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, name }),
+  })
+  if (!res.ok) throw new Error(`Explain failed: ${res.status}`)
+  return res.json() as Promise<ExplainResult>
+}
+
+/** Uploaded image descriptor returned by POST /api/agent/upload/image. */
+export interface UploadedImage {
+  media_id: string
+  filename: string
+  mime_type: string
+  size: number
+  data_url: string
+  path: string
+}
+
+/** Upload an image to the workspace and return a data URL the chat can preview. */
+export async function uploadChatImage(file: File): Promise<UploadedImage> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch('/api/agent/upload/image', { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(`Image upload failed: ${res.status}`)
+  return res.json() as Promise<UploadedImage>
+}
+
+/** Supported scene-to-code export formats */
+export type ExportCodeFormat = 'three_js' | 'react_r3f' | 'html'
+
+/** Result returned by the /api/export/code endpoint */
+export interface ExportCodeResult {
+  tool: 'export_code'
+  success: boolean
+  message: string
+  data: {
+    format: ExportCodeFormat
+    filename: string
+    path: string
+    code: string
+    lines: number
+    size_kb: number
+  }
+}
+
+/** Export the current session scene as ready-to-run source code */
+export async function exportSceneCode(
+  format: ExportCodeFormat,
+  sessionId: string = 'default',
+  options: { filename?: string; includeAnimation?: boolean } = {},
+): Promise<ExportCodeResult> {
+  const body: Record<string, unknown> = { format, session_id: sessionId }
+  if (options.filename) body.filename = options.filename
+  if (options.includeAnimation !== undefined) body.include_animation = options.includeAnimation
+  const res = await fetch('/api/export/code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Code export failed: ${res.status}`)
+  return res.json() as Promise<ExportCodeResult>
+}
+
 /* ============ Pipeline templates ============ */
 
 /** A pre-built pipeline template */
@@ -297,6 +471,15 @@ export async function fetchPipelineTemplates(): Promise<PipelineTemplate[]> {
   if (!res.ok) throw new Error(`Failed to fetch pipeline templates: ${res.status}`)
   const data = await res.json() as { templates: PipelineTemplate[]; count: number }
   return data.templates
+}
+
+/** Fetch the registered pipeline node types and their I/O port schemas.
+ *  Drives the node palette and connection-type validation in the
+ *  ComfyUI-style graph editor. */
+export async function fetchPipelineNodeTypes(): Promise<PipelineNodeTypesResponse> {
+  const res = await fetch('/api/models/pipeline/node_types')
+  if (!res.ok) throw new Error(`Failed to fetch pipeline node types: ${res.status}`)
+  return res.json() as Promise<PipelineNodeTypesResponse>
 }
 
 /** Execute a pipeline */
