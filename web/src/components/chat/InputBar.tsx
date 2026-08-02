@@ -1,10 +1,11 @@
 // Input bar: model selector + image upload + multiline input box + send button
-import { Check, ChevronDown, Image as ImageIcon, Search, Send, X } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, Loader2, Search, Send, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   fetchModelAvailability,
   fetchModels,
   isGenerationModel,
+  uploadChatImage,
   type ModelAvailability,
   type ModelEntry,
 } from '../../api/client'
@@ -295,22 +296,33 @@ function ModelSelector() {
 export function InputBar() {
   const [text, setText] = useState('')
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  /** media_id returned by /api/agent/upload/image, forwarded in the message
+   *  body so the backend can resolve the uploaded file. */
+  const [imageMediaId, setImageMediaId] = useState<string | null>(null)
+  /** True while an image upload is in-flight (shows a spinner overlay). */
+  const [uploading, setUploading] = useState(false)
+  /** True while a dragged file is hovering over the input area — used to
+   *  render a drop-target highlight border. */
+  const [dragOver, setDragOver] = useState(false)
   const send = useChat((s) => s.send)
   const isResponding = useChat((s) => s.isResponding)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const canSend = text.trim().length > 0 && !isResponding
+  const canSend = text.trim().length > 0 && !isResponding && !uploading
 
   const handleSend = () => {
     if (!canSend) return
-    // Include image reference in the message if present
-    const message = imagePreview
-      ? `${text}\n\n[Reference image attached]`
+    // Forward the uploaded image's media_id to the backend by prepending a
+    // reference token. The chat WS message contract is unchanged
+    // ({type:'message', data:{message, session_id, model}}).
+    const message = imageMediaId
+      ? `${text}\n\n[Image: ${imageMediaId}]`
       : text
     send(message)
     setText('')
     setImagePreview(null)
+    setImageMediaId(null)
     // Reset textarea height
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
@@ -332,36 +344,115 @@ export function InputBar() {
     }
   }
 
-  // Handle image upload
+  // Upload an image File to the workspace via /api/agent/upload/image, then
+  // store the returned data_url for preview + media_id for forwarding.
+  // Falls back to a local FileReader preview if the upload fails so the user
+  // can still see the image they picked. Shared by the file-picker button
+  // and the drag-and-drop handler.
+  const uploadImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) return
+    setUploading(true)
+    uploadChatImage(file)
+      .then((img) => {
+        setImagePreview(img.data_url)
+        setImageMediaId(img.media_id)
+      })
+      .catch(() => {
+        // Fallback: read locally so the user still sees their image, but
+        // without a backend media_id (no [Image: ...] tag will be sent).
+        const reader = new FileReader()
+        reader.onload = () => {
+          setImagePreview(reader.result as string)
+          setImageMediaId(null)
+        }
+        reader.readAsDataURL(file)
+      })
+      .finally(() => setUploading(false))
+  }
+
+  // File-picker change handler — defers to the shared upload helper.
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) return
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      setImagePreview(reader.result as string)
-    }
-    reader.readAsDataURL(file)
+    uploadImageFile(file)
     // Reset the input so the same file can be selected again
     e.target.value = ''
   }
 
+  // Drag-and-drop handlers — accept the first image file in the drop. The
+  // wrapper div prevents the browser from opening the file when dropped
+  // outside the target zone.
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (isResponding || uploading) return
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only clear when leaving the wrapper itself, not when crossing into a
+    // child element — otherwise the highlight flickers on every child enter.
+    if (e.currentTarget === e.target) setDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (isResponding || uploading) return
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    uploadImageFile(file)
+  }
+
   return (
     <div className="border-t border-border bg-bg-panel px-3 py-3">
-      <div className="rounded-lg border border-border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-3 py-2.5">
-        {/* Image preview thumbnail */}
-        {imagePreview && (
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`rounded-lg border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-3 py-2.5 ${
+          dragOver
+            ? 'border-accent-cyan ring-2 ring-accent-cyan/30'
+            : 'border-border'
+        }`}
+      >
+        {/* Drag-over hint — replaces the textarea placeholder visual when a
+            file is being hovered so the user knows a drop will attach it. */}
+        {dragOver && (
+          <div className="flex items-center justify-center gap-2 py-3 mb-2 rounded-md border border-dashed border-accent-cyan/50 bg-accent-cyan/5 text-accent-cyan text-[11px] font-medium">
+            <ImageIcon size={14} />
+            <span>Drop image to attach</span>
+          </div>
+        )}
+        {/* Image preview thumbnail (with upload-in-flight spinner overlay) */}
+        {(imagePreview || uploading) && (
           <div className="mb-2 relative inline-block">
-            <img
-              src={imagePreview}
-              alt="Reference"
-              className="h-16 w-16 object-cover rounded-md border border-border"
-            />
+            <div className="relative h-16 w-16 rounded-md border border-border overflow-hidden bg-bg-base">
+              {imagePreview ? (
+                <img
+                  src={imagePreview}
+                  alt="Reference"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center">
+                  <Loader2 size={16} className="text-accent-cyan animate-spin" />
+                </div>
+              )}
+              {uploading && imagePreview && (
+                <div className="absolute inset-0 bg-bg-base/60 flex items-center justify-center">
+                  <Loader2 size={16} className="text-accent-cyan animate-spin" />
+                </div>
+              )}
+            </div>
             <button
-              onClick={() => setImagePreview(null)}
+              onClick={() => {
+                setImagePreview(null)
+                setImageMediaId(null)
+              }}
               aria-label="Remove image"
-              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors"
+              disabled={uploading}
+              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <X size={9} />
             </button>
@@ -384,12 +475,12 @@ export function InputBar() {
             {/* Image upload button */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isResponding}
+              disabled={isResponding || uploading}
               aria-label="Upload reference image"
-              title="Upload a reference image for 3D generation"
+              title="Upload a reference image for 3D generation (or drag & drop)"
               className="flex items-center justify-center w-7 h-7 rounded-md text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ImageIcon size={13} />
+              {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
             </button>
             <input
               ref={fileInputRef}
@@ -412,7 +503,7 @@ export function InputBar() {
       </div>
       <div className="mt-1.5 px-1 text-center">
         <span className="text-[10px] text-fg-muted">
-          Enter to send · Shift+Enter for newline
+          Enter to send · Shift+Enter for newline · Drop images to attach
         </span>
       </div>
     </div>
