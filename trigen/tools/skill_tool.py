@@ -57,7 +57,7 @@ class InvokeSkillTool(ToolBase):
     """
 
     name = "invoke_skill"
-    description = "Invoke a named creative skill (multi-tool recipe) such as spiral_staircase, colonnade, forest, crystal_garden, dna_helix, spiral_galaxy, or studio_lighting."
+    description = "Invoke a named creative skill (multi-tool recipe) such as spiral_staircase, colonnade, forest, crystal_garden, dna_helix, spiral_galaxy, studio_lighting, atom, bridge, or zen_garden."
 
     def __init__(self, registry: Optional[ToolRegistry] = None):
         self._registry = registry
