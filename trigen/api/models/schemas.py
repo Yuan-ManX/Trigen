@@ -68,6 +68,11 @@ class ToolSchema(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    category: str = Field(default="general", description="Functional category")
+    requires_approval: bool = Field(
+        default=False,
+        description="Whether this tool has destructive side-effects",
+    )
 
 
 class ToolsResponse(BaseModel):
