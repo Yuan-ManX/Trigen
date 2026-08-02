@@ -157,6 +157,9 @@ class OpenAITransport(ChatTransport, ImageTransport, AnimationTransport, VoiceTr
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            # Request token-usage stats on the terminal chunk so the
+            # orchestrator can report consumption in its done event.
+            "stream_options": {"include_usage": True},
         }
         if tools:
             kwargs["tools"] = _build_tools_schema(tools)
@@ -171,7 +174,17 @@ class OpenAITransport(ChatTransport, ImageTransport, AnimationTransport, VoiceTr
         tool_call_accum: Dict[int, Dict[str, Any]] = {}
         try:
             async for chunk in stream:
+                # The terminal usage chunk has empty choices; capture it so
+                # we can attach the stats to the final yielded chunk.
                 if not chunk.choices:
+                    if getattr(chunk, "usage", None):
+                        yield LLMStreamChunk(
+                            usage={
+                                "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                                "completion_tokens": getattr(chunk.usage, "completion_tokens", 0) or 0,
+                                "total_tokens": getattr(chunk.usage, "total_tokens", 0) or 0,
+                            }
+                        )
                     continue
                 delta = chunk.choices[0].delta
                 finish = chunk.choices[0].finish_reason
