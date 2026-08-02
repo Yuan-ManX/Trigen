@@ -4,6 +4,7 @@ import { AlertTriangle, Brain, ChevronDown, ChevronRight, RefreshCw, Sparkles } 
 import { useState } from 'react'
 import { useChat } from '../../store/useChat'
 import type { ChatMessage, ThinkingTrace } from '../../store/useChat'
+import { PlanTrace } from './PlanTrace'
 import { ToolCallCard } from './ToolCallCard'
 
 interface MessageBubbleProps {
@@ -99,6 +100,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         {/* Reasoning trace */}
         {message.thinking && message.thinking.length > 0 && (
           <ThinkingCard traces={message.thinking} />
+        )}
+
+        {/* Live execution-plan checklist */}
+        {message.planSteps && message.planSteps.length > 0 && (
+          <PlanTrace steps={message.planSteps} />
         )}
 
         {/* Tool calls */}
