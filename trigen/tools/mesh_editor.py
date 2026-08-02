@@ -262,6 +262,7 @@ class DeleteObjectTool(ToolBase):
 
     name = "delete_object"
     description = "Remove the specified object from the scene."
+    requires_approval = True  # Destructive: removes geometry permanently
 
     def schema(self) -> Dict[str, Any]:
         return _DELETE_PARAMS
