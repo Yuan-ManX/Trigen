@@ -106,7 +106,7 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "select_object": "Select the specified object, linked to the editor properties panel.",
     "focus_object": "Focus the camera on the specified object.",
     "export_scene": "Export the current scene as a GLB / OBJ / STL format file.",
-    "dispatch_subagent": "Dispatch a read-only sub-agent to analyze the current scene or reason about a task. The sub-agent receives a compact scene summary and returns a text answer; it cannot modify the scene. Use for analysis, suggestions, or sanity checks.",
+    "dispatch_subagent": "Dispatch a sub-agent to analyze the scene or execute a bounded sub-task. Read-only by default (returns a text answer). Pass a 'tools' whitelist plus mutate_scene=true to let the sub-agent run a short tool loop that mutates the scene; the resulting deltas are merged back. Use for analysis, suggestions, or delegating independent multi-step creation sub-tasks.",
 }
 
 
