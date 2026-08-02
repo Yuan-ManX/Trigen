@@ -296,6 +296,7 @@ class BooleanOperationTool(ToolBase):
 
     name = "boolean_operation"
     description = "Compute a boolean union/difference/intersection of two objects, approximated by their bounding boxes, producing a new box mesh."
+    requires_approval = True  # Destructive: may delete input operands
 
     def schema(self) -> Dict[str, Any]:
         return _BOOLEAN_PARAMS
