@@ -40,6 +40,10 @@ class LLMStreamChunk:
     content: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
     finish_reason: Optional[str] = None
+    # Token usage stats. Populated by transports on the final chunk when the
+    # provider returns usage data (OpenAI populates this on the last chunk
+    # with stream_options={"include_usage": True}). Empty dict when unavailable.
+    usage: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
