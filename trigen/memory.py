@@ -39,6 +39,10 @@ class ConversationMemory:
         self.window_size = window_size
         self._messages: List[MessageRecord] = []
         self._compacted_summary: str = ""
+        # Cross-turn project goal: the high-level objective inferred from the
+        # most recent plan. Survives window compaction so multi-turn work
+        # keeps a stable headline the frontend can display.
+        self.project_goal: str = ""
 
     def add_user(self, content: str) -> None:
         import time
@@ -104,9 +108,21 @@ class ConversationMemory:
             lines.append(f"[{prefix}] {content}")
         return "\n".join(lines)
 
+    def set_project_goal(self, goal: str) -> None:
+        """Record the current project goal.
+
+        Updated each turn from the plan's goal. When the user shifts to a
+        new objective, the latest goal replaces the previous one so the
+        headline always reflects the active work.
+        """
+        g = (goal or "").strip()
+        if g:
+            self.project_goal = g
+
     def clear(self) -> None:
         self._messages.clear()
         self._compacted_summary = ""
+        self.project_goal = ""
 
     def _trim(self) -> None:
         # When exceeding 2x window, compact older messages into a summary
