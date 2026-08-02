@@ -48,6 +48,18 @@ class ToolBase(ABC):
     name: str = ""
     description: str = ""
 
+    # Whether this tool has destructive side-effects (deletes geometry,
+    # boolean-cuts, shatters, etc.) and should be surfaced for user
+    # confirmation in the plan-preview flow. Defaults to False. Read by
+    # ``AgentOrchestrator.plan_only`` to populate ``has_destructive_steps``.
+    requires_approval: bool = False
+
+    # Coarse functional category used for tool browsing, smart selection,
+    # and the /api/tools/categories endpoint. The orchestrator's central
+    # category map overrides this default at registration time so the
+    # canonical taxonomy lives in a single place.
+    category: str = "general"
+
     @abstractmethod
     def schema(self) -> Dict[str, Any]:
         """Return the parameter schema in OpenAI function calling format."""
@@ -77,6 +89,53 @@ class ToolRegistry:
     def schemas(self) -> List[Dict[str, Any]]:
         """Return the OpenAI schemas for all tools."""
         return [
-            {"name": t.name, "description": t.description, "parameters": t.schema()}
+            {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.schema(),
+                "category": t.category,
+                "requires_approval": bool(t.requires_approval),
+            }
             for t in self._tools.values()
         ]
+
+    def schemas_for(self, names) -> List[Dict[str, Any]]:
+        """Return the OpenAI schemas for the named tool subset, preserving
+        registry order. Unknown names are skipped. Used by smart selection
+        to inject only the relevant tool subset into the LLM call.
+        """
+        wanted = set(names)
+        return [
+            {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.schema(),
+                "category": t.category,
+                "requires_approval": bool(t.requires_approval),
+            }
+            for t in self._tools.values()
+            if t.name in wanted
+        ]
+
+    def by_category(self, category: str) -> List[ToolBase]:
+        return [t for t in self._tools.values() if t.category == category]
+
+    def categories(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Group every registered tool by its category for browsing.
+
+        Returns a dict keyed by category name whose values are lists of
+        ``{name, description, parameters, category, requires_approval}``
+        entries (same shape as ``schemas()``).
+        """
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for t in self._tools.values():
+            grouped.setdefault(t.category, []).append(
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.schema(),
+                    "category": t.category,
+                    "requires_approval": bool(t.requires_approval),
+                }
+            )
+        return grouped
