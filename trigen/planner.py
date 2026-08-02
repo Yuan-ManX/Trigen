@@ -263,6 +263,7 @@ _PARALLEL_SAFE_TOOLS = {
     "list_objects",
     "analyze_scene",
     "export_scene",
+    "export_code",
     "measure_distance",
     # Editor control (no scene mutation)
     "select_object",
@@ -304,6 +305,11 @@ _PARALLEL_SAFE_TOOLS = {
     "invoke_skill",
     # Suggestions / palette are scene-wide but read-mostly
     "randomize_palette",
+    # Scene-structure management (per-target mutations handled by _target_key;
+    # reorder_layer is intentionally excluded as it reorders the whole list)
+    "rename_group",
+    "delete_camera",
+    "select_all",
     # Viewport / playback / session editor control (delta-only, no scene mutation)
     "set_viewport_camera",
     "play_animation",
@@ -317,6 +323,15 @@ _PARALLEL_SAFE_TOOLS = {
     "undo_scene",
     "redo_scene",
     "set_render_quality",
+    # Advanced editor control — per-target mutations handled by _target_key
+    "reset_transform",
+    "set_object_pivot",
+    "set_object_layer",
+    "set_clipping_plane",
+    "apply_material_batch",
+    # isolate_object is intentionally excluded: it mutates the visibility of
+    # every object in the scene, so batching it with another visibility tweak
+    # would produce non-deterministic ordering.
 }
 
 
