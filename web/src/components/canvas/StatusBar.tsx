@@ -1,6 +1,11 @@
-// Status bar: displays scene statistics, mode, selection info, and FPS counter
-import { Box, Eye, Lightbulb, MousePointer2, Zap } from 'lucide-react'
+// Status bar: displays scene statistics, mode, selection info, agent status,
+// and FPS counter. Polls /api/agent/status for online/offline mode so the
+// user always knows whether the LLM is powering the chat or the offline
+// rule engine is handling turns.
+import { Box, Cpu, Eye, Lightbulb, MousePointer2, Zap } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { fetchAgentStatus } from '../../api/client'
+import type { AgentStatusResponse } from '../../types'
 import { useScene } from '../../store/useScene'
 
 interface StatusBarProps {
@@ -58,6 +63,32 @@ export function StatusBar({ mode }: StatusBarProps) {
   const frameCount = useRef(0)
   const lastTime = useRef(performance.now())
 
+  // Agent online/offline status — polled on mount and every 30s so the
+  // indicator stays accurate without a websocket push. The endpoint is
+  // cheap (no LLM calls); 30s is a good balance between responsiveness
+  // and avoiding unnecessary requests when the tab is left open.
+  const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = () => {
+      fetchAgentStatus()
+        .then((status) => {
+          if (!cancelled) setAgentStatus(status)
+        })
+        .catch(() => {
+          // Leave the previous status in place on transient errors so the
+          // indicator doesn't flicker when the backend briefly hiccups.
+        })
+    }
+    poll()
+    const id = window.setInterval(poll, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [])
+
   useEffect(() => {
     let rafId: number
     const loop = () => {
@@ -80,6 +111,15 @@ export function StatusBar({ mode }: StatusBarProps) {
   const visibleCount = scene.objects.filter((o) => o.visible).length
   const polyCount = estimatePolygons(scene.objects)
   const polyLabel = polyCount >= 1000 ? `${(polyCount / 1000).toFixed(1)}k` : `${polyCount}`
+
+  const online = agentStatus?.online ?? false
+  const primaryModel = agentStatus?.primary_model
+  // Build a concise tooltip summarizing what's powering the agent right now.
+  const agentTooltip = agentStatus
+    ? online
+      ? `Online · ${primaryModel ?? 'LLM'} · ${agentStatus.capabilities.tools} tools / ${agentStatus.capabilities.skills} skills`
+      : `Offline · rule engine · ${agentStatus.capabilities.tools} tools / ${agentStatus.capabilities.skills} skills`
+    : 'Agent status unavailable'
 
   return (
     <footer className="flex items-center justify-between h-6 px-3 border-t border-border bg-bg-panel text-[10px] text-fg-muted select-none">
@@ -117,8 +157,23 @@ export function StatusBar({ mode }: StatusBarProps) {
         )}
       </div>
 
-      {/* Right: mode and FPS */}
+      {/* Right: agent mode + edit/run mode + FPS */}
       <div className="flex items-center gap-3">
+        <span
+          title={agentTooltip}
+          className="flex items-center gap-1 font-medium"
+        >
+          <Cpu size={10} className={online ? 'text-emerald-400' : 'text-fg-muted'} />
+          <span className={online ? 'text-emerald-400' : 'text-fg-muted'}>
+            {online ? 'ONLINE' : 'OFFLINE'}
+          </span>
+          {online && primaryModel && (
+            <span className="text-fg-muted/70 font-mono ml-0.5 hidden sm:inline">
+              · {primaryModel}
+            </span>
+          )}
+        </span>
+        <span className="text-fg-muted">·</span>
         <span
           className={`font-medium ${
             mode === 'edit' ? 'text-accent-cyan' : 'text-accent-gold'
