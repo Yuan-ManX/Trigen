@@ -9,7 +9,7 @@ It also implements the generation modalities that ride on OpenAI-family
 endpoints:
   - Image generation: OpenAI Images API (DALL·E) for the OPENAI provider,
     httpx POST to ``/images/generations`` for Together / Fireworks.
-  - Animation: Together / Fireworks image-style endpoint.
+  - Animation: Together / Fireworks image endpoint.
   - Speech synthesis + transcription: OpenAI TTS / Whisper.
 
 Internal per-provider branching is encapsulated here so the dispatch
@@ -452,7 +452,7 @@ class OpenAITransport(ChatTransport, ImageTransport, AnimationTransport, VoiceTr
         )
 
     # ------------------------------------------------------------------
-    # Animation (Together / Fireworks image-style endpoint)
+    # Animation (Together / Fireworks image endpoint)
     # ------------------------------------------------------------------
     async def generate_animation(
         self, params: Dict[str, Any], prompt: str, frames: int
