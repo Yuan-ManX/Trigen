@@ -3,13 +3,13 @@
 // When an object carries an animation descriptor, a useFrame hook overrides
 // its transform every frame from the shared playback clock.
 import { Edges, TransformControls } from '@react-three/drei'
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useEditor } from '../../store/useEditor'
 import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
-import type { Geometry, ObjectAnimation, SceneObject, Vec3 } from '../../types'
+import type { Geometry, GeometryParams, ObjectAnimation, SceneObject, Vec3 } from '../../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 
@@ -76,6 +76,17 @@ function GeometryRenderer({ geometry }: { geometry: Geometry }) {
       )
     case 'tube':
       return <TubeGeometryRenderer params={p} num={num} int={int} />
+    case 'lathe':
+      return <LatheGeometryRenderer params={p} int={int} />
+    case 'extrude':
+      return <ExtrudeGeometryRenderer params={p} num={num} int={int} />
+    case 'text':
+      // Text geometry requires a font asset; fall back to a box placeholder
+      // shaped like a nameplate so the scene still renders. The backend
+      // stores the text string for later SDF glyph generation.
+      return <boxGeometry args={[Math.max(0.6, (String(p.text ?? 'Trigen').length) * 0.4), 0.5, num('height', 0.12)]} />
+    case 'spline':
+      return <SplineGeometryRenderer params={p} int={int} num={num} />
     default:
       return <boxGeometry args={[1, 1, 1]} />
   }
@@ -87,7 +98,7 @@ function TubeGeometryRenderer({
   num,
   int,
 }: {
-  params: Record<string, number | number[]>
+  params: GeometryParams
   num: (k: string, fallback: number) => number
   int: (k: string, fallback: number) => number
 }) {
@@ -103,6 +114,89 @@ function TubeGeometryRenderer({
   )
   return (
     <tubeGeometry args={[curve, int('tubularSegments', 64), num('radius', 0.3), int('radialSegments', 8), false]} />
+  )
+}
+
+/** Lathe geometry — surface of revolution from a 2D point profile. The
+ *  points array is [[x, y], ...] in the XY plane; three.js sweeps it
+ *  around the Y axis. Falls back to a default vase profile when absent. */
+function LatheGeometryRenderer({
+  params,
+  int,
+}: {
+  params: GeometryParams
+  int: (k: string, fallback: number) => number
+}) {
+  const points = useMemo(() => {
+    const raw = params.points as number[][] | undefined
+    const fallback = [
+      [0, 0], [0.4, 0.2], [0.3, 0.6], [0, 0.8],
+    ]
+    const src = Array.isArray(raw) && raw.length >= 2 ? raw : fallback
+    return src.map((pt) => new THREE.Vector2(Number(pt[0] ?? 0), Number(pt[1] ?? 0)))
+  }, [params.points])
+  return (
+    <latheGeometry args={[points, int('segments', 32), Number(params.phiStart ?? 0), Number(params.phiLength ?? 6.2832)]} />
+  )
+}
+
+/** Extrude geometry — 2D polygon outline pushed along Z with optional bevel.
+ *  Builds a THREE.Shape from the outline points and feeds it to extrudeGeometry. */
+function ExtrudeGeometryRenderer({
+  params,
+  num,
+  int,
+}: {
+  params: GeometryParams
+  num: (k: string, fallback: number) => number
+  int: (k: string, fallback: number) => number
+}) {
+  const shape = useMemo(() => {
+    const raw = params.outline as number[][] | undefined
+    const fallback = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]
+    const src = Array.isArray(raw) && raw.length >= 3 ? raw : fallback
+    const s = new THREE.Shape()
+    s.moveTo(Number(src[0][0]), Number(src[0][1]))
+    for (let i = 1; i < src.length; i++) s.lineTo(Number(src[i][0]), Number(src[i][1]))
+    s.closePath()
+    return s
+  }, [params.outline])
+  const opts = useMemo(
+    () => ({
+      depth: num('depth', 0.4),
+      bevelEnabled: Boolean(params.bevelEnabled),
+      bevelThickness: num('bevelThickness', 0.04),
+      bevelSize: num('bevelSize', 0.04),
+      bevelSegments: int('bevelSegments', 3),
+      curveSegments: int('curveSegments', 12),
+    }),
+    [params, num, int],
+  )
+  return <extrudeGeometry args={[shape, opts]} />
+}
+
+/** Spline geometry — a Catmull-Rom curve mesh (tube following control
+ *  points). Lets users author organic paths by editing the points array. */
+function SplineGeometryRenderer({
+  params,
+  int,
+  num,
+}: {
+  params: GeometryParams
+  int: (k: string, fallback: number) => number
+  num: (k: string, fallback: number) => number
+}) {
+  const curve = useMemo(() => {
+    const raw = params.points as number[][] | undefined
+    const fallback = [[-1, 0, 0], [0, 0.6, 0.3], [1, 0, 0]]
+    const src = Array.isArray(raw) && raw.length >= 2 ? raw : fallback
+    return new THREE.CatmullRomCurve3(
+      src.map((pt) => new THREE.Vector3(Number(pt[0]), Number(pt[1]), Number(pt[2] ?? 0))),
+      Boolean(params.closed),
+    )
+  }, [params.points, params.closed])
+  return (
+    <tubeGeometry args={[curve, int('tubularSegments', 64), num('radius', 0.06), int('radialSegments', 8), Boolean(params.closed)]} />
   )
 }
 
@@ -226,6 +320,11 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
   const currentTime = usePlayback((s) => s.currentTime)
   const gridSnapEnabled = useEditor((s) => s.gridSnapEnabled)
   const snapIncrement = useEditor((s) => s.snapIncrement)
+  // Capture the base transforms of every secondary selection at drag start
+  // so the gizmo can move them as a rigid group alongside the primary.
+  // The ref is populated lazily in the onObjectChange handler when the
+  // drag first fires for a fresh interaction.
+  const dragBaseRef = useRef<Map<string, { p: Vec3; r: Vec3; s: Vec3 }> | null>(null)
   // Use callback ref so re-render fires when mesh mounts
   const [meshObj, setMeshObj] = useState<THREE.Mesh | null>(null)
 
@@ -250,7 +349,10 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
   // stays inspectable without stacking multiple transform handles.
   const isPrimary = selectedId === object.id
   const mat = object.material
-  const transparent = mat.opacity < 1
+  // Transparency is triggered by opacity < 1 OR a non-zero transmission
+  // (transmissive materials need the transparent flag so the backdrop is
+  // blended during the render pass).
+  const transparent = mat.opacity < 1 || (mat.transmission ?? 0) > 0
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -292,7 +394,7 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
         userData={{ id: object.id, name: object.name }}
       >
         <GeometryRenderer geometry={object.geometry} />
-        <meshStandardMaterial
+        <meshPhysicalMaterial
           color={mat.color}
           metalness={mat.metalness}
           roughness={mat.roughness}
@@ -303,6 +405,24 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
           emissiveIntensity={mat.emissive_intensity}
           flatShading={mat.flat_shading ?? false}
           side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
+          clearcoat={mat.clearcoat ?? 0}
+          clearcoatRoughness={mat.clearcoat_roughness ?? 0}
+          transmission={mat.transmission ?? 0}
+          thickness={mat.thickness ?? 0}
+          ior={mat.ior ?? 1.5}
+          iridescence={mat.iridescence ?? 0}
+          iridescenceIOR={mat.iridescence_ior ?? 1.3}
+          iridescenceThicknessRange={[
+            mat.iridescence_thickness_min ?? 100,
+            mat.iridescence_thickness_max ?? 400,
+          ]}
+          sheen={mat.sheen ?? 0}
+          sheenColor={mat.sheen_color ?? '#000000'}
+          sheenRoughness={mat.sheen_roughness ?? 1.0}
+          specularIntensity={mat.specular_intensity ?? 1.0}
+          specularColor={mat.specular_color ?? '#ffffff'}
+          attenuationColor={mat.attenuation_color ?? '#ffffff'}
+          attenuationDistance={mat.attenuation_distance ?? 0}
         />
         {isSelected && (
           <Edges threshold={15} color={edgeColor} renderOrder={2} scale={1.02} />
@@ -312,6 +432,11 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
         <TransformControls
           object={meshObj}
           mode={transformMode}
+          onMouseUp={() => {
+            // Clear the multi-select drag base so the next drag captures
+            // fresh starting positions for the new gesture.
+            dragBaseRef.current = null
+          }}
           onObjectChange={() => {
             if (!meshObj) return
             let px = meshObj.position.x
@@ -350,6 +475,62 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
               rotation: [rx, ry, rz] as Vec3,
               scale: [sx, sy, sz] as Vec3,
             })
+
+            // Multi-select group transform: capture every secondary
+            // selection's base transform on the first drag tick, then
+            // apply the same delta (primary's current minus its base)
+            // to each of them so the whole selection moves / rotates /
+            // scales as a rigid group. Animated secondaries are skipped
+            // (the playback loop owns their transform).
+            if (selectedIds.length > 1) {
+              const st = useScene.getState()
+              // Lazy-init the base snapshot at the start of the drag.
+              if (!dragBaseRef.current) {
+                const base = new Map<string, { p: Vec3; r: Vec3; s: Vec3 }>()
+                // The primary's base is its authored transform (the
+                // gizmo's starting pose), captured BEFORE the drag has
+                // applied any motion this turn.
+                base.set(object.id, {
+                  p: [...object.transform.position] as Vec3,
+                  r: [...object.transform.rotation] as Vec3,
+                  s: [...object.transform.scale] as Vec3,
+                })
+                for (const id of selectedIds) {
+                  if (id === object.id) continue
+                  const o = st.scene.objects.find((x) => x.id === id)
+                  if (!o || o.animation) continue
+                  base.set(id, {
+                    p: [...o.transform.position] as Vec3,
+                    r: [...o.transform.rotation] as Vec3,
+                    s: [...o.transform.scale] as Vec3,
+                  })
+                }
+                dragBaseRef.current = base
+              }
+              const primBase = dragBaseRef.current.get(object.id)
+              if (primBase) {
+                const dx = px - primBase.p[0]
+                const dy = py - primBase.p[1]
+                const dz = pz - primBase.p[2]
+                // Rotation delta is added; scale delta is multiplied.
+                const drx = rx - primBase.r[0]
+                const dry = ry - primBase.r[1]
+                const drz = rz - primBase.r[2]
+                const dsx = primBase.s[0] !== 0 ? sx / primBase.s[0] : 1
+                const dsy = primBase.s[1] !== 0 ? sy / primBase.s[1] : 1
+                const dsz = primBase.s[2] !== 0 ? sz / primBase.s[2] : 1
+                for (const id of selectedIds) {
+                  if (id === object.id) continue
+                  const b = dragBaseRef.current.get(id)
+                  if (!b) continue
+                  updateTransform(id, {
+                    position: [b.p[0] + dx, b.p[1] + dy, b.p[2] + dz] as Vec3,
+                    rotation: [b.r[0] + drx, b.r[1] + dry, b.r[2] + drz] as Vec3,
+                    scale: [b.s[0] * dsx, b.s[1] * dsy, b.s[2] * dsz] as Vec3,
+                  })
+                }
+              }
+            }
           }}
         />
       )}
