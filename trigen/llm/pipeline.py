@@ -1,4 +1,4 @@
-"""ComfyUI-style pipeline orchestrator.
+"""Pipeline orchestrator.
 
 Provides a node-graph execution engine for multi-step generation workflows.
 Each node is an atomic operation (LLM call, image generation, 3D conversion,
@@ -6,9 +6,9 @@ scene mutation) with typed inputs and outputs. Nodes are wired together into
 a directed acyclic graph; the orchestrator topologically sorts and executes
 them, passing outputs between nodes.
 
-This mirrors the ComfyUI execution model: declarative node definitions,
-explicit edge wiring, and deterministic execution order. Pipelines are
-defined as JSON so they can be persisted, shared, and edited visually.
+The execution model uses declarative node definitions, explicit edge wiring,
+and deterministic execution order. Pipelines are defined as JSON so they can
+be persisted, shared, and edited visually.
 
 Example pipeline (text-to-image-to-3D):
   {
@@ -169,7 +169,7 @@ class PipelineOrchestrator:
     node registry. Outputs from upstream nodes are injected into downstream
     nodes via the {"from": "<node_id>", "output": "<key>"} reference syntax.
 
-    Per-node result caching (ComfyUI-style): when a node's ``cacheable``
+    Per-node result caching: when a node's ``cacheable``
     flag is true, the orchestrator memoizes its SUCCESS result keyed by
     ``(node_id, inputs)``. Re-running a pipeline (or re-executing a shared
     sub-graph) reuses results whose inputs have not changed, avoiding
