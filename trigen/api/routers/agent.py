@@ -234,3 +234,54 @@ async def agent_status() -> JSONResponse:
             "max_tokens_per_turn": config.max_tokens_per_turn,
         },
     })
+
+
+@router.get("/agent/episodic")
+async def agent_episodic_get() -> JSONResponse:
+    """Return the cross-session episodic memory contents.
+
+    Exposes the persisted preferences (preferred language, geometry,
+    material preset, viewport, transform mode, render quality) and the
+    successful plan-pattern cache so the frontend can render a memory
+    inspector and the user can audit what the agent has learned. Read-only.
+    """
+    from trigen.episodic_memory import store as episodic_store
+
+    try:
+        mem = episodic_store.get()
+        payload = mem.to_dict()
+        # Surface a friendly preferences summary too so the frontend does
+        # not have to re-derive the top-N values from the counters.
+        payload["summary"] = {
+            "language": mem._top("language"),
+            "geometry_type": mem._top("geometry_type"),
+            "material_preset": mem._top("material_preset"),
+            "view": mem._top("view"),
+            "transform_mode": mem._top("transform_mode"),
+            "render_quality": mem._top("render_quality"),
+        }
+        payload["pattern_count"] = len(mem.patterns)
+        return JSONResponse(content=payload)
+    except Exception as e:
+        logger.exception("agent/episodic GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/episodic")
+async def agent_episodic_delete() -> JSONResponse:
+    """Wipe the cross-session episodic memory.
+
+    Resets the in-memory store and removes the persisted JSON so subsequent
+    sessions start fresh. Useful for privacy / debugging / starting over.
+    """
+    from trigen.episodic_memory import store as episodic_store
+
+    try:
+        episodic_store.reset()
+        return JSONResponse(content={
+            "reset": True,
+            "note": "Episodic memory cleared; preferences and pattern cache wiped.",
+        })
+    except Exception as e:
+        logger.exception("agent/episodic DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
