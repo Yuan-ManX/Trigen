@@ -7,7 +7,7 @@ ids prefixed with ``gemini-native/`` (e.g. ``gemini-native/gemini-2.5-pro``);
 the OpenAI-compatible Gemini models (``gemini-2.0-flash`` etc.) continue
 to dispatch through the OpenAI transport.
 
-The native API converts the OpenAI-style messages list into Gemini's
+The native API converts the chat messages list into Gemini's
 ``contents`` array, supports inline image data via ``inline_data`` parts,
 and forwards function-calling tools as ``functionDeclarations``.
 """
@@ -42,7 +42,7 @@ def _role_for(role: str) -> str:
 
 
 def _message_to_parts(msg: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Convert a single OpenAI-style message into Gemini ``parts``."""
+    """Convert a single chat message into Gemini ``parts``."""
     content = msg.get("content")
     role = msg.get("role", "user")
 
