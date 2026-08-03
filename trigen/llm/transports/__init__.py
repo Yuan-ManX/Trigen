@@ -99,7 +99,7 @@ def _register_all() -> None:
     registry.register_video(ProviderType.PIKA, PikaTransport())
     registry.register_video(ProviderType.KLING, KlingTransport())
 
-    # Animation (Together / Fireworks image-style endpoint).
+    # Animation (Together / Fireworks image endpoint).
     registry.register_animation(ProviderType.TOGETHER, openai_transport)
     registry.register_animation(ProviderType.FIREWORKS, openai_transport)
 
