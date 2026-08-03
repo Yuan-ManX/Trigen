@@ -346,7 +346,7 @@ class RunPipelineRequest(BaseModel):
 
 @router.post("/models/pipeline")
 async def run_pipeline(req: RunPipelineRequest) -> Dict[str, Any]:
-    """Execute a multi-step generation pipeline (ComfyUI-style DAG)."""
+    """Execute a multi-step generation pipeline (node DAG)."""
     definition = {"name": req.name, "nodes": req.nodes}
     try:
         pipeline = parse_pipeline(definition)
