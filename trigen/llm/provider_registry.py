@@ -40,7 +40,7 @@ _REGISTRY_FILE = os.path.join(
 
 def _key_handle(provider_name: str) -> str:
     """Build the env-name handle under which a provider's key is stored."""
-    # Sanitize the provider name into a stable env-style handle. The handle
+    # Sanitize the provider name into a stable handle. The handle
     # is only used as a lookup key in the key_store, never as a real env var.
     safe = "".join(c if c.isalnum() else "_" for c in provider_name).upper()
     return f"CUSTOM_PROVIDER_{safe}_API_KEY"
