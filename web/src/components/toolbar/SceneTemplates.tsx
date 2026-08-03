@@ -1,16 +1,29 @@
 // Scene templates browser: modal dialog showing available scene templates
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Atom,
   Box,
   Building2,
+  Cog,
+  Columns,
+  Construction,
+  Dna,
+  FlaskConical,
+  Flower,
   Gem,
   Globe2,
+  Lightbulb,
+  Mountain,
+  Orbit,
   Package,
+  Snowflake,
   Sparkles,
+  TrendingUp,
+  TreeDeciduous,
   X,
 } from 'lucide-react'
 
-interface TemplateCard {
+export interface TemplateCard {
   id: string
   name: string
   description: string
@@ -18,9 +31,11 @@ interface TemplateCard {
   color: string
   prompt: string
   objects: string
+  /** Optional skill tag — when present, the template invokes a registered skill. */
+  skill?: string
 }
 
-const TEMPLATES: TemplateCard[] = [
+export const TEMPLATES: TemplateCard[] = [
   {
     id: 'solar_system',
     name: 'Solar System',
@@ -65,6 +80,137 @@ const TEMPLATES: TemplateCard[] = [
     color: 'text-emerald-400',
     prompt: 'Create a product showcase scene',
     objects: '6 objects',
+  },
+  // ----- Skill-aligned templates (each maps to a registered creative skill) -----
+  {
+    id: 'spiral_staircase',
+    name: 'Spiral Staircase',
+    description: 'Central pillar with steps spiraling upward, stone material',
+    icon: TrendingUp,
+    color: 'text-amber-300',
+    prompt: 'Use the spiral_staircase skill to build a spiral staircase with 16 steps',
+    objects: '17 objects',
+    skill: 'spiral_staircase',
+  },
+  {
+    id: 'colonnade',
+    name: 'Colonnade',
+    description: 'Row of marble columns on a plinth, classical architecture',
+    icon: Columns,
+    color: 'text-stone-300',
+    prompt: 'Use the colonnade skill to build a row of 8 marble columns',
+    objects: '9 objects',
+    skill: 'colonnade',
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    description: 'Scattered trees with trunks and leafy crowns on a ground plane',
+    icon: TreeDeciduous,
+    color: 'text-emerald-400',
+    prompt: 'Use the forest skill to grow a forest of 12 trees',
+    objects: '24+ objects',
+    skill: 'forest',
+  },
+  {
+    id: 'crystal_garden',
+    name: 'Crystal Garden',
+    description: 'Cluster of glowing polyhedra on a reflective floor',
+    icon: Flower,
+    color: 'text-fuchsia-400',
+    prompt: 'Use the crystal_garden skill to scatter a garden of 10 glowing crystals',
+    objects: '10+ objects',
+    skill: 'crystal_garden',
+  },
+  {
+    id: 'dna_helix',
+    name: 'DNA Helix',
+    description: 'Double helix of spheres connected by rungs, rotating',
+    icon: Dna,
+    color: 'text-cyan-300',
+    prompt: 'Use the dna_helix skill to construct a DNA double helix with 24 base pairs',
+    objects: '50+ objects',
+    skill: 'dna_helix',
+  },
+  {
+    id: 'spiral_galaxy',
+    name: 'Spiral Galaxy',
+    description: 'Central bulge with two spiral arms of stars, dark sky',
+    icon: Orbit,
+    color: 'text-indigo-300',
+    prompt: 'Use the spiral_galaxy skill to generate a spiral galaxy with 2 arms',
+    objects: '120+ stars',
+    skill: 'spiral_galaxy',
+  },
+  {
+    id: 'studio_lighting_skill',
+    name: 'Studio Lighting Rig',
+    description: 'Three-point key/fill/rim light rig with a display platform',
+    icon: Lightbulb,
+    color: 'text-yellow-300',
+    prompt: 'Use the studio_lighting skill to set up a three-point lighting rig',
+    objects: '4 lights + platform',
+    skill: 'studio_lighting',
+  },
+  {
+    id: 'atom',
+    name: 'Atom Model',
+    description: 'Glowing nucleus with three electron orbits and shells',
+    icon: Atom,
+    color: 'text-sky-300',
+    prompt: 'Build an atom model: a glowing nucleus with three electron orbits at different angles, each with electrons on them',
+    objects: '7 objects',
+    skill: 'atom',
+  },
+  {
+    id: 'gear_assembly',
+    name: 'Gear Assembly',
+    description: 'Row of interlocking metal gears with radial teeth that visually mesh',
+    icon: Cog,
+    color: 'text-zinc-300',
+    prompt: 'Use the gear_assembly skill to build a row of 3 interlocking gears with 12 teeth each',
+    objects: '3 gears + teeth + axles',
+    skill: 'gear_assembly',
+  },
+  {
+    id: 'molecule',
+    name: 'Molecule',
+    description: 'Ball-and-stick molecule: central atom with satellites and bond cylinders',
+    icon: FlaskConical,
+    color: 'text-rose-300',
+    prompt: 'Use the molecule skill to build a ball-and-stick molecule with 4 satellite atoms and bonds',
+    objects: '1 center + 4 satellites + 4 bonds',
+    skill: 'molecule',
+  },
+  {
+    id: 'snowman',
+    name: 'Snowman',
+    description: 'Three stacked snow spheres with carrot nose, coal eyes, stick arms, and top hat',
+    icon: Snowflake,
+    color: 'text-sky-200',
+    prompt: 'Use the snowman skill to build a snowman with a carrot nose, coal eyes, stick arms, and a top hat',
+    objects: '3 spheres + nose + eyes + arms + hat',
+    skill: 'snowman',
+  },
+  {
+    id: 'bridge',
+    name: 'Suspension Bridge',
+    description: 'Deck, piers, towers, main cables, and hangers over a water plane',
+    icon: Construction,
+    color: 'text-amber-500',
+    prompt: 'Use the bridge skill to build a suspension bridge with deck, towers, cables, and hangers over water',
+    objects: 'Deck + 2 towers + cables + hangers + water',
+    skill: 'bridge',
+  },
+  {
+    id: 'zen_garden',
+    name: 'Zen Garden',
+    description: 'Raked sand garden with scattered stones, moss patches, and a muted backdrop',
+    icon: Mountain,
+    color: 'text-emerald-300',
+    prompt: 'Use the zen_garden skill to build a zen garden with raked sand, scattered stones, and moss patches',
+    objects: 'Sand plane + 5 stones + 3 moss patches',
+    skill: 'zen_garden',
   },
   {
     id: 'clear',
@@ -154,10 +300,20 @@ export function SceneTemplates({ open, onClose, onSelect }: SceneTemplatesProps)
                       </div>
 
                       {/* Text content */}
-                      <div className="space-y-0.5">
-                        <h3 className="text-[12px] font-semibold text-fg-primary group-hover:text-accent-cyan transition-colors">
-                          {tpl.name}
-                        </h3>
+                      <div className="space-y-0.5 w-full">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <h3 className="text-[12px] font-semibold text-fg-primary group-hover:text-accent-cyan transition-colors">
+                            {tpl.name}
+                          </h3>
+                          {tpl.skill && (
+                            <span
+                              title={`Invokes skill: ${tpl.skill}`}
+                              className="shrink-0 text-[8.5px] uppercase tracking-wider font-semibold text-accent-purple/80 border border-accent-purple/30 rounded px-1 py-px bg-accent-purple/5"
+                            >
+                              skill
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-fg-muted leading-relaxed line-clamp-2">
                           {tpl.description}
                         </p>
