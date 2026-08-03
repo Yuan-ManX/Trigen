@@ -8,10 +8,13 @@ import { useScene } from '../../store/useScene'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { ChatPanel } from '../chat/ChatPanel'
 import { EditorCanvas } from '../canvas/EditorCanvas'
+import { SceneStateMachine } from '../canvas/SceneStateMachine'
 import { StatusBar } from '../canvas/StatusBar'
 import { RightPanel } from '../sidebar/RightPanel'
 import { TopToolbar } from '../toolbar/TopToolbar'
 import { KeyboardShortcuts } from '../toolbar/KeyboardShortcuts'
+import { CommandPalette } from '../toolbar/CommandPalette'
+import { OnboardingHints, useReopenOnboarding } from '../OnboardingHints'
 
 type EditorMode = 'edit' | 'run'
 
@@ -24,6 +27,9 @@ export function AppShell() {
   const [rightOpen, setRightOpen] = useState(true)
   const [mode, setMode] = useState<EditorMode>('edit')
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
+  const { forceOpen: onboardingForceOpen, reopen: reopenOnboarding, handleClose: handleOnboardingClose } =
+    useReopenOnboarding()
 
   const selectedId = useScene((s) => s.selectedId)
   const removeObject = useScene((s) => s.removeObject)
@@ -47,6 +53,13 @@ export function AppShell() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+K: open the command palette (works even from input/textarea)
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setShowCommandPalette((v) => !v)
+        return
+      }
+
       // Ignore when typing in input/textarea
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
@@ -119,7 +132,7 @@ export function AppShell() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-bg-base text-fg-primary">
-      <TopToolbar mode={mode} onToggleMode={toggleMode} />
+      <TopToolbar mode={mode} onToggleMode={toggleMode} onShowTour={reopenOnboarding} />
 
       <div className="flex flex-1 min-h-0">
         {/* Left chat panel */}
@@ -155,6 +168,8 @@ export function AppShell() {
         {/* Center 3D canvas */}
         <main className="relative flex-1 min-w-0 bg-bg-base">
           <EditorCanvas mode={mode} />
+          {/* Floating scene-state indicator (top-right) */}
+          <SceneStateMachine mode={mode} />
           {/* Watermark at the bottom-left of the canvas */}
           <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] font-mono text-fg-muted/60">
             {mode === 'edit'
@@ -199,6 +214,12 @@ export function AppShell() {
 
       {/* Keyboard shortcuts overlay */}
       <KeyboardShortcuts open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+
+      {/* Command palette (Cmd/Ctrl+K) */}
+      <CommandPalette open={showCommandPalette} onClose={() => setShowCommandPalette(false)} />
+
+      {/* First-visit coachmark tour (auto-shows once, can be reopened from toolbar) */}
+      <OnboardingHints forceOpen={onboardingForceOpen} onClose={handleOnboardingClose} />
     </div>
   )
 }
