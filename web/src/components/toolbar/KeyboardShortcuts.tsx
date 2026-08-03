@@ -16,6 +16,11 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: 'Ctrl/Cmd + Shift + Z', description: 'Redo undone action' },
       { keys: 'Ctrl/Cmd + Y', description: 'Redo (alternative)' },
       { keys: 'Ctrl/Cmd + D', description: 'Duplicate selected object' },
+      { keys: 'Ctrl/Cmd + G', description: 'Group selected objects' },
+      { keys: 'Ctrl/Cmd + A', description: 'Select all objects' },
+      { keys: 'Ctrl/Cmd + Shift + A', description: 'Deselect all' },
+      { keys: 'Ctrl/Cmd + B', description: 'Toggle left chat panel' },
+      { keys: 'Ctrl/Cmd + Shift + B', description: 'Toggle right side panel' },
       { keys: 'Delete / Backspace', description: 'Delete selected object' },
       { keys: 'Escape', description: 'Deselect / Close panel' },
       { keys: '?', description: 'Toggle this shortcuts overlay' },
@@ -25,11 +30,17 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'Mode & View',
     shortcuts: [
       { keys: 'Ctrl/Cmd + E', description: 'Toggle Edit / Run mode' },
+      { keys: 'Space', description: 'Toggle Edit / Run mode (alternative)' },
       { keys: '1', description: 'Switch to Move transform' },
       { keys: '2', description: 'Switch to Rotate transform' },
       { keys: '3', description: 'Switch to Scale transform' },
       { keys: 'F', description: 'Focus camera on selected object' },
+      { keys: 'A', description: 'Frame all objects in the viewport' },
       { keys: 'G', description: 'Toggle grid visibility' },
+      { keys: 'M', description: 'Toggle viewport minimap' },
+      { keys: 'Shift + S', description: 'Toggle grid snap' },
+      { keys: 'R', description: 'Toggle render quality (low / medium / high)' },
+      { keys: 'C', description: 'Capture viewport as PNG download' },
     ],
   },
   {
@@ -37,7 +48,17 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: 'Click', description: 'Select object' },
       { keys: 'Click empty space', description: 'Deselect' },
-      { keys: 'Ctrl/Cmd + Click', description: 'Multi-select (coming soon)' },
+      { keys: 'Shift + Click', description: 'Add / toggle object in multi-selection' },
+      { keys: 'Ctrl/Cmd + Click', description: 'Add / toggle object in multi-selection' },
+      { keys: 'Double-click', description: 'Focus camera on clicked object' },
+    ],
+  },
+  {
+    title: 'Playback',
+    shortcuts: [
+      { keys: 'P', description: 'Play / pause animation playback' },
+      { keys: 'Shift + P', description: 'Stop animation playback' },
+      { keys: 'L', description: 'Toggle loop mode on selected animation' },
     ],
   },
   {
@@ -45,6 +66,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: 'Enter', description: 'Send message' },
       { keys: 'Shift + Enter', description: 'New line in input' },
+      { keys: 'Ctrl/Cmd + L', description: 'Clear chat history' },
     ],
   },
 ]
