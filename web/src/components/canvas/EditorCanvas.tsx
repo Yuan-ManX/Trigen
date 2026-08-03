@@ -338,6 +338,88 @@ function ClippingPlaneSync() {
   return null
 }
 
+/**
+ * On-canvas annotation overlay. Renders one anchored bubble per
+ * annotation in the scene. Annotations anchored to an object_id track
+ * that object's current transform every frame, so the label follows
+ * drag / animation. Annotations with no anchor stay at their world
+ * position. Edit mode only — hidden in run mode for a clean showcase.
+ */
+function AnnotationLayer() {
+  const annotations = useScene((s) => s.scene.annotations ?? [])
+  const objects = useScene((s) => s.scene.objects)
+  const removeAnnotation = useScene((s) => s.removeAnnotation)
+  // Resolve anchored annotations to a live world position each render.
+  // Pull the object transform from the store so drag updates propagate
+  // without needing a separate event channel.
+  const objPos = (id: string | null | undefined): [number, number, number] | null => {
+    if (!id) return null
+    const o = objects.find((x) => x.id === id)
+    if (!o) return null
+    return o.transform.position
+  }
+  if (annotations.length === 0) return null
+  return (
+    <group>
+      {annotations.map((a) => {
+        if (a.visible === false) return null
+        const anchor = objPos(a.object_id)
+        const pos: [number, number, number] = anchor ?? a.position
+        // Offset the bubble slightly above the anchor so the leader line
+        // is visible and the text does not overlap the geometry.
+        const bubblePos: [number, number, number] = [pos[0], pos[1] + 0.6, pos[2]]
+        const accent = a.color ?? '#FFB800'
+        return (
+          <group key={a.id}>
+            {/* Pin marker at the anchor point */}
+            <mesh position={pos}>
+              <sphereGeometry args={[0.05, 12, 12]} />
+              <meshBasicMaterial color={accent} depthTest={false} transparent opacity={0.95} />
+            </mesh>
+            {/* Leader line from anchor up to the bubble */}
+            <line>
+              <bufferGeometry>
+                <bufferAttribute
+                  attach="attributes-position"
+                  args={[new Float32Array([...pos, ...bubblePos]), 3]}
+                />
+              </bufferGeometry>
+              <lineBasicMaterial color={accent} depthTest={false} transparent opacity={0.7} />
+            </line>
+            <Html position={bubblePos} center distanceFactor={10} zIndexRange={[40, 0]}>
+              <div
+                className="pointer-events-auto max-w-[200px] rounded-md border bg-bg-panel/95 px-2 py-1.5 shadow-lg backdrop-blur"
+                style={{ borderColor: `${accent}66` }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  {a.title && (
+                    <div
+                      className="text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ color: accent }}
+                    >
+                      {a.title}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => removeAnnotation(a.id)}
+                    aria-label="Remove annotation"
+                    className="shrink-0 text-fg-muted hover:text-rose-400 text-[10px] leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="text-[11px] leading-snug text-fg-secondary whitespace-pre-wrap">
+                  {a.text}
+                </div>
+              </div>
+            </Html>
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
 function SceneContent({
   mode,
   transformMode,
@@ -419,6 +501,9 @@ function SceneContent({
         <CameraMarker key={c.id} camera={c} />
       ))}
 
+      {/* On-canvas annotation overlay — edit mode only */}
+      {mode === 'edit' && <AnnotationLayer />}
+
       <CameraRig autoRotate={mode === 'run'} animation={animation} />
     </>
   )
@@ -430,6 +515,9 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
   const setTransformMode = useEditor((s) => s.setTransformMode)
   const renderQuality = useEditor((s) => s.renderQuality)
   const clippingPlane = useEditor((s) => s.clippingPlane)
+  const minimapEnabled = useEditor((s) => s.minimapEnabled)
+  const shadowsEnabled = useEditor((s) => s.shadowsEnabled)
+  const projectionMode = useEditor((s) => s.projectionMode)
 
   // Map render quality to device pixel ratio range
   const dpr: [number, number] = renderQuality === 'low' ? [1, 1] : renderQuality === 'medium' ? [1, 1.5] : [1, 2]
@@ -439,13 +527,20 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
     ? `Clipping: ON (${clippingPlane.axis.toUpperCase()}=${clippingPlane.position.toFixed(2)}${clippingPlane.invert ? ' ¬' : ''})`
     : ''
 
+  // Camera config: orthographic uses an orthographic-projection frustum;
+  // perspective uses a fov-based frustum. The CameraRig component handles
+  // per-frame positioning regardless of projection type.
+  const cameraConfig = projectionMode === 'orthographic'
+    ? { near: 0.1, far: 1000, position: [5, 4, 7] as [number, number, number], zoom: 80 }
+    : { fov: 45, near: 0.1, far: 1000, position: [5, 4, 7] as [number, number, number] }
+
   return (
     <>
       <TransformToolbar mode={mode} current={transformMode} onChange={setTransformMode} />
       <Canvas
-        shadows
+        shadows={shadowsEnabled}
         dpr={dpr}
-        camera={{ fov: 45, near: 0.1, far: 1000, position: [5, 4, 7] }}
+        camera={cameraConfig}
         gl={{ antialias: renderQuality !== 'low', preserveDrawingBuffer: true }}
         // Click on blank area to deselect (only in edit mode)
         onPointerMissed={() => {
@@ -464,7 +559,7 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
 
       {/* Minimap overlay (top-down x,z projection). Edit mode only — in run
           mode the viewport is a clean showcase. */}
-      {mode === 'edit' && <Minimap />}
+      {mode === 'edit' && minimapEnabled && <Minimap />}
 
       {/* Clipping-plane active badge (sits just below the transform toolbar) */}
       {clippingActive && (
