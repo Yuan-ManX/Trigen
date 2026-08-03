@@ -8,8 +8,7 @@ instance by ``node_type`` and calls ``execute(inputs, ctx)``.
 The base class declares a ``cacheable`` flag. When true, the
 orchestrator memoizes the node's result keyed by ``(node_id, inputs)``
 so re-running a pipeline (or re-executing a shared sub-graph) reuses
-results whose inputs have not changed, mirroring ComfyUI's per-node
-caching model.
+results whose inputs have not changed, providing per-node caching.
 """
 
 from __future__ import annotations
@@ -210,10 +209,10 @@ class ImageTo3DNode(PipelineNodeBase):
     node_type = "image_to_3d"
 
     async def execute(self, inputs: Dict[str, Any], ctx: PipelineContext) -> Dict[str, Any]:
-        from trigen.tools.img2threejs_tool import ImageToThreeJSTool
+        from trigen.tools.img2scene_tool import ImageToSceneTool
         from trigen.scene import Scene
 
-        tool = ImageToThreeJSTool(ctx.llm_config)
+        tool = ImageToSceneTool(ctx.llm_config)
         scene = Scene()
         result = await tool.execute(
             scene,
