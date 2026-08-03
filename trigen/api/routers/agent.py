@@ -136,7 +136,7 @@ async def agent_upload_image(file: UploadFile = File(...)) -> JSONResponse:
 
     Persists the uploaded image under the workspace uploads directory and
     returns a ``media_id`` plus a data URL the frontend can preview and the
-    chat flow can forward to a vision model or the img2threejs tool. Limits
+    chat flow can forward to a vision model or the image-to-3D tool. Limits
     uploads to 8 MB and image MIME types.
     """
     allowed = {"image/png", "image/jpeg", "image/webp", "image/gif"}
