@@ -9,10 +9,11 @@ and pipeline composition.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -103,6 +104,33 @@ class ExecuteToolRequest(BaseModel):
     session_id: str = Field("default", description="Session id for scene isolation")
 
 
+class BatchToolStep(BaseModel):
+    """A single step within a batch tool execution request."""
+
+    tool_name: str = Field(..., description="Name of the tool to execute")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict, description="Tool arguments for this step"
+    )
+
+
+class BatchToolRequest(BaseModel):
+    """Request body for batch (multi-step) tool execution.
+
+    Executes an ordered list of tool calls against the same session scene,
+    so the frontend can compose multi-step workflows (e.g. create + transform
+    + material) in a single REST round-trip without going through the LLM
+    chat flow. Each step sees the scene mutations produced by prior steps.
+    """
+
+    steps: List[BatchToolStep] = Field(
+        ..., description="Ordered list of tool calls to execute sequentially"
+    )
+    session_id: str = Field("default", description="Session id for scene isolation")
+    stop_on_error: bool = Field(
+        True, description="When True, abort remaining steps on the first failure"
+    )
+
+
 @router.post("/tools/execute")
 async def execute_tool(req: ExecuteToolRequest) -> Dict[str, Any]:
     """Execute a single tool directly against the session scene.
@@ -136,6 +164,105 @@ async def execute_tool(req: ExecuteToolRequest) -> Dict[str, Any]:
         "message": result.message,
         "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
         "data": result.data,
+        "scene": scene.to_dict(),
+    }
+
+
+@router.post("/tools/batch")
+async def batch_execute_tools(req: BatchToolRequest) -> Dict[str, Any]:
+    """Execute multiple tool calls sequentially against the same session scene.
+
+    Each step sees the mutations produced by prior steps, enabling the
+    frontend to compose multi-step workflows (create + transform + material,
+    array + mirror, etc.) in a single REST round-trip. When
+    ``stop_on_error`` is True the batch aborts on the first failing step;
+    otherwise all steps run and per-step success/failure is reported.
+
+    Returns the aggregated per-step results, the final scene snapshot, and
+    overall success/failure counts so the UI can render a progress summary.
+    """
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    registry = orch.registry
+    scene = orch.get_scene(req.session_id)
+
+    # Push scene history so the batch's mutations are undo-able via the
+    # editor's undo stack.
+    orch.push_scene_history(req.session_id)
+
+    step_results: List[Dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+    aborted = False
+
+    for idx, step in enumerate(req.steps):
+        tool = registry.get(step.tool_name)
+        if tool is None:
+            failed += 1
+            step_results.append({
+                "index": idx,
+                "tool": step.tool_name,
+                "success": False,
+                "message": f"Tool '{step.tool_name}' not found",
+                "deltas": [],
+                "data": None,
+            })
+            if req.stop_on_error:
+                aborted = True
+                break
+            continue
+
+        try:
+            result = await tool.execute(scene, step.arguments)
+        except Exception as exc:
+            logger.exception("Batch step %d (%s) failed", idx, step.tool_name)
+            failed += 1
+            step_results.append({
+                "index": idx,
+                "tool": step.tool_name,
+                "success": False,
+                "message": str(exc),
+                "deltas": [],
+                "data": None,
+            })
+            if req.stop_on_error:
+                aborted = True
+                break
+            continue
+
+        if result.success:
+            succeeded += 1
+        else:
+            failed += 1
+            if req.stop_on_error:
+                step_results.append({
+                    "index": idx,
+                    "tool": step.tool_name,
+                    "success": result.success,
+                    "message": result.message,
+                    "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+                    "data": result.data,
+                })
+                aborted = True
+                break
+
+        step_results.append({
+            "index": idx,
+            "tool": step.tool_name,
+            "success": result.success,
+            "message": result.message,
+            "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+            "data": result.data,
+        })
+
+    return {
+        "session_id": req.session_id,
+        "total_steps": len(req.steps),
+        "executed_steps": len(step_results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "aborted": aborted,
+        "steps": step_results,
         "scene": scene.to_dict(),
     }
 
@@ -288,3 +415,158 @@ async def get_suggestions(session_id: str = "default") -> Dict[str, Any]:
     scene = orch.get_scene(session_id)
     suggestions = generate_suggestions(scene.to_dict())
     return {"suggestions": suggestions, "count": len(suggestions)}
+
+
+# ---------------------------------------------------------------------------
+# Streaming batch execution over WebSocket
+# ---------------------------------------------------------------------------
+
+
+@router.websocket("/tools/batch/ws")
+async def batch_execute_tools_ws(websocket: WebSocket) -> None:
+    """WebSocket endpoint that streams per-step progress for batch tool runs.
+
+    Accepts a single JSON message matching the ``BatchToolRequest`` shape
+    (``steps``, ``session_id``, ``stop_on_error``) and emits a ``step``
+    event after each step completes, followed by a final ``done`` event
+    with the aggregated summary and final scene snapshot. This mirrors
+    the REST ``POST /api/tools/batch`` endpoint but streams progress so
+    the frontend can render a live progress bar / per-step status list.
+    """
+    await websocket.accept()
+    agent = AgentService.get()
+    try:
+        raw = await websocket.receive_text()
+        req = json.loads(raw)
+        steps = req.get("steps", [])
+        session_id = req.get("session_id", "default")
+        stop_on_error = bool(req.get("stop_on_error", True))
+    except Exception as exc:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "data": {"message": f"Invalid batch request: {exc}"},
+        }))
+        await websocket.close()
+        return
+
+    orch = agent.orchestrator
+    registry = orch.registry
+    scene = orch.get_scene(session_id)
+    orch.push_scene_history(session_id)
+
+    step_results: List[Dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+    aborted = False
+    total = len(steps)
+
+    for idx, step in enumerate(steps):
+        tool_name = step.get("tool_name", "")
+        arguments = step.get("arguments", {}) or {}
+        tool = registry.get(tool_name)
+        if tool is None:
+            failed += 1
+            entry = {
+                "index": idx,
+                "tool": tool_name,
+                "success": False,
+                "message": f"Tool '{tool_name}' not found",
+                "deltas": [],
+                "data": None,
+            }
+            step_results.append(entry)
+            await websocket.send_text(json.dumps({
+                "type": "step",
+                "data": {
+                    **entry,
+                    "progress": idx + 1,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                },
+            }))
+            if stop_on_error:
+                aborted = True
+                break
+            continue
+
+        try:
+            result = await tool.execute(scene, arguments)
+        except Exception as exc:
+            logger.exception("WS batch step %d (%s) failed", idx, tool_name)
+            failed += 1
+            entry = {
+                "index": idx,
+                "tool": tool_name,
+                "success": False,
+                "message": str(exc),
+                "deltas": [],
+                "data": None,
+            }
+            step_results.append(entry)
+            await websocket.send_text(json.dumps({
+                "type": "step",
+                "data": {
+                    **entry,
+                    "progress": idx + 1,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                },
+            }))
+            if stop_on_error:
+                aborted = True
+                break
+            continue
+
+        if result.success:
+            succeeded += 1
+        else:
+            failed += 1
+        entry = {
+            "index": idx,
+            "tool": tool_name,
+            "success": result.success,
+            "message": result.message,
+            "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+            "data": result.data,
+        }
+        step_results.append(entry)
+        if not result.success and stop_on_error:
+            aborted = True
+            await websocket.send_text(json.dumps({
+                "type": "step",
+                "data": {
+                    **entry,
+                    "progress": idx + 1,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                },
+            }))
+            break
+        await websocket.send_text(json.dumps({
+            "type": "step",
+            "data": {
+                **entry,
+                "progress": idx + 1,
+                "total": total,
+                "succeeded": succeeded,
+                "failed": failed,
+            },
+        }))
+
+    await websocket.send_text(json.dumps({
+        "type": "done",
+        "data": {
+            "session_id": session_id,
+            "total_steps": total,
+            "executed_steps": len(step_results),
+            "succeeded": succeeded,
+            "failed": failed,
+            "aborted": aborted,
+            "steps": step_results,
+            "scene": scene.to_dict(),
+        },
+    }))
+    await websocket.close()
