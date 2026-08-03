@@ -2,7 +2,7 @@
 
 Adds higher-order procedural geometry: noise-based terrain heightmaps,
 parameterized L-system plant/tree generation, a spiral staircase direct
-tool (mirroring the creative skill), and Voronoi-style object shattering.
+tool (mirroring the creative skill), and Voronoi object shattering.
 Each tool emits standard scene deltas for incremental frontend updates.
 """
 
@@ -375,6 +375,7 @@ class VoronoiShatterTool(ToolBase):
 
     name = "voronoi_shatter"
     description = "Shatter an object into N fragments by generating random Voronoi cell sites and creating smaller box fragments inside the source bounding box."
+    requires_approval = True  # Destructive: replaces one object with many fragments
 
     def schema(self) -> Dict[str, Any]:
         return _SHATTER_PARAMS
