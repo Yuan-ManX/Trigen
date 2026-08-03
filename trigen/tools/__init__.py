@@ -93,6 +93,21 @@ from trigen.tools.material_tools import (
     RandomizePaletteTool,
 )
 from trigen.tools.skill_tool import InvokeSkillTool
+from trigen.tools.scene_management_tools import (
+    AssignToGroupTool,
+    DeleteCameraTool,
+    ReorderLayerTool,
+    RenameGroupTool,
+    SelectAllTool,
+)
+from trigen.tools.advanced_editor_tools import (
+    ApplyMaterialBatchTool,
+    IsolateObjectTool,
+    ResetTransformTool,
+    SetClippingPlaneTool,
+    SetObjectLayerTool,
+    SetObjectPivotTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -126,6 +141,11 @@ __all__ = [
     "SetBackgroundTool",
     "SetFogTool",
     "ArrangeLayoutTool",
+    "AssignToGroupTool",
+    "RenameGroupTool",
+    "ReorderLayerTool",
+    "SelectAllTool",
+    "DeleteCameraTool",
     # Spatial manipulation & measurement
     "AlignObjectsTool",
     "DistributeObjectsTool",
@@ -190,4 +210,11 @@ __all__ = [
     "DispatchSubagentTool",
     # Creative skills
     "InvokeSkillTool",
+    # Advanced editor control (solo, presets, clipping, pivot, batch, layers)
+    "IsolateObjectTool",
+    "ResetTransformTool",
+    "SetClippingPlaneTool",
+    "SetObjectPivotTool",
+    "ApplyMaterialBatchTool",
+    "SetObjectLayerTool",
 ]
