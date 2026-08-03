@@ -475,7 +475,7 @@ export async function fetchPipelineTemplates(): Promise<PipelineTemplate[]> {
 
 /** Fetch the registered pipeline node types and their I/O port schemas.
  *  Drives the node palette and connection-type validation in the
- *  ComfyUI-style graph editor. */
+ *  node graph editor. */
 export async function fetchPipelineNodeTypes(): Promise<PipelineNodeTypesResponse> {
   const res = await fetch('/api/models/pipeline/node_types')
   if (!res.ok) throw new Error(`Failed to fetch pipeline node types: ${res.status}`)
