@@ -7,9 +7,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Film,
   Keyboard,
   MessageSquare,
+  MousePointerClick,
   Sparkles,
+  Tag,
   Wand2,
   Workflow,
   X,
@@ -18,7 +21,15 @@ import { useEffect, useState } from 'react'
 
 const STORAGE_KEY = 'trigen_onboarding_done'
 
-type StepId = 'chat' | 'templates' | 'tools' | 'pipeline' | 'shortcuts'
+type StepId =
+  | 'chat'
+  | 'templates'
+  | 'tools'
+  | 'pipeline'
+  | 'annotations'
+  | 'multi_select'
+  | 'timeline'
+  | 'shortcuts'
 
 interface TourStep {
   id: StepId
@@ -63,12 +74,36 @@ const STEPS: TourStep[] = [
     hint: 'Tip: drag from an output port onto an input port to wire two nodes; the graph maps 1:1 to the backend pipeline JSON.',
   },
   {
+    id: 'annotations',
+    icon: Tag,
+    accent: 'text-accent-emerald',
+    title: 'Pin annotations on objects',
+    body: 'In Edit mode, the AnnotationLayer renders pin markers and label bubbles you can attach to any object. Anchored annotations follow their object transform every frame, so notes stay glued as the scene animates. Ask the Agent "add an annotation on the sphere labeled Front Wheel" or use the add_annotation tool directly.',
+    hint: 'Tip: annotations are part of the Scene data, so they serialize into exports and undo/redo just like any other edit.',
+  },
+  {
+    id: 'multi_select',
+    icon: MousePointerClick,
+    accent: 'text-accent-purple',
+    title: 'Multi-select and rigid groups',
+    body: 'Shift-click objects in the viewport or Layers panel to build a multi-selection. Drag any one of them and the others move, rotate, and scale together as a rigid group (animated objects are skipped automatically). Ctrl/Cmd+A selects everything, Ctrl/Cmd+Shift+A deselects, and Ctrl/Cmd+G groups them permanently.',
+    hint: 'Tip: the primary selection (last clicked) is the one the Properties tab inspects.',
+  },
+  {
+    id: 'timeline',
+    icon: Film,
+    accent: 'text-rose-300',
+    title: 'Animate with the timeline',
+    body: 'The Timeline panel exposes per-keyframe tick marks on the scrubber, inline duration editing, per-row loop toggles, and an easing picker (linear / easeIn / easeOut / easeInOut) for keyframe animations. Press P to play/pause, Shift+P to stop, and scrub the timeline to scrub the animation directly.',
+    hint: 'Tip: press R to cycle render quality while scrubbing long animations to keep the viewport responsive.',
+  },
+  {
     id: 'shortcuts',
     icon: Keyboard,
     accent: 'text-amber-400',
     title: 'Move at the speed of thought',
-    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, and 1/2/3 switch between Move, Rotate, and Scale transforms.',
-    hint: 'Tip: press F to frame the camera on whatever you have selected.',
+    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, 1/2/3 switch between Move, Rotate, and Scale transforms, F frames the selection, A frames all, M toggles the minimap, and Ctrl/Cmd+K opens the Command Palette.',
+    hint: 'Tip: press F to frame the camera on whatever you have selected; press A to frame the whole scene.',
   },
 ]
 
