@@ -45,7 +45,7 @@ class SkillBase:
     icon: str = "sparkles"
 
     def schema(self) -> Dict[str, Any]:
-        """OpenAI-style parameter schema."""
+        """Function-calling parameter schema."""
         raise NotImplementedError
 
     def descriptor(self) -> SkillDescriptor:
@@ -672,7 +672,7 @@ class StudioLightingSkill(SkillBase):
 # ---------------------------------------------------------------------------
 
 class AtomSkill(SkillBase):
-    """Build a Bohr-style atom model: glowing nucleus + electron orbits."""
+    """Build a classical atom model: glowing nucleus + electron orbits."""
 
     name = "atom"
     description = "Generate an atom model with a glowing nucleus and three electron orbits at staggered angles, each carrying an electron."
