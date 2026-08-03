@@ -9,7 +9,7 @@ import type { Vec3 } from '../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 export type RenderQuality = 'low' | 'medium' | 'high'
-export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene'
+export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools'
 
 export interface ViewportCameraState {
   position: Vec3
@@ -32,6 +32,18 @@ export interface MeasurementOverlayState {
   token: number
 }
 
+/** Clipping plane descriptor. When enabled, the canvas clips the scene along
+ *  the given axis at the given position. Driven by the
+ *  editor_set_clipping_plane delta from set_clipping_plane tool execution. */
+export interface ClippingPlaneState {
+  enabled: boolean
+  axis: 'x' | 'y' | 'z'
+  position: number
+  invert: boolean
+  /** Monotonic token so repeated identical states still trigger a re-render. */
+  token: number
+}
+
 interface EditorState {
   transformMode: TransformMode
   gridSnapEnabled: boolean
@@ -46,6 +58,9 @@ interface EditorState {
   /** Active measurement overlay, or null when cleared. Set by the
    *  editor_measure delta from measure_distance tool execution. */
   measurement: MeasurementOverlayState | null
+  /** Active clipping plane, or null when disabled. Set by the
+   *  editor_set_clipping_plane delta from set_clipping_plane execution. */
+  clippingPlane: ClippingPlaneState | null
 
   setTransformMode: (m: TransformMode) => void
   setGridSnap: (enabled: boolean, increment?: number) => void
@@ -55,6 +70,7 @@ interface EditorState {
   requestCapture: (filename?: string) => void
   setMeasurement: (m: Omit<MeasurementOverlayState, 'token'> | null) => void
   clearMeasurement: () => void
+  setClippingPlane: (cp: Omit<ClippingPlaneState, 'token'> | null) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -67,6 +83,7 @@ export const useEditor = create<EditorState>((set) => ({
   captureCounter: 0,
   captureFilename: 'viewport',
   measurement: null,
+  clippingPlane: null,
 
   setTransformMode: (m) => set({ transformMode: m }),
   setGridSnap: (enabled, increment) =>
@@ -92,4 +109,10 @@ export const useEditor = create<EditorState>((set) => ({
         : null,
     })),
   clearMeasurement: () => set({ measurement: null }),
+  setClippingPlane: (cp) =>
+    set((state) => ({
+      clippingPlane: cp
+        ? { ...cp, token: (state.clippingPlane?.token ?? 0) + 1 }
+        : null,
+    })),
 }))
