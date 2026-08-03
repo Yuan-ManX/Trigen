@@ -3,10 +3,12 @@
 import { create } from 'zustand'
 import {
   ChatSocket,
+  fetchAgentPlan,
   getOrCreateSessionId,
   type SocketStatus,
+  type TokenUsage,
 } from '../api/client'
-import type { SceneData, ServerEvent, Vec3 } from '../types'
+import type { PlanStep, SceneData, ServerEvent, Vec3 } from '../types'
 import { useEditor, type PanelTab, type RenderQuality, type TransformMode } from './useEditor'
 import { usePlayback } from './usePlayback'
 import { useScene } from './useScene'
@@ -43,6 +45,9 @@ export interface ChatMessage {
   error?: string
   toolCalls?: ToolCallRecord[]
   thinking?: ThinkingTrace[]
+  /** Live execution-plan roadmap (sub-task checklist). Populated by the
+   *  `plan` event and updated in place by subsequent `plan_update` events. */
+  planSteps?: PlanStep[]
 }
 
 /** A saved conversation in history */
@@ -54,6 +59,16 @@ export interface Conversation {
   createdAt: number
   updatedAt: number
   pinned?: boolean
+}
+
+/** A proactive next-action suggestion produced by the Agent after a turn.
+ *  Scene-aware: derived from the current scene state on the backend. */
+export interface Suggestion {
+  name: string
+  description: string
+  skill_or_tool: string
+  arguments: Record<string, unknown>
+  rationale: string
 }
 
 const HISTORY_KEY = 'trigen_chat_history'
@@ -68,6 +83,23 @@ interface ChatState {
   conversations: Conversation[]
   activeConversationId: string | null
   showHistory: boolean
+  /** Proactive next-action suggestions produced by the Agent at the end of
+   *  the most recent turn. Cleared when the user sends a new message. */
+  suggestions: Suggestion[]
+  /** When true, the next send() goes through POST /api/agent/plan first and
+   *  surfaces a confirmation modal if any destructive step is detected. */
+  confirmDestructive: boolean
+  /** True while a /api/agent/plan preview is in-flight for the current send. */
+  planning: boolean
+  /** Pending destructive turn awaiting user confirmation. The modal is open
+   *  whenever this is non-null. */
+  pendingDestructive: {
+    text: string
+    reasoning?: string
+    steps: Array<{ name: string; arguments: Record<string, unknown> }>
+  } | null
+  /** Token usage reported by the most recent DONE event (cumulative per turn). */
+  lastTokenUsage: TokenUsage | null
 
   connect: () => void
   disconnect: () => void
@@ -83,6 +115,9 @@ interface ChatState {
   deleteConversation: (id: string) => void
   togglePin: (id: string) => void
   renameConversation: (id: string, title: string) => void
+  setConfirmDestructive: (enabled: boolean) => void
+  confirmPendingDestructive: () => void
+  cancelPendingDestructive: () => void
 }
 
 /** Module-level singleton socket, owned by the store */
@@ -112,6 +147,11 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
       const clear = payload.clear !== false
       if (clear) scene.clearSelection()
       ids.forEach((id) => scene.select(id, true))
+      break
+    }
+    case 'editor_reorder_layer': {
+      const ordered = Array.isArray(payload.ordered_ids) ? (payload.ordered_ids as string[]) : []
+      if (ordered.length) scene.reorderObjectsById(ordered)
       break
     }
     case 'editor_focus':
@@ -164,6 +204,15 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
     }
     case 'editor_set_render_quality': {
       editor.setRenderQuality(payload.quality as RenderQuality)
+      break
+    }
+    case 'editor_set_clipping_plane': {
+      editor.setClippingPlane({
+        enabled: Boolean(payload.enabled),
+        axis: (payload.axis as 'x' | 'y' | 'z') ?? 'y',
+        position: Number(payload.position ?? 0),
+        invert: Boolean(payload.invert ?? false),
+      })
       break
     }
     case 'editor_measure': {
@@ -283,6 +332,60 @@ export const useChat = create<ChatState>((set, get) => {
         })
         break
       }
+      case 'plan': {
+        // Store the roadmap on the streaming message so the checklist can
+        // render immediately and later plan_update events can mutate it.
+        const steps: PlanStep[] = ev.data.steps.map((s) => ({
+          id: s.id,
+          tool: s.tool,
+          description: s.description,
+          arguments: s.arguments,
+          status: (s.status as PlanStep['status']) ?? 'pending',
+        }))
+        set((state) => {
+          const msgs = [...state.messages]
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'assistant' && msgs[i].streaming) {
+              msgs[i] = { ...msgs[i], planSteps: steps }
+              return { messages: msgs }
+            }
+          }
+          msgs.push({
+            id: genId(),
+            role: 'assistant',
+            content: '',
+            streaming: true,
+            planSteps: steps,
+          })
+          return { messages: msgs }
+        })
+        break
+      }
+      case 'plan_update': {
+        const stepId = ev.data.id
+        const status = ev.data.status as PlanStep['status']
+        const message = ev.data.message
+        set((state) => {
+          const msgs = [...state.messages]
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i]
+            if (m.role !== 'assistant' || !m.planSteps) continue
+            const idx = m.planSteps.findIndex((s) => s.id === stepId)
+            if (idx >= 0) {
+              const newSteps = [...m.planSteps]
+              newSteps[idx] = {
+                ...newSteps[idx],
+                status,
+                message: message ?? newSteps[idx].message,
+              }
+              msgs[i] = { ...m, planSteps: newSteps }
+              return { messages: msgs }
+            }
+          }
+          return { messages: msgs }
+        })
+        break
+      }
       case 'text_delta': {
         // Append to the latest streaming assistant message; create one if none exists
         set((state) => {
@@ -390,6 +493,11 @@ export const useChat = create<ChatState>((set, get) => {
       }
       case 'done': {
         // Finalize the latest streaming assistant message
+        const doneSuggestions = Array.isArray(ev.data.suggestions)
+          ? (ev.data.suggestions as Suggestion[])
+          : []
+        // Capture token usage (top-level field with stats.token_usage fallback)
+        const tokenUsage = ev.data.token_usage ?? ev.data.stats?.token_usage ?? null
         set((state) => {
           const msgs = [...state.messages]
           for (let i = msgs.length - 1; i >= 0; i--) {
@@ -402,7 +510,12 @@ export const useChat = create<ChatState>((set, get) => {
               break
             }
           }
-          return { messages: msgs, isResponding: false }
+          return {
+            messages: msgs,
+            isResponding: false,
+            suggestions: doneSuggestions,
+            lastTokenUsage: tokenUsage,
+          }
         })
         // Commit the final scene only when the turn mutated the backend scene.
         // Editor-only turns (undo/redo/play/pause/viewport) leave the backend
@@ -455,6 +568,47 @@ export const useChat = create<ChatState>((set, get) => {
     }
   }
 
+  /** Push the user message + reserve a streaming assistant slot and ship the
+   *  WebSocket message. This is the "actual send" that the plan-aware wrapper
+   *  and the confirmation modal both eventually call. Defined as a closure so
+   *  it is not exposed on the public store API. */
+  const _sendNow = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    const sessionId = get().sessionId
+
+    // Establish connection first (if not connected)
+    const s = ensureSocket({ onStatus, onEvent })
+    if (s.status !== 'connected') {
+      s.connect()
+    }
+
+    // Push the user message + reserve a streaming assistant message.
+    // Clear stale suggestions so they don't outlive the previous turn.
+    set((state) => ({
+      messages: [
+        ...state.messages,
+        { id: genId(), role: 'user', content: trimmed },
+        {
+          id: genId(),
+          role: 'assistant',
+          content: '',
+          streaming: true,
+          toolCalls: [],
+        },
+      ],
+      isResponding: true,
+      suggestions: [],
+      pendingDestructive: null,
+    }))
+
+    // Capture the scene snapshot before the Agent responds, for undo history
+    sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
+    turnHadSceneMutation = false
+
+    s.send({ type: 'message', data: { message: trimmed, session_id: sessionId, model: get().model } })
+  }
+
   return {
     messages: [],
     status: 'idle',
@@ -464,6 +618,11 @@ export const useChat = create<ChatState>((set, get) => {
     conversations: loadHistory(),
     activeConversationId: null,
     showHistory: false,
+    suggestions: [],
+    confirmDestructive: true,
+    planning: false,
+    pendingDestructive: null,
+    lastTokenUsage: null,
 
     connect: () => {
       const s = ensureSocket({ onStatus, onEvent })
@@ -481,36 +640,49 @@ export const useChat = create<ChatState>((set, get) => {
     send: (text) => {
       const trimmed = text.trim()
       if (!trimmed) return
-      const sessionId = get().sessionId
-
-      // Establish connection first (if not connected)
-      const s = ensureSocket({ onStatus, onEvent })
-      if (s.status !== 'connected') {
-        s.connect()
+      // When confirmation is disabled, just send.
+      if (!get().confirmDestructive) {
+        _sendNow(trimmed)
+        return
       }
-
-      // Push the user message + reserve a streaming assistant message
-      set((state) => ({
-        messages: [
-          ...state.messages,
-          { id: genId(), role: 'user', content: trimmed },
-          {
-            id: genId(),
-            role: 'assistant',
-            content: '',
-            streaming: true,
-            toolCalls: [],
-          },
-        ],
-        isResponding: true,
-      }))
-
-      // Capture the scene snapshot before the Agent responds, for undo history
-      sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
-      turnHadSceneMutation = false
-
-      s.send({ type: 'message', data: { message: trimmed, session_id: sessionId, model: get().model } })
+      // Otherwise preview via POST /api/agent/plan first. If the plan flags
+      // any destructive step, surface a confirmation modal instead of sending.
+      set({ planning: true })
+      fetchAgentPlan(trimmed, get().sessionId, get().model)
+        .then((plan) => {
+          set({ planning: false })
+          const destructive = Array.isArray(plan.destructive_steps) ? plan.destructive_steps : []
+          if (plan.has_destructive_steps && destructive.length > 0) {
+            set({
+              pendingDestructive: {
+                text: trimmed,
+                reasoning: plan.reasoning,
+                steps: destructive.map((s) => ({
+                  name: s.name,
+                  arguments: s.arguments ?? {},
+                })),
+              },
+            })
+          } else {
+            _sendNow(trimmed)
+          }
+        })
+        .catch(() => {
+          set({ planning: false })
+          // On plan failure, proceed with the message (don't block the user).
+          _sendNow(trimmed)
+        })
     },
+
+    setConfirmDestructive: (enabled) => set({ confirmDestructive: enabled }),
+
+    confirmPendingDestructive: () => {
+      const pending = get().pendingDestructive
+      if (!pending) return
+      _sendNow(pending.text)
+    },
+
+    cancelPendingDestructive: () => set({ pendingDestructive: null }),
 
     retry: () => {
       const state = get()
