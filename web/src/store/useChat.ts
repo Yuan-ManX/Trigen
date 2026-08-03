@@ -48,6 +48,22 @@ export interface ChatMessage {
   /** Live execution-plan roadmap (sub-task checklist). Populated by the
    *  `plan` event and updated in place by subsequent `plan_update` events. */
   planSteps?: PlanStep[]
+  /** Mid-turn plan refinements emitted when the agent revises its plan
+   *  (alternative-tool proposals after a failure, budget-driven pruning).
+   *  Advisory only — the LLM still decides whether to follow the hint. */
+  planRefinements?: PlanRefinement[]
+}
+
+/** An advisory plan-refinement notice. Rendered as a subtle annotation on
+ *  the plan checklist so the user can see the agent considered switching
+ *  tools or pruning its toolset mid-turn. */
+export interface PlanRefinement {
+  reason: 'tool_failure_alternative_suggestion' | 'budget_prune' | string
+  iteration?: number
+  proposals?: { failed: string; alternative: string }[]
+  active_categories?: string[]
+  tool_subset_size?: number
+  budget_remaining?: number
 }
 
 /** A saved conversation in history */
@@ -213,6 +229,36 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
         position: Number(payload.position ?? 0),
         invert: Boolean(payload.invert ?? false),
       })
+      break
+    }
+    case 'editor_set_minimap': {
+      editor.setMinimapEnabled(Boolean(payload.enabled))
+      break
+    }
+    case 'editor_set_shadows': {
+      editor.setShadowsEnabled(Boolean(payload.enabled))
+      break
+    }
+    case 'editor_set_projection': {
+      const mode = payload.mode as 'perspective' | 'orthographic'
+      if (mode === 'perspective' || mode === 'orthographic') {
+        editor.setProjectionMode(mode)
+      }
+      break
+    }
+    case 'editor_set_mode': {
+      const mode = payload.mode as 'edit' | 'run'
+      if (mode === 'edit' || mode === 'run') {
+        editor.setEditorMode(mode)
+      }
+      break
+    }
+    case 'editor_save_scene_slot':
+    case 'editor_load_scene_slot': {
+      // Slot persistence happens backend-side; no frontend store mutation
+      // needed beyond reflecting the action in the chat surface. The
+      // backend already returns a scene snapshot via the SCENE_UPDATE
+      // deltas when load_scene_slot replaces the scene.
       break
     }
     case 'editor_measure': {
@@ -382,6 +428,38 @@ export const useChat = create<ChatState>((set, get) => {
               return { messages: msgs }
             }
           }
+          return { messages: msgs }
+        })
+        break
+      }
+      case 'plan_refine': {
+        // Advisory refinement notice — append to the streaming message's
+        // planRefinements list so the UI can surface the agent's mid-turn
+        // reasoning (alternative-tool proposals, budget pruning).
+        const refinement: PlanRefinement = {
+          reason: ev.data.reason,
+          iteration: ev.data.iteration,
+          proposals: ev.data.proposals,
+          active_categories: ev.data.active_categories,
+          tool_subset_size: ev.data.tool_subset_size,
+          budget_remaining: ev.data.budget_remaining,
+        }
+        set((state) => {
+          const msgs = [...state.messages]
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'assistant' && msgs[i].streaming) {
+              const prev = msgs[i].planRefinements ?? []
+              msgs[i] = { ...msgs[i], planRefinements: [...prev, refinement] }
+              return { messages: msgs }
+            }
+          }
+          msgs.push({
+            id: genId(),
+            role: 'assistant',
+            content: '',
+            streaming: true,
+            planRefinements: [refinement],
+          })
           return { messages: msgs }
         })
         break
