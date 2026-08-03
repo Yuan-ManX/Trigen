@@ -121,7 +121,7 @@ from trigen.tools.scene_management_tools import (
     RenameGroupTool,
     SelectAllTool,
 )
-from trigen.tools.img2threejs_tool import ImageToThreeJSTool
+from trigen.tools.img2scene_tool import ImageToSceneTool
 from trigen.tools.scene_analyzer import SceneAnalyzerTool
 from trigen.tools.code_exporter import CodeExporterTool
 from trigen.tools.advanced_editor_tools import (
@@ -232,7 +232,6 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "generate_music": "multimodal",
     "synthesize_speech": "multimodal",
     "transcribe_audio": "multimodal",
-    "image_to_threejs": "multimodal",
     "image_to_3d": "multimodal",
     # export
     "export_scene": "export",
@@ -388,7 +387,7 @@ class AgentOrchestrator:
         registry.register(CodeExporterTool(workspace_dir=self.config.workspace_dir))
         # Multimodal reconstruction — receives the registry so the optional
         # refine step can invoke generate_3d_asset (Meshy/Tripo) internally.
-        registry.register(ImageToThreeJSTool(self.config.llm, registry=registry))
+        registry.register(ImageToSceneTool(self.config.llm, registry=registry))
         # Scene analysis
         registry.register(SceneAnalyzerTool())
         # Sub-agent dispatch — receives the registry so mutating mode can
