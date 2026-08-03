@@ -75,7 +75,7 @@ function groupByProvider(models: ModelEntry[]): Record<string, ModelEntry[]> {
   return groups
 }
 
-/** Model selector dropdown (ChatGPT-style, categorized, with search) */
+/** Model selector dropdown (categorized, with search) */
 function ModelSelector() {
   const model = useChat((s) => s.model)
   const setModel = useChat((s) => s.setModel)
