@@ -86,6 +86,41 @@ export async function invokeSkill(
   return res.json() as Promise<InvokeSkillResponse>
 }
 
+/** Batch-execute multiple tools sequentially against the same scene. */
+export interface BatchStepResult {
+  index: number
+  tool: string
+  success: boolean
+  message: string
+  deltas: Record<string, unknown>[]
+  data: Record<string, unknown> | null
+}
+
+export interface BatchToolResponse {
+  session_id: string
+  total_steps: number
+  executed_steps: number
+  succeeded: number
+  failed: number
+  aborted: boolean
+  steps: BatchStepResult[]
+  scene: SceneData
+}
+
+export async function batchExecuteTools(
+  steps: Array<{ tool_name: string; arguments: Record<string, unknown> }>,
+  sessionId: string = 'default',
+  stopOnError: boolean = true,
+): Promise<BatchToolResponse> {
+  const res = await fetch('/api/tools/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps, session_id: sessionId, stop_on_error: stopOnError }),
+  })
+  if (!res.ok) throw new Error(`Batch execution failed: ${res.status}`)
+  return res.json() as Promise<BatchToolResponse>
+}
+
 /** Fetch the preset catalog (geometry / material / light) */
 export async function fetchPresets(): Promise<PresetsResponse> {
   const res = await fetch('/api/presets')
