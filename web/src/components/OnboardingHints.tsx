@@ -1,0 +1,292 @@
+// First-visit coachmark overlay: a short welcome tour that walks new users
+// through the chat panel, scene templates, tools catalog, and keyboard
+// shortcuts. Dismissal is persisted in localStorage so it only shows once
+// (unless the user explicitly reopens it from the toolbar).
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Keyboard,
+  MessageSquare,
+  Sparkles,
+  Wand2,
+  Workflow,
+  X,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
+
+const STORAGE_KEY = 'trigen_onboarding_done'
+
+type StepId = 'chat' | 'templates' | 'tools' | 'pipeline' | 'shortcuts'
+
+interface TourStep {
+  id: StepId
+  icon: typeof MessageSquare
+  accent: string
+  title: string
+  body: string
+  hint: string
+}
+
+const STEPS: TourStep[] = [
+  {
+    id: 'chat',
+    icon: MessageSquare,
+    accent: 'text-accent-cyan',
+    title: 'Describe it, build it',
+    body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene.',
+    hint: 'Tip: mention materials, lighting, and counts in one sentence for the richest results.',
+  },
+  {
+    id: 'templates',
+    icon: Sparkles,
+    accent: 'text-accent-purple',
+    title: 'Start from a template',
+    body: 'Scene Templates drop in pre-built compositions — colonnade, forest, crystal garden, DNA helix, spiral galaxy, studio lighting, spiral staircase — so you can iterate on a populated scene instead of an empty grid.',
+    hint: 'Tip: templates run through the same skill pipeline as chat, so every object stays editable.',
+  },
+  {
+    id: 'tools',
+    icon: Wand2,
+    accent: 'text-accent-emerald',
+    title: 'Tools and skills catalog',
+    body: 'Browse the Skills tab in the right panel for one-click multi-step compositions, and use the Properties / Layers / Outliner tabs to inspect and tweak individual objects, materials, and transforms directly.',
+    hint: 'Tip: the export_code tool can ship the current scene as Three.js, React+R3F, or a standalone HTML file.',
+  },
+  {
+    id: 'pipeline',
+    icon: Workflow,
+    accent: 'text-accent-cyan',
+    title: 'Compose pipelines visually',
+    body: 'Open Settings → Pipeline Node Graph for a visual canvas where you wire LLM, image, 3D, video, and audio nodes together with bezier edges. Load a built-in template or build your own, then Run to stream per-node status back in real time.',
+    hint: 'Tip: drag from an output port onto an input port to wire two nodes; the graph maps 1:1 to the backend pipeline JSON.',
+  },
+  {
+    id: 'shortcuts',
+    icon: Keyboard,
+    accent: 'text-amber-400',
+    title: 'Move at the speed of thought',
+    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, and 1/2/3 switch between Move, Rotate, and Scale transforms.',
+    hint: 'Tip: press F to frame the camera on whatever you have selected.',
+  },
+]
+
+interface OnboardingHintsProps {
+  /** Force the overlay open regardless of the stored dismissal flag. */
+  forceOpen?: boolean
+  /** Called when the user finishes or dismisses the tour. */
+  onClose?: () => void
+}
+
+export function OnboardingHints({ forceOpen = false, onClose }: OnboardingHintsProps) {
+  const [open, setOpen] = useState(false)
+  const [index, setIndex] = useState(0)
+
+  // First-visit detection: show only when nothing is persisted yet.
+  useEffect(() => {
+    if (forceOpen) {
+      setOpen(true)
+      setIndex(0)
+      return
+    }
+    try {
+      if (localStorage.getItem(STORAGE_KEY) === '1') return
+    } catch {
+      // localStorage may be unavailable (private mode); skip auto-show.
+      return
+    }
+    setOpen(true)
+    setIndex(0)
+  }, [forceOpen])
+
+  // Lock body scroll while the tour is active.
+  useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
+  const dismiss = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, '1')
+    } catch {
+      // Ignore write failures; the in-memory state still closes the overlay.
+    }
+    setOpen(false)
+    onClose?.()
+  }
+
+  const next = () => {
+    if (index < STEPS.length - 1) {
+      setIndex((i) => i + 1)
+    } else {
+      dismiss()
+    }
+  }
+
+  const prev = () => {
+    if (index > 0) setIndex((i) => i - 1)
+  }
+
+  // Escape to dismiss, arrow keys to navigate.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        dismiss()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        next()
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        prev()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, index])
+
+  const step = STEPS[index]
+  const StepIcon = step.icon
+  const isLast = index === STEPS.length - 1
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={dismiss}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Welcome to Trigen"
+        >
+          <motion.div
+            initial={{ scale: 0.94, opacity: 0, y: 16 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.94, opacity: 0, y: 16 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-[460px] max-w-full rounded-2xl border border-border bg-bg-panel shadow-2xl overflow-hidden"
+          >
+            {/* Accent banner */}
+            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-br from-accent-cyan/15 via-accent-purple/10 to-transparent pointer-events-none" />
+
+            {/* Close button */}
+            <button
+              onClick={dismiss}
+              aria-label="Dismiss tour"
+              className="absolute top-3 right-3 flex items-center justify-center w-8 h-8 rounded-md text-fg-muted hover:text-fg-primary hover:bg-bg-hover transition-colors z-10"
+            >
+              <X size={16} />
+            </button>
+
+            {/* Step content */}
+            <div className="relative px-7 pt-7 pb-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center w-11 h-11 rounded-xl border border-border bg-bg-elevated shadow-inner">
+                  <StepIcon size={20} className={step.accent} />
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-fg-muted font-semibold">
+                    Welcome · Step {index + 1} of {STEPS.length}
+                  </div>
+                  <h2 className="text-base font-semibold text-fg-primary leading-tight">
+                    {step.title}
+                  </h2>
+                </div>
+              </div>
+
+              <p className="text-[12.5px] leading-relaxed text-fg-secondary mb-3">
+                {step.body}
+              </p>
+
+              <div className="rounded-lg border border-border-subtle bg-bg-base/60 px-3 py-2">
+                <p className="text-[11px] text-fg-muted leading-relaxed">
+                  <span className="text-fg-secondary font-medium">Hint: </span>
+                  {step.hint}
+                </p>
+              </div>
+            </div>
+
+            {/* Progress dots */}
+            <div className="flex items-center justify-center gap-1.5 pb-3">
+              {STEPS.map((s, i) => (
+                <button
+                  key={s.id}
+                  onClick={() => setIndex(i)}
+                  aria-label={`Go to step ${i + 1}`}
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === index
+                      ? 'w-6 bg-accent-cyan'
+                      : 'w-1.5 bg-border hover:bg-fg-muted'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Footer nav */}
+            <footer className="flex items-center justify-between px-7 py-4 border-t border-border-subtle bg-bg-base/40">
+              <button
+                onClick={prev}
+                disabled={index === 0}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-fg-muted hover:text-fg-primary disabled:opacity-30 disabled:hover:text-fg-muted transition-colors"
+              >
+                <ArrowLeft size={13} />
+                Back
+              </button>
+
+              <button
+                onClick={dismiss}
+                className="text-[11px] text-fg-muted hover:text-fg-secondary transition-colors"
+              >
+                Skip tour
+              </button>
+
+              <button
+                onClick={next}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30 text-[11px] font-semibold hover:bg-accent-cyan/25 transition-colors"
+              >
+                {isLast ? (
+                  <>
+                    <Check size={13} />
+                    Got it
+                  </>
+                ) : (
+                  <>
+                    Next
+                    <ArrowRight size={13} />
+                  </>
+                )}
+              </button>
+            </footer>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+/** Hook for toolbars that want to manually re-open the tour. */
+export function useReopenOnboarding() {
+  const [forceOpen, setForceOpen] = useState(false)
+  const reopen = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
+    setForceOpen(true)
+  }
+  const handleClose = () => setForceOpen(false)
+  return { forceOpen, reopen, handleClose }
+}
