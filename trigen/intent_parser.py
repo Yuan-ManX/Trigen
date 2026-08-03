@@ -759,16 +759,16 @@ def parse_message(
 
     # 20. Image-to-3D reconstruction
     # Triggered by keywords like "reconstruct", "image to 3d", "重建", "图像转3D"
-    img2threejs_triggers = [
-        "reconstruct", "image to 3d", "image-to-3d", "img2threejs",
+    image_to_3d_triggers = [
+        "reconstruct", "image to 3d", "image-to-3d",
         "from image", "convert image", "image to mesh", "photo to 3d",
         "重建", "图像转3d", "图像转3D", "图片转3d", "图片转3D",
         "从图片", "图片生成", "图像生成",
     ]
-    if any(k in msg_lower for k in img2threejs_triggers):
+    if any(k in msg_lower for k in image_to_3d_triggers):
         # Extract a prompt description from the message by removing trigger words
         prompt_text = msg
-        for trig in img2threejs_triggers:
+        for trig in image_to_3d_triggers:
             prompt_text = prompt_text.replace(trig, "")
         prompt_text = prompt_text.strip(" :,.-")
         # Determine whether to clear the scene
