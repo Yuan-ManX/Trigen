@@ -11,6 +11,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: 'Global',
     shortcuts: [
+      { keys: 'Ctrl/Cmd + K', description: 'Open Command Palette' },
       { keys: 'Ctrl/Cmd + Z', description: 'Undo last action' },
       { keys: 'Ctrl/Cmd + Shift + Z', description: 'Redo undone action' },
       { keys: 'Ctrl/Cmd + Y', description: 'Redo (alternative)' },
