@@ -44,6 +44,15 @@ export interface ClippingPlaneState {
   token: number
 }
 
+/** Viewport projection mode — perspective (depth-foreshortened) or
+ *  orthographic (parallel, CAD-style). Driven by the editor_set_projection
+ *  delta from set_viewport_projection tool execution. */
+export type ViewportProjection = 'perspective' | 'orthographic'
+
+/** Editor authoring mode — edit (gizmos, snapping) or run (playback preview).
+ *  Driven by the editor_set_mode delta from set_editor_mode tool execution. */
+export type EditorMode = 'edit' | 'run'
+
 interface EditorState {
   transformMode: TransformMode
   gridSnapEnabled: boolean
@@ -61,6 +70,18 @@ interface EditorState {
   /** Active clipping plane, or null when disabled. Set by the
    *  editor_set_clipping_plane delta from set_clipping_plane execution. */
   clippingPlane: ClippingPlaneState | null
+  /** Whether the viewport minimap overlay is visible. Driven by the
+   *  editor_set_minimap delta from set_minimap tool execution. */
+  minimapEnabled: boolean
+  /** Whether real-time shadows are rendered in the viewport. Driven by the
+   *  editor_set_shadows delta from set_shadows tool execution. */
+  shadowsEnabled: boolean
+  /** Viewport projection mode. Driven by the editor_set_projection delta
+   *  from set_viewport_projection tool execution. */
+  projectionMode: ViewportProjection
+  /** Editor authoring mode (edit vs run/preview). Driven by the
+   *  editor_set_mode delta from set_editor_mode tool execution. */
+  editorMode: EditorMode
 
   setTransformMode: (m: TransformMode) => void
   setGridSnap: (enabled: boolean, increment?: number) => void
@@ -71,6 +92,10 @@ interface EditorState {
   setMeasurement: (m: Omit<MeasurementOverlayState, 'token'> | null) => void
   clearMeasurement: () => void
   setClippingPlane: (cp: Omit<ClippingPlaneState, 'token'> | null) => void
+  setMinimapEnabled: (enabled: boolean) => void
+  setShadowsEnabled: (enabled: boolean) => void
+  setProjectionMode: (mode: ViewportProjection) => void
+  setEditorMode: (mode: EditorMode) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -84,6 +109,10 @@ export const useEditor = create<EditorState>((set) => ({
   captureFilename: 'viewport',
   measurement: null,
   clippingPlane: null,
+  minimapEnabled: true,
+  shadowsEnabled: true,
+  projectionMode: 'perspective',
+  editorMode: 'edit',
 
   setTransformMode: (m) => set({ transformMode: m }),
   setGridSnap: (enabled, increment) =>
@@ -115,4 +144,8 @@ export const useEditor = create<EditorState>((set) => ({
         ? { ...cp, token: (state.clippingPlane?.token ?? 0) + 1 }
         : null,
     })),
+  setMinimapEnabled: (enabled) => set({ minimapEnabled: enabled }),
+  setShadowsEnabled: (enabled) => set({ shadowsEnabled: enabled }),
+  setProjectionMode: (mode) => set({ projectionMode: mode }),
+  setEditorMode: (mode) => set({ editorMode: mode }),
 }))
