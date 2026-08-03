@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import {
   EMPTY_SCENE,
+  type Annotation,
   type CameraObject,
   type FogConfig,
   type Geometry,
@@ -114,6 +115,15 @@ interface SceneState {
   setCameras: (cameras: CameraObject[]) => void
   /** Scene-level: replace the light list (records history) */
   setLights: (lights: LightObject[]) => void
+
+  /** Scene-level: add a new on-canvas annotation (records history) */
+  addAnnotation: (annotation: Annotation) => void
+  /** Scene-level: update an existing annotation by id (records history) */
+  updateAnnotation: (id: string, partial: Partial<Annotation>) => void
+  /** Scene-level: remove an annotation by id (records history) */
+  removeAnnotation: (id: string) => void
+  /** Scene-level: replace the entire annotation list (records history) */
+  setAnnotations: (annotations: Annotation[]) => void
 
   /** Undo the last action */
   undo: () => void
@@ -580,6 +590,45 @@ export const useScene = create<SceneState>((set, get) => ({
       past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
       future: [],
       scene: { ...state.scene, lights },
+    })),
+
+  addAnnotation: (annotation) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        annotations: [...(state.scene.annotations ?? []), annotation],
+      },
+    })),
+
+  updateAnnotation: (id, partial) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        annotations: (state.scene.annotations ?? []).map((a) =>
+          a.id === id ? { ...a, ...partial } : a,
+        ),
+      },
+    })),
+
+  removeAnnotation: (id) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        annotations: (state.scene.annotations ?? []).filter((a) => a.id !== id),
+      },
+    })),
+
+  setAnnotations: (annotations) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: { ...state.scene, annotations },
     })),
 
   undo: () =>
