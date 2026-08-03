@@ -100,7 +100,7 @@ _FOCUS_PANEL_PARAMS = {
     "properties": {
         "panel": {
             "type": "string",
-            "enum": ["layers", "outliner", "timeline", "properties", "scene"],
+            "enum": ["layers", "outliner", "timeline", "properties", "scene", "skills"],
             "description": "Right panel tab to focus",
         },
     },
@@ -310,14 +310,14 @@ class FocusPanelTool(ToolBase):
     """Switch the right panel to a specific tab."""
 
     name = "focus_panel"
-    description = "Switch the right panel to a specific tab (layers, outliner, timeline, properties, scene)."
+    description = "Switch the right panel to a specific tab (layers, outliner, timeline, properties, scene, skills)."
 
     def schema(self) -> Dict[str, Any]:
         return _FOCUS_PANEL_PARAMS
 
     async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
         panel = str(arguments.get("panel", "")).lower()
-        valid = {"layers", "outliner", "timeline", "properties", "scene"}
+        valid = {"layers", "outliner", "timeline", "properties", "scene", "skills"}
         if panel not in valid:
             return ToolResult(success=False, message=f"panel must be one of {sorted(valid)}")
         return ToolResult(
