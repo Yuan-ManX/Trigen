@@ -2,9 +2,8 @@
 
 Saves and restores conversation memory across sessions so the Agent
 retains context when the server restarts or the user returns later.
-This follows the Suna project's pattern of durable agent state: each
-session's messages, scene snapshot, and model selection are persisted
-to a JSON file under the workspace directory.
+Each session's messages, scene snapshot, and model selection are
+persisted to a JSON file under the workspace directory.
 
 The persistence layer is intentionally simple — one file per session —
 so it works without a database and remains easy to inspect or migrate.
