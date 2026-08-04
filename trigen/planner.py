@@ -329,9 +329,19 @@ _PARALLEL_SAFE_TOOLS = {
     "set_object_layer",
     "set_clipping_plane",
     "apply_material_batch",
+    # Viewport & editor-state control — emit editor deltas only, no scene
+    # mutation, so they can run alongside other tools safely.
+    "set_minimap",
+    "set_shadows",
+    "set_viewport_projection",
+    "set_editor_mode",
+    "save_scene_slot",
     # isolate_object is intentionally excluded: it mutates the visibility of
     # every object in the scene, so batching it with another visibility tweak
     # would produce non-deterministic ordering.
+    # load_scene_slot is intentionally excluded: it can replace the entire
+    # scene (clear_scene=true), so running it in parallel with anything else
+    # would race on scene.objects / lights / cameras.
 }
 
 
