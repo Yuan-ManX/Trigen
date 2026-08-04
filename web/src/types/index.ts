@@ -20,11 +20,17 @@ export type GeometryType =
   | 'ring'
   | 'capsule'
   | 'tube'
+  | 'lathe'
+  | 'extrude'
+  | 'text'
+  | 'spline'
 
 /** Geometry parameters (different types have different fields) */
+export type GeometryParams = Record<string, number | number[] | number[][] | string | boolean>
+
 export interface Geometry {
   type: GeometryType
-  params: Record<string, number | number[]>
+  params: GeometryParams
 }
 
 /** PBR material */
@@ -38,6 +44,24 @@ export interface Material {
   emissive_intensity: number
   flat_shading?: boolean
   side?: 'front' | 'back' | 'double'
+  // Extended PBR (MeshPhysicalMaterial). All optional with zero defaults
+  // so older scenes omit them without breaking the renderer.
+  clearcoat?: number
+  clearcoat_roughness?: number
+  transmission?: number
+  thickness?: number
+  ior?: number
+  iridescence?: number
+  iridescence_ior?: number
+  iridescence_thickness_min?: number
+  iridescence_thickness_max?: number
+  sheen?: number
+  sheen_color?: string
+  sheen_roughness?: number
+  specular_intensity?: number
+  specular_color?: string
+  attenuation_color?: string
+  attenuation_distance?: number
 }
 
 /** Object-space transform */
@@ -151,6 +175,27 @@ export interface FogConfig {
   far: number
 }
 
+/** On-canvas annotation. Anchored either to a world position or to a
+ *  specific object id (in which case the renderer tracks the object
+ *  transform every frame). */
+export interface Annotation {
+  /** Stable identifier; matches backend Annotation.id. */
+  id: string
+  /** Optional anchor object id. When set, the label follows the object's
+   *  world-space position (its transform.position plus an offset). */
+  object_id?: string | null
+  /** World-space anchor position. Used directly when object_id is null. */
+  position: Vec3
+  /** Text body shown in the viewport bubble. */
+  text: string
+  /** Optional short title rendered as a header above the body. */
+  title?: string
+  /** Accent color for the bubble border + leader line. */
+  color?: string
+  /** Whether the annotation is currently visible. */
+  visible?: boolean
+}
+
 /** Complete scene */
 export interface SceneData {
   objects: SceneObject[]
@@ -162,6 +207,8 @@ export interface SceneData {
   fog: FogConfig | null
   grid_visible: boolean
   grid_size: number
+  /** On-canvas annotations (text labels anchored to objects or world points). */
+  annotations?: Annotation[]
 }
 
 /** Empty scene default value */
@@ -175,6 +222,7 @@ export const EMPTY_SCENE: SceneData = {
   fog: null,
   grid_visible: true,
   grid_size: 40,
+  annotations: [],
 }
 
 /* ============ WebSocket event types ============ */
@@ -318,6 +366,21 @@ export interface PlanUpdateEvent {
   }
 }
 
+/** Mid-turn plan refinement notice — emitted when the agent revises its
+ *  plan (alternative-tool proposal after a failure, budget-driven pruning).
+ *  Advisory only; the LLM still decides whether to follow the hint. */
+export interface PlanRefineEvent {
+  type: 'plan_refine'
+  data: {
+    reason: 'tool_failure_alternative_suggestion' | 'budget_prune' | string
+    iteration?: number
+    proposals?: { failed: string; alternative: string }[]
+    active_categories?: string[]
+    tool_subset_size?: number
+    budget_remaining?: number
+  }
+}
+
 /** Message sent by the client */
 export interface ClientMessage {
   type: 'message'
@@ -337,6 +400,7 @@ export type ServerEvent =
   | SceneUpdateEvent
   | PlanEvent
   | PlanUpdateEvent
+  | PlanRefineEvent
   | DoneEvent
   | ErrorEvent
 
