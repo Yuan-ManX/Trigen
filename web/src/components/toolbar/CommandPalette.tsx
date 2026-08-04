@@ -4,16 +4,22 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Box,
+  Camera,
   Command,
   CornerDownLeft,
-  Eye,
+  Frame,
+  Gauge,
   Layers,
+  Maximize2,
+  Play,
   RotateCcw,
   RotateCw,
   Search,
   Sparkles,
+  Tag,
   Terminal,
   Wand2,
+  HelpCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -25,6 +31,7 @@ import {
 import { useChat } from '../../store/useChat'
 import { useEditor } from '../../store/useEditor'
 import { useScene } from '../../store/useScene'
+import type { Annotation } from '../../types'
 import { TEMPLATES } from './SceneTemplates'
 
 /** A single searchable command entry. */
@@ -82,9 +89,11 @@ function scoreItem(query: string, item: CommandItem): number {
 interface CommandPaletteProps {
   open: boolean
   onClose: () => void
+  /** Optional callback to re-open the first-visit onboarding tour. */
+  onReopenOnboarding?: () => void
 }
 
-export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPaletteProps) {
   const send = useChat((s) => s.send)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -103,6 +112,18 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const focusSelected = useScene((s) => s.selected)
   const setViewportCamera = useEditor((s) => s.setViewportCamera)
   const setTransformMode = useEditor((s) => s.setTransformMode)
+  // Phase 4: additional quick actions — annotation, capture, render quality,
+  // editor mode, frame-all, onboarding tour.
+  const scene = useScene((s) => s.scene)
+  const selectedId = useScene((s) => s.selectedId)
+  const addAnnotation = useScene((s) => s.addAnnotation)
+  const requestCapture = useEditor((s) => s.requestCapture)
+  const renderQuality = useEditor((s) => s.renderQuality)
+  const setRenderQuality = useEditor((s) => s.setRenderQuality)
+  const editorMode = useEditor((s) => s.editorMode)
+  const setEditorMode = useEditor((s) => s.setEditorMode)
+  const setMinimapEnabled = useEditor((s) => s.setMinimapEnabled)
+  const minimapEnabled = useEditor((s) => s.minimapEnabled)
 
   // Lazily fetch catalogs when the palette first opens
   useEffect(() => {
@@ -211,22 +232,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       run: () => setGrid(!gridVisible),
     })
     items.push({
-      id: 'action-focus-selection',
-      title: 'Focus Selection',
-      subtitle: 'Frame the selected object in the viewport',
-      group: 'Actions',
-      icon: Eye,
-      iconClass: 'text-fg-secondary',
-      keywords: 'focus frame selection camera',
-      run: () => {
-        const sel = focusSelected()
-        if (sel) {
-          const [x, y, z] = sel.transform.position
-          setViewportCamera([x, y + 2, z + 4], [x, y, z], true)
-        }
-      },
-    })
-    items.push({
       id: 'action-move-mode',
       title: 'Move Mode',
       subtitle: 'Switch the transform gizmo to translate',
@@ -237,8 +242,134 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       run: () => setTransformMode('translate'),
     })
 
+    // Phase 4: extended quick actions.
+    items.push({
+      id: 'action-add-annotation',
+      title: 'Add Annotation',
+      subtitle: 'Pin a labeled annotation on the selected object',
+      group: 'Actions',
+      icon: Tag,
+      iconClass: 'text-accent-emerald',
+      keywords: 'annotation label note pin tag',
+      run: () => {
+        const target = scene.objects.find((o) => o.id === selectedId) ?? null
+        const id = `note-${Date.now().toString(36)}`
+        const position: [number, number, number] = target
+          ? (target.transform.position as [number, number, number])
+          : [0, 1, 0]
+        const annotation: Annotation = {
+          id,
+          object_id: target ? target.id : null,
+          position,
+          text: 'New annotation — click to edit',
+          title: target ? target.name : 'Scene note',
+          color: '#22d3ee',
+          visible: true,
+        }
+        addAnnotation(annotation)
+      },
+    })
+    items.push({
+      id: 'action-capture-viewport',
+      title: 'Capture Viewport',
+      subtitle: 'Save the current viewport as a PNG',
+      group: 'Actions',
+      icon: Camera,
+      iconClass: 'text-accent-cyan',
+      keywords: 'capture screenshot png snapshot viewport',
+      run: () => requestCapture(`viewport_${Date.now()}`),
+    })
+    items.push({
+      id: 'action-cycle-render-quality',
+      title: 'Cycle Render Quality',
+      subtitle: `Switch viewport quality (current: ${renderQuality})`,
+      group: 'Actions',
+      icon: Gauge,
+      iconClass: 'text-amber-400',
+      keywords: 'render quality low medium high performance',
+      run: () => {
+        const order: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high']
+        const idx = order.indexOf(renderQuality)
+        setRenderQuality(order[(idx + 1) % order.length])
+      },
+    })
+    items.push({
+      id: 'action-toggle-editor-mode',
+      title: 'Toggle Edit / Run Mode',
+      subtitle: `Switch between authoring and playback (current: ${editorMode})`,
+      group: 'Actions',
+      icon: Play,
+      iconClass: 'text-accent-purple',
+      keywords: 'edit run mode play playback preview',
+      run: () => setEditorMode(editorMode === 'edit' ? 'run' : 'edit'),
+    })
+    items.push({
+      id: 'action-frame-all',
+      title: 'Frame All',
+      subtitle: 'Fit the entire scene in the viewport',
+      group: 'Actions',
+      icon: Maximize2,
+      iconClass: 'text-fg-secondary',
+      keywords: 'frame fit all scene camera viewport',
+      run: () => {
+        const objs = scene.objects
+        if (objs.length === 0) return
+        let minX = Infinity, minY = Infinity, minZ = Infinity
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+        for (const o of objs) {
+          const [x, y, z] = o.transform.position
+          if (x < minX) minX = x; if (x > maxX) maxX = x
+          if (y < minY) minY = y; if (y > maxY) maxY = y
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
+        }
+        const cx = (minX + maxX) / 2
+        const cy = (minY + maxY) / 2
+        const cz = (minZ + maxZ) / 2
+        const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 4)
+        setViewportCamera([cx, cy + span * 0.6, cz + span * 1.2], [cx, cy, cz], true)
+      },
+    })
+    items.push({
+      id: 'action-focus-selection',
+      title: 'Focus Selection',
+      subtitle: 'Frame the selected object in the viewport',
+      group: 'Actions',
+      icon: Frame,
+      iconClass: 'text-fg-secondary',
+      keywords: 'focus frame selection camera fit',
+      run: () => {
+        const sel = focusSelected()
+        if (sel) {
+          const [x, y, z] = sel.transform.position
+          setViewportCamera([x, y + 2, z + 4], [x, y, z], true)
+        }
+      },
+    })
+    items.push({
+      id: 'action-toggle-minimap',
+      title: 'Toggle Minimap',
+      subtitle: `Show or hide the viewport minimap (current: ${minimapEnabled ? 'on' : 'off'})`,
+      group: 'Actions',
+      icon: Layers,
+      iconClass: 'text-fg-secondary',
+      keywords: 'minimap overview overlay toggle',
+      run: () => setMinimapEnabled(!minimapEnabled),
+    })
+    if (onReopenOnboarding) {
+      items.push({
+        id: 'action-reopen-onboarding',
+        title: 'Replay Onboarding Tour',
+        subtitle: 'Reopen the first-visit walkthrough',
+        group: 'Actions',
+        icon: HelpCircle,
+        iconClass: 'text-accent-cyan',
+        keywords: 'onboarding tour help welcome replay guide',
+        run: () => onReopenOnboarding(),
+      })
+    }
+
     return items
-  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode])
+  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode, scene, selectedId, addAnnotation, requestCapture, renderQuality, setRenderQuality, editorMode, setEditorMode, setMinimapEnabled, minimapEnabled, onReopenOnboarding])
 
   // Filter + rank
   const filtered = useMemo(() => {
