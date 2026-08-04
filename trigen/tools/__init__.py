@@ -101,12 +101,24 @@ from trigen.tools.scene_management_tools import (
     SelectAllTool,
 )
 from trigen.tools.advanced_editor_tools import (
+    AddAnnotationTool,
     ApplyMaterialBatchTool,
+    ConfigureShortcutsTool,
     IsolateObjectTool,
+    LoadSceneSlotTool,
+    RemoveAnnotationTool,
     ResetTransformTool,
+    SaveSceneSlotTool,
     SetClippingPlaneTool,
+    SetEditorModeTool,
+    SetGeometryParamsTool,
+    SetMaterialPropertyTool,
+    SetMinimapTool,
     SetObjectLayerTool,
+    SetObjectParentTool,
     SetObjectPivotTool,
+    SetShadowsTool,
+    SetViewportProjectionTool,
 )
 
 __all__ = [
@@ -217,4 +229,19 @@ __all__ = [
     "SetObjectPivotTool",
     "ApplyMaterialBatchTool",
     "SetObjectLayerTool",
+    # Viewport & editor-state tools (minimap, shadows, projection, mode, slots)
+    "SetMinimapTool",
+    "SetShadowsTool",
+    "SetViewportProjectionTool",
+    "SetEditorModeTool",
+    "SaveSceneSlotTool",
+    "LoadSceneSlotTool",
+    # Extended editor capabilities (per-field material/geometry, hierarchy,
+    # annotations, shortcut config)
+    "SetMaterialPropertyTool",
+    "SetGeometryParamsTool",
+    "SetObjectParentTool",
+    "AddAnnotationTool",
+    "RemoveAnnotationTool",
+    "ConfigureShortcutsTool",
 ]
