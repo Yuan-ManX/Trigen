@@ -26,6 +26,8 @@ from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from trigen.config import AgentConfig
+from trigen.context import compress_session, should_compress
+from trigen.episodic_memory import store as episodic_store
 from trigen.executor import TaskExecutor
 from trigen.hooks import HookEvent, HookRegistry
 from trigen.memory import ConversationMemory
@@ -125,12 +127,24 @@ from trigen.tools.img2scene_tool import ImageToSceneTool
 from trigen.tools.scene_analyzer import SceneAnalyzerTool
 from trigen.tools.code_exporter import CodeExporterTool
 from trigen.tools.advanced_editor_tools import (
+    AddAnnotationTool,
     ApplyMaterialBatchTool,
+    ConfigureShortcutsTool,
     IsolateObjectTool,
+    LoadSceneSlotTool,
+    RemoveAnnotationTool,
     ResetTransformTool,
+    SaveSceneSlotTool,
     SetClippingPlaneTool,
+    SetEditorModeTool,
+    SetGeometryParamsTool,
+    SetMaterialPropertyTool,
+    SetMinimapTool,
     SetObjectLayerTool,
+    SetObjectParentTool,
     SetObjectPivotTool,
+    SetShadowsTool,
+    SetViewportProjectionTool,
 )
 
 logger = logging.getLogger("trigen.orchestrator")
@@ -150,6 +164,7 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "delete_object": "creation",
     "array_pattern": "creation",
     "boolean_operation": "creation",
+    "set_geometry_params": "creation",
     # transform — move / scale / rotate / snap existing objects
     "transform_object": "transform",
     "mirror_object": "transform",
@@ -164,6 +179,7 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "material_blend": "material",
     "randomize_palette": "material",
     "apply_material_batch": "material",
+    "set_material_property": "material",
     # lighting
     "add_light": "lighting",
     "modify_light": "lighting",
@@ -207,8 +223,18 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "set_object_pivot": "editor",
     "set_object_layer": "editor",
     "isolate_object": "editor",
+    "set_minimap": "editor",
+    "set_shadows": "editor",
+    "set_viewport_projection": "editor",
+    "set_editor_mode": "editor",
+    "save_scene_slot": "editor",
+    "load_scene_slot": "editor",
     "undo_scene": "editor",
     "redo_scene": "editor",
+    "set_object_parent": "editor",
+    "add_annotation": "editor",
+    "remove_annotation": "editor",
+    "configure_shortcuts": "editor",
     # animation — keyframe / playback control
     "keyframe_animation": "animation",
     "orbit_animation": "animation",
@@ -258,6 +284,11 @@ class EventType(str, Enum):
     # a live checklist so the user can follow the agent's decomposition.
     PLAN = "plan"
     PLAN_UPDATE = "plan_update"
+    # Emitted when the agent revises its plan mid-turn (reflection after a
+    # tool failure, budget-driven pruning, or an alternative-tool retry).
+    # Carries the refined step list so the frontend checklist can reconcile
+    # against the original PLAN roadmap.
+    PLAN_REFINE = "plan_refine"
     DONE = "done"
     ERROR = "error"
 
@@ -310,6 +341,14 @@ class AgentOrchestrator:
         # the next iteration boundary.
         self._interrupts: Dict[str, bool] = {}
         self._max_history = 50  # cap per session to bound memory
+        # Cross-session episodic memory — preferences + plan-pattern cache.
+        # Loaded from <workspace>/episodic_memory.json and updated after
+        # each turn so subsequent sessions can personalize responses and
+        # reuse successful tool sequences.
+        try:
+            episodic_store.init(self.config.workspace_dir)
+        except Exception:
+            logger.exception("Episodic memory init failed; continuing without it")
 
     def _build_registry(self) -> ToolRegistry:
         registry = ToolRegistry()
@@ -425,6 +464,22 @@ class AgentOrchestrator:
         registry.register(SetObjectPivotTool())
         registry.register(ApplyMaterialBatchTool())
         registry.register(SetObjectLayerTool())
+        # Viewport & editor-state control — toggle minimap/shadows, switch
+        # projection, switch edit/run mode, save/load named scene slots.
+        registry.register(SetMinimapTool())
+        registry.register(SetShadowsTool())
+        registry.register(SetViewportProjectionTool())
+        registry.register(SetEditorModeTool())
+        registry.register(SaveSceneSlotTool())
+        registry.register(LoadSceneSlotTool())
+        # Extended editor capabilities — per-field material/geometry editing,
+        # object parenting, on-canvas annotations, shortcut config.
+        registry.register(SetMaterialPropertyTool())
+        registry.register(SetGeometryParamsTool())
+        registry.register(SetObjectParentTool())
+        registry.register(AddAnnotationTool())
+        registry.register(RemoveAnnotationTool())
+        registry.register(ConfigureShortcutsTool())
 
         # Apply the central category taxonomy to every registered tool so
         # the canonical mapping lives in one place (_TOOL_CATEGORIES above).
@@ -524,6 +579,89 @@ class AgentOrchestrator:
         return {
             "undo_depth": len(self._scene_history.get(session_id, [])),
             "redo_depth": len(self._scene_redo.get(session_id, [])),
+        }
+
+    def scene_diff(
+        self, session_id: str, from_label: str = "prev", to_label: str = "current"
+    ) -> Dict[str, Any]:
+        """Compute a structural diff between two scene snapshots.
+
+        ``from_label`` / ``to_label`` may be either ``"prev"`` (the most
+        recent entry on the undo stack), ``"current"`` (the live scene), or
+        ``"redo"`` (the most recent entry on the redo stack). Returns a dict
+        with ``added`` / ``removed`` / ``changed`` lists keyed by object id,
+        plus per-snapshot object counts so the caller can summarize.
+        """
+        def _resolve(label: str) -> Optional[Dict[str, Any]]:
+            if label == "current":
+                return self.get_scene(session_id).to_dict()
+            if label == "prev":
+                hist = self._scene_history.get(session_id, [])
+                return hist[-1] if hist else None
+            if label == "redo":
+                redo = self._scene_redo.get(session_id, [])
+                return redo[-1] if redo else None
+            return None
+
+        from_scene = _resolve(from_label)
+        to_scene = _resolve(to_label)
+        if from_scene is None or to_scene is None:
+            return {
+                "available": False,
+                "from_label": from_label,
+                "to_label": to_label,
+                "message": "One or both snapshots are unavailable for this session.",
+            }
+
+        from_objs = {o.get("id"): o for o in from_scene.get("objects", [])}
+        to_objs = {o.get("id"): o for o in to_scene.get("objects", [])}
+        from_lights = {l.get("id"): l for l in from_scene.get("lights", [])}
+        to_lights = {l.get("id"): l for l in to_scene.get("lights", [])}
+
+        added = sorted(set(to_objs) - set(from_objs))
+        removed = sorted(set(from_objs) - set(to_objs))
+        changed: List[Dict[str, Any]] = []
+        for oid in sorted(set(from_objs) & set(to_objs)):
+            a = from_objs[oid]
+            b = to_objs[oid]
+            fields: List[str] = []
+            for key in ("name", "transform", "material", "geometry", "visible", "locked", "group_id", "tags", "animation"):
+                if a.get(key) != b.get(key):
+                    fields.append(key)
+            if fields:
+                changed.append({"id": oid, "name": b.get("name", ""), "fields": fields})
+
+        lights_added = sorted(set(to_lights) - set(from_lights))
+        lights_removed = sorted(set(from_lights) - set(to_lights))
+        lights_changed: List[str] = []
+        for lid in sorted(set(from_lights) & set(to_lights)):
+            if from_lights[lid] != to_lights[lid]:
+                lights_changed.append(lid)
+
+        scene_fields: List[str] = []
+        for key in ("background", "environment", "fog", "grid_visible", "grid_size"):
+            if from_scene.get(key) != to_scene.get(key):
+                scene_fields.append(key)
+
+        return {
+            "available": True,
+            "from_label": from_label,
+            "to_label": to_label,
+            "from_object_count": len(from_objs),
+            "to_object_count": len(to_objs),
+            "objects": {
+                "added": added,
+                "removed": removed,
+                "changed": changed,
+            },
+            "lights": {
+                "added": lights_added,
+                "removed": lights_removed,
+                "changed": lights_changed,
+            },
+            "scene_fields_changed": scene_fields,
+            "annotations_from_count": len(from_scene.get("annotations", [])),
+            "annotations_to_count": len(to_scene.get("annotations", [])),
         }
 
     @staticmethod
@@ -986,8 +1124,11 @@ class AgentOrchestrator:
         "editor": [
             "select", "focus", "lock", "hide", "show", "rename", "isolate", "solo",
             "undo", "redo", "pivot", "clipping", "render quality", "transform mode",
+            "minimap", "shadow", "orthographic", "perspective", "edit mode", "run mode",
+            "preview mode", "save scene", "load scene", "scene slot", "snapshot slot",
             "选择", "聚焦", "锁定", "隐藏", "重命名", "隔离", "撤销", "重做", "轴心",
-            "剖切", "渲染质量",
+            "剖切", "渲染质量", "小地图", "阴影", "正交", "透视", "编辑模式", "运行模式",
+            "预览模式", "保存场景", "加载场景", "场景存档",
         ],
         "animation": [
             "animate", "animation", "keyframe", "orbit", "wave", "bounce", "play",
@@ -1159,6 +1300,30 @@ class AgentOrchestrator:
         messages = memory.to_openai_messages()
         # Inject scene context before the latest user message
         messages.insert(-1, {"role": "system", "content": scene_context})
+        # Inject the learned cross-session user-preferences note (if any)
+        # so the LLM can personalize tone and tool defaults this turn.
+        try:
+            pref_note = episodic_store.get().to_system_note()
+        except Exception:
+            logger.exception("Episodic memory note lookup failed")
+            pref_note = ""
+        if pref_note:
+            messages.insert(-1, {"role": "system", "content": pref_note})
+
+        # Structured context compression for long sessions. When the message
+        # history has grown past the trigger threshold, inject a scene-aware
+        # trajectory summary (tool usage, dominant intents, project goal) so
+        # the LLM retains a coherent picture of the session without re-reading
+        # every prior turn. Cheaper than the sliding-window compaction and
+        # complementary to it.
+        try:
+            if should_compress(memory):
+                report = compress_session(memory, scene.to_dict(), _TOOL_CATEGORIES)
+                note = report.to_system_note()
+                if note:
+                    messages.insert(-1, {"role": "system", "content": note})
+        except Exception:
+            logger.exception("Context compression failed; continuing without it")
 
         # When image attachments are present, convert the latest user message
         # to OpenAI multimodal content (text + image_url blocks) so a vision-
@@ -1563,7 +1728,12 @@ class AgentOrchestrator:
 
             # Reflection: when one or more tool calls failed, surface a
             # structured reflection prompt to the LLM so the next iteration
-            # can adjust arguments and retry. Capped to avoid loops.
+            # can adjust arguments and retry. Capped to avoid loops. For
+            # each failed tool, also propose a same-category alternative via
+            # _find_alternative_tool so the model can switch tools instead of
+            # only re-arguing the same one — this recovers from cases where
+            # the chosen tool was fundamentally wrong (e.g. capture_viewport
+            # failing because no canvas is mounted, switching to snapshot_view).
             if failed_steps and reflection_count < max_reflections and iteration < self.config.max_iterations - 1:
                 reflection_count += 1
                 lines = [
@@ -1571,10 +1741,18 @@ class AgentOrchestrator:
                     "Review the failures below, identify the root cause (wrong id, bad argument, missing prerequisite), and retry with corrected parameters.",
                     "",
                 ]
+                alternative_proposals: List[Dict[str, str]] = []
                 for s, r in failed_steps:
                     lines.append(
                         f"- tool={s.tool_name} arguments={json.dumps(s.arguments, ensure_ascii=False)} error={r.message}"
                     )
+                    alt = self._find_alternative_tool(s.tool_name, scene)
+                    if alt:
+                        alternative_proposals.append({"failed": s.tool_name, "alternative": alt})
+                        lines.append(
+                            f"  -> suggested alternative: '{alt}' (same category; "
+                            "consider switching if the original tool is unsuitable)"
+                        )
                 lines.append("")
                 lines.append("Do NOT repeat the exact same arguments. Adjust them or call a different tool.")
                 reflection_msg = {"role": "system", "content": "\n".join(lines)}
@@ -1585,9 +1763,48 @@ class AgentOrchestrator:
                         "phase": "reflection",
                         "content": f"{len(failed_steps)} tool call(s) failed; asking model to reflect and retry ({reflection_count}/{max_reflections})",
                         "failed_tools": [s.tool_name for s, _ in failed_steps],
+                        "alternative_proposals": alternative_proposals,
                         "iteration": iteration,
                     },
                 )
+                # Emit a PLAN_REFINE event so the frontend can surface the
+                # proposed alternative tools as a refined plan hint. This is
+                # advisory only — the LLM still decides whether to take the
+                # suggestion in the next iteration.
+                if alternative_proposals:
+                    yield AgentEvent(
+                        type=EventType.PLAN_REFINE,
+                        data={
+                            "reason": "tool_failure_alternative_suggestion",
+                            "iteration": iteration,
+                            "proposals": alternative_proposals,
+                        },
+                    )
+
+                # Budget-aware schema pruning: if the per-turn token budget is
+                # running low, narrow the visible toolset for the next
+                # iteration so the model still has room to reply. This keeps
+                # long multi-iteration turns from stalling on prompt size.
+                try:
+                    pruned_schemas, pruned_cats, did_prune = self._budget_aware_prune(
+                        tool_schemas, active_categories, budget, matched_signals
+                    )
+                    if did_prune:
+                        tool_schemas = pruned_schemas
+                        active_categories = pruned_cats
+                        tool_schema_map = {s["name"]: s for s in tool_schemas}
+                        yield AgentEvent(
+                            type=EventType.PLAN_REFINE,
+                            data={
+                                "reason": "budget_prune",
+                                "iteration": iteration,
+                                "active_categories": active_categories,
+                                "tool_subset_size": len(tool_schemas),
+                                "budget_remaining": budget.remaining,
+                            },
+                        )
+                except Exception:
+                    logger.exception("Budget-aware prune failed; keeping full toolset")
 
             # Update scene context
             new_context = self.planner.build_context_message(scene.to_dict())
@@ -1658,6 +1875,21 @@ class AgentOrchestrator:
             },
         )
 
+        # Record this turn into cross-session episodic memory so future
+        # sessions can reuse the plan pattern and personalize responses.
+        # Best-effort: never let a persistence failure break the turn.
+        try:
+            plan_steps = list(last_plan.steps) if last_plan else []
+            episodic_store.get().record_turn(
+                user_message=user_message,
+                plan_steps=plan_steps,
+                results=all_results,
+                quality=int(quality.get("score", 0)) if isinstance(quality, dict) else 0,
+            )
+            episodic_store.save()
+        except Exception:
+            logger.exception("Episodic memory record/save failed")
+
         # Persist conversation memory after each turn
         self.save_memory(session_id, model or "")
 
@@ -1684,6 +1916,89 @@ class AgentOrchestrator:
             if resolved.get("api_key"):
                 return candidate
         return None
+
+    def _find_alternative_tool(self, failed_tool: str, scene: Scene) -> Optional[str]:
+        """Suggest a same-category substitute when a tool call fails.
+
+        Scans the registry for another tool in the same category whose
+        parameter shape is compatible with the failed call. Returns the
+        alternative tool name, or None when no plausible substitute exists.
+
+        Used by the reflection path: instead of asking the LLM to retry the
+        exact same tool with tweaked arguments, the orchestrator emits a
+        PLAN_REFINE event proposing the alternative so the next iteration
+        can try a different path to the same goal.
+        """
+        category = _TOOL_CATEGORIES.get(failed_tool)
+        if not category:
+            return None
+        # Hand-curated fallback pairs for tools that have a natural
+        # substitute. Keys are the failed tool; values are the preferred
+        # alternative. Chosen so the substitute accepts a compatible
+        # argument shape (e.g. apply_material_preset takes target+preset
+        # while apply_material takes target+color, both mutate material).
+        fallback_pairs: Dict[str, str] = {
+            "apply_material": "apply_material_preset",
+            "apply_material_preset": "apply_material",
+            "apply_material_batch": "apply_material",
+            "gradient_material": "apply_material",
+            "material_blend": "apply_material_preset",
+            "transform_object": "snap_to_grid",
+            "snap_to_grid": "transform_object",
+            "align_objects": "distribute_objects",
+            "distribute_objects": "align_objects",
+            "array_pattern": "duplicate_object",
+            "mirror_object": "duplicate_object",
+            "boolean_operation": "group_objects",
+            "set_view": "frame_view",
+            "frame_view": "set_view",
+            "capture_viewport": "snapshot_view",
+            "snapshot_view": "capture_viewport",
+            "scene_info": "list_objects",
+            "list_objects": "scene_info",
+            "export_scene": "export_code",
+            "export_code": "export_scene",
+        }
+        preferred = fallback_pairs.get(failed_tool)
+        if preferred and self.registry.get(preferred) is not None:
+            return preferred
+        # Otherwise scan the same category for any registered sibling that
+        # is not the failed tool itself.
+        for tool in self.registry.all():
+            if tool.name == failed_tool:
+                continue
+            if _TOOL_CATEGORIES.get(tool.name) == category:
+                return tool.name
+        return None
+
+    def _budget_aware_prune(
+        self,
+        schemas: List[Dict[str, Any]],
+        active_categories: List[str],
+        budget: "TokenBudget",
+        matched_signals: List[str],
+    ) -> tuple:
+        """Prune the tool schema set when the token budget is running low.
+
+        Returns a ``(schemas, categories, pruned)`` triple. When the budget
+        has more than 25% remaining, returns the input unchanged. Below
+        that threshold, keeps only the always-on categories plus the single
+        top-ranked matched category so the LLM still has a workable toolset
+        but the prompt stays small enough to finish the turn.
+
+        This prevents the degenerate case where a long turn with many
+        iterations burns the budget on tool schemas alone, leaving no room
+        for the model's reply.
+        """
+        if budget.limit <= 0 or budget.remaining > budget.limit * 0.25:
+            return schemas, active_categories, False
+        # Keep always-on + the first matched category (most relevant signal).
+        keep = set(self._ALWAYS_ON_CATEGORIES)
+        if matched_signals:
+            keep.add(matched_signals[0])
+        names = [t.name for t in self.registry.all() if t.category in keep]
+        pruned = self.registry.schemas_for(names)
+        return pruned, sorted(keep), True
 
     # Maps pipeline node types to the tool names the frontend's multimodal
     # renderer recognizes, so pipeline steps render with the right media widget.
@@ -1928,6 +2243,31 @@ class AgentOrchestrator:
         # Phase 2: Intent parsing
         intents, _ = parse_message(user_message, scene_objects, scene_lights)
 
+        # Episodic memory reuse: if a previous successful plan pattern
+        # exists for this (normalized) intent signature, surface it as a
+        # thinking hint. Offline mode skips LLM re-planning entirely, so
+        # the hint helps the user understand why a familiar tool sequence
+        # is being applied.
+        try:
+            cached = episodic_store.get().lookup_pattern(user_message)
+        except Exception:
+            logger.exception("Episodic memory lookup failed")
+            cached = None
+        if cached is not None:
+            yield AgentEvent(
+                type=EventType.THINKING,
+                data={
+                    "phase": "memory_recall",
+                    "content": (
+                        f"Reusing cached plan pattern (quality {cached.quality}, "
+                        f"hits {cached.hits}): {' -> '.join(cached.tool_names)}"
+                    ),
+                    "cached_tools": cached.tool_names,
+                    "cached_quality": cached.quality,
+                    "cached_hits": cached.hits,
+                },
+            )
+
         # When image attachments are present, auto-inject an image_to_3d
         # intent at the front so the offline path reconstructs the scene
         # from the uploaded image. The user's text message (if any) is
@@ -2029,6 +2369,9 @@ class AgentOrchestrator:
 
         text_parts: List[str] = []
         scene_changed = False
+        # Accumulate offline results + plan steps for episodic recording.
+        offline_results: List[Any] = []
+        offline_steps: List[Any] = []
 
         # Phase 4: Execution
         for idx, intent in enumerate(intents):
@@ -2059,6 +2402,19 @@ class AgentOrchestrator:
                 logger.exception("Offline tool %s execution error", intent.tool_name)
                 from trigen.tools.base import ToolResult
                 result = ToolResult(success=False, message=f"Execution error: {e}")
+
+            # Track for episodic memory recording at end of turn.
+            try:
+                from trigen.planner import TaskStep as _OfflineStep
+                offline_steps.append(_OfflineStep(
+                    tool_name=intent.tool_name,
+                    arguments=intent.arguments,
+                    tool_call_id=step_id,
+                    description=intent.description or f"Call {intent.tool_name}",
+                ))
+                offline_results.append(result)
+            except Exception:
+                pass
 
             yield AgentEvent(
                 type=EventType.TOOL_RESULT,
@@ -2189,3 +2545,21 @@ class AgentOrchestrator:
 
         # Persist conversation memory after each offline turn
         self.save_memory(session_id)
+
+        # Record the offline turn into cross-session episodic memory. The
+        # offline engine has no LLM, so reusing a cached successful tool
+        # sequence is especially valuable for repeat requests.
+        try:
+            quality_score = 0
+            if offline_results:
+                qa = self._assess_turn_quality(scene, offline_results, type("_P", (), {"_verification_corrections": 0})())
+                quality_score = int(qa.get("score", 0))
+            episodic_store.get().record_turn(
+                user_message=user_message,
+                plan_steps=offline_steps,
+                results=offline_results,
+                quality=quality_score,
+            )
+            episodic_store.save()
+        except Exception:
+            logger.exception("Episodic memory record/save failed (offline)")
