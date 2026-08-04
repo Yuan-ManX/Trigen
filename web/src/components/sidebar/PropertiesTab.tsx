@@ -251,11 +251,30 @@ const GEOMETRY_PARAMS: Record<
     { key: 'length', label: 'Length', min: 0.05, max: 3, step: 0.05 },
   ],
   tube: [{ key: 'radius', label: 'Radius', min: 0.05, max: 1, step: 0.05 }],
+  lathe: [
+    { key: 'segments', label: 'Segments', min: 4, max: 128, step: 1, int: true },
+    { key: 'phiLength', label: 'Sweep Angle', min: 0.1, max: 6.28, step: 0.1 },
+  ],
+  extrude: [
+    { key: 'depth', label: 'Depth', min: 0.05, max: 3, step: 0.05 },
+    { key: 'bevelThickness', label: 'Bevel Thickness', min: 0, max: 0.5, step: 0.01 },
+    { key: 'bevelSize', label: 'Bevel Size', min: 0, max: 0.5, step: 0.01 },
+    { key: 'curveSegments', label: 'Curve Segments', min: 1, max: 32, step: 1, int: true },
+  ],
+  text: [
+    { key: 'size', label: 'Size', min: 0.1, max: 3, step: 0.05 },
+    { key: 'height', label: 'Height', min: 0, max: 1, step: 0.05 },
+  ],
+  spline: [
+    { key: 'radius', label: 'Tube Radius', min: 0.01, max: 0.5, step: 0.01 },
+    { key: 'tubularSegments', label: 'Tubular Segments', min: 8, max: 200, step: 1, int: true },
+  ],
 }
 
 const GEOMETRY_TYPES: GeometryType[] = [
   'box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'torusKnot',
   'dodecahedron', 'icosahedron', 'octahedron', 'tetrahedron', 'ring', 'capsule', 'tube',
+  'lathe', 'extrude', 'text', 'spline',
 ]
 
 function GeometryEditor({ object }: { object: { id: string; geometry: Geometry } }) {
