@@ -278,6 +278,22 @@ def _parse_number_list(text: str) -> Optional[List[float]]:
     return None
 
 
+def _parse_number_after(text: str, anchor: str) -> Optional[float]:
+    """Find the first number that follows an anchor word in text.
+
+    Matches patterns like "radius 0.8", "radius=0.8", "radius to 0.8",
+    "radius: 0.8". Returns None when no number follows the anchor.
+    """
+    pattern = rf'{re.escape(anchor)}\s*(?:to|=|:|of)?\s*(-?\d+(?:\.\d+)?)'
+    m = re.search(pattern, text)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def _parse_axis_value(msg: str, axis_names: List[str]) -> Optional[Tuple[str, float]]:
     """Parse a single axis value like 'x 5' or 'y to 3.5'."""
     for axis in axis_names:
@@ -732,6 +748,710 @@ def parse_message(
                 emit_tool_call=False,
             ))
             matched_any = True
+
+    # 17b. Viewport & editor-state control — minimap, shadows, projection,
+    # edit/run mode, scene save/load slots. Each rule mirrors a tool in
+    # advanced_editor_tools.py.
+    if any(k in msg_lower for k in ["minimap", "小地图"]):
+        enabled = not any(k in msg_lower for k in ["off", "hide", "disable", "关闭", "隐藏"])
+        intents.append(ParsedIntent(
+            tool_name="set_minimap",
+            arguments={"enabled": enabled},
+            description=f"{'Show' if enabled else 'Hide'} minimap",
+        ))
+        matched_any = True
+
+    if any(k in msg_lower for k in ["shadow", "阴影"]) and not any(
+        k in msg_lower for k in ["shadow map", "阴影贴图"]
+    ):
+        # Treat "shadows" as viewport shadow rendering. "off/disable/关掉"
+        # flips to false; any other mention (on/enable/打开) flips to true.
+        enabled = not any(k in msg_lower for k in ["off", "disable", "关掉", "关闭", "隐藏阴影", "无阴影"])
+        intents.append(ParsedIntent(
+            tool_name="set_shadows",
+            arguments={"enabled": enabled},
+            description=f"{'Enable' if enabled else 'Disable'} shadows",
+        ))
+        matched_any = True
+
+    if any(k in msg_lower for k in ["orthographic", "正交", "2d view", "2d mode"]):
+        intents.append(ParsedIntent(
+            tool_name="set_viewport_projection",
+            arguments={"mode": "orthographic"},
+            description="Switch viewport to orthographic projection",
+        ))
+        matched_any = True
+    elif any(k in msg_lower for k in ["perspective view", "perspective mode", "透视视图", "透视模式"]) and \
+        "set_view" not in msg_lower:
+        # Only route to projection when the user explicitly asks for the
+        # projection mode, not the named "perspective" view preset (which
+        # set_view already handles above via VIEW_MAP).
+        intents.append(ParsedIntent(
+            tool_name="set_viewport_projection",
+            arguments={"mode": "perspective"},
+            description="Switch viewport to perspective projection",
+        ))
+        matched_any = True
+
+    if any(k in msg_lower for k in ["edit mode", "editing mode", "编辑模式"]):
+        intents.append(ParsedIntent(
+            tool_name="set_editor_mode",
+            arguments={"mode": "edit"},
+            description="Enter edit mode",
+        ))
+        matched_any = True
+    elif any(k in msg_lower for k in ["run mode", "preview mode", "play mode", "运行模式", "预览模式", "播放模式"]):
+        intents.append(ParsedIntent(
+            tool_name="set_editor_mode",
+            arguments={"mode": "run"},
+            description="Enter run/preview mode",
+        ))
+        matched_any = True
+
+    # Scene save/load slots. Matches phrases like "save scene as my-design",
+    # "load scene my-design", "保存场景为xxx", "加载场景xxx".
+    save_slot_match = re.search(
+        r'(?:save scene(?:\s+as|\s+to)?|snapshot scene(?:\s+as|\s+to)?)\s+["\']?([\w\-]+)["\']?',
+        msg_lower,
+    )
+    if save_slot_match:
+        intents.append(ParsedIntent(
+            tool_name="save_scene_slot",
+            arguments={"slot": save_slot_match.group(1)},
+            description=f"Save scene to slot '{save_slot_match.group(1)}'",
+        ))
+        matched_any = True
+    else:
+        cn_save_match = re.search(r'(?:保存场景|存储场景)(?:\s*为|\s*)\s*["\']?([\w\-]+)["\']?', msg)
+        if cn_save_match:
+            intents.append(ParsedIntent(
+                tool_name="save_scene_slot",
+                arguments={"slot": cn_save_match.group(1)},
+                description=f"Save scene to slot '{cn_save_match.group(1)}'",
+            ))
+            matched_any = True
+
+    load_slot_match = re.search(
+        r'(?:load scene(?:\s+from)?|restore scene(?:\s+from)?)\s+["\']?([\w\-]+)["\']?',
+        msg_lower,
+    )
+    if load_slot_match:
+        clear_scene = not any(k in msg_lower for k in ["merge", "add", "合并", "追加"])
+        intents.append(ParsedIntent(
+            tool_name="load_scene_slot",
+            arguments={"slot": load_slot_match.group(1), "clear_scene": clear_scene},
+            description=f"Load scene from slot '{load_slot_match.group(1)}'",
+        ))
+        matched_any = True
+    else:
+        cn_load_match = re.search(r'(?:加载场景|读取场景|恢复场景)(?:\s*为|\s*从)?\s*["\']?([\w\-]+)["\']?', msg)
+        if cn_load_match:
+            clear_scene = not any(k in msg_lower for k in ["merge", "add", "合并", "追加"])
+            intents.append(ParsedIntent(
+                tool_name="load_scene_slot",
+                arguments={"slot": cn_load_match.group(1), "clear_scene": clear_scene},
+                description=f"Load scene from slot '{cn_load_match.group(1)}'",
+            ))
+            matched_any = True
+
+    # 17c. Extended editor & spatial control — playback, undo/redo,
+    # visibility, lock, rename, transform mode, frame, capture, render
+    # quality, grid snapping, panel focus, selection, measurement,
+    # environment, snapshot, camera animation, align/distribute, array,
+    # mirror, boolean, snap, gradient/blend/batch material, layer ops,
+    # group ops, camera ops, light modify, geometry modify, subagent,
+    # export code, music, transcribe. Each rule maps CN+EN phrases to a
+    # registered tool so the offline rule engine can drive every editor
+    # capability without an LLM round-trip.
+    #
+    # Undo / redo — checked before generic "select"/"delete" so the
+    # short keywords are not swallowed by later sections.
+    if any(k in msg_lower for k in ["undo", "撤销"]) and not any(
+        k in msg_lower for k in ["undo object", "撤销对象"]
+    ):
+        intents.append(ParsedIntent(
+            tool_name="undo_scene",
+            arguments={},
+            description="Undo last scene change",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["redo", "重做", "恢复"]):
+        intents.append(ParsedIntent(
+            tool_name="redo_scene",
+            arguments={},
+            description="Redo last undone change",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Playback control
+    if any(k in msg_lower for k in ["play animation", "play back", "播放动画", "开始播放"]):
+        intents.append(ParsedIntent(
+            tool_name="play_animation",
+            arguments={},
+            description="Play animation",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["pause animation", "pause playback", "暂停动画", "暂停播放"]):
+        intents.append(ParsedIntent(
+            tool_name="pause_animation",
+            arguments={},
+            description="Pause animation",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    seek_m = re.search(r'(?:seek to|go to frame|jump to)\s*(\d+(?:\.\d+)?)', msg_lower)
+    if seek_m or any(k in msg_lower for k in ["seek", "跳转", "进度"]):
+        t = float(seek_m.group(1)) if seek_m else 0.0
+        intents.append(ParsedIntent(
+            tool_name="seek_animation",
+            arguments={"time": t},
+            description=f"Seek to {t}s",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    speed_m = re.search(r'(?:playback speed|speed|速度)\s*(\d+(?:\.\d+)?)', msg_lower)
+    if speed_m:
+        intents.append(ParsedIntent(
+            tool_name="set_playback_speed",
+            arguments={"speed": float(speed_m.group(1))},
+            description=f"Set playback speed to {speed_m.group(1)}",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Render quality
+    if any(k in msg_lower for k in ["render quality", "渲染质量"]):
+        q = "high"
+        if "low" in msg_lower or "低" in msg_lower:
+            q = "low"
+        elif "medium" in msg_lower or "中" in msg_lower:
+            q = "medium"
+        elif "high" in msg_lower or "高" in msg_lower:
+            q = "high"
+        intents.append(ParsedIntent(
+            tool_name="set_render_quality",
+            arguments={"quality": q},
+            description=f"Set render quality to {q}",
+        ))
+        matched_any = True
+
+    # Grid snapping
+    if any(k in msg_lower for k in ["grid snap", "snap to grid", "snapping", "网格吸附", "吸附网格"]):
+        enabled = not any(k in msg_lower for k in ["off", "disable", "关闭", "取消"])
+        inc_m = re.search(r'(?:increment|step|步长)\s*(\d+(?:\.\d+)?)', msg_lower)
+        args: Dict[str, Any] = {"enabled": enabled}
+        if inc_m:
+            args["increment"] = float(inc_m.group(1))
+        intents.append(ParsedIntent(
+            tool_name="toggle_grid_snapping",
+            arguments=args,
+            description=f"{'Enable' if enabled else 'Disable'} grid snapping",
+        ))
+        matched_any = True
+
+    # Panel focus
+    panel_m = re.search(
+        r'(?:focus panel|show panel|open panel|switch panel|打开面板|切换面板)\s*["\']?(\w+)["\']?',
+        msg_lower,
+    )
+    if panel_m:
+        intents.append(ParsedIntent(
+            tool_name="focus_panel",
+            arguments={"panel": panel_m.group(1)},
+            description=f"Focus panel {panel_m.group(1)}",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Frame view
+    if any(k in msg_lower for k in ["frame view", "frame all", "fit view", "fit to view", "全选视图", "适配视图", "框选全部"]):
+        intents.append(ParsedIntent(
+            tool_name="frame_view",
+            arguments={},
+            description="Frame all objects in view",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Capture viewport
+    if any(k in msg_lower for k in ["capture viewport", "screenshot", "截图", "截屏"]):
+        fn_m = re.search(r'(?:as|save as|保存为)\s*["\']?([\w\-]+)["\']?', msg_lower)
+        args: Dict[str, Any] = {}
+        if fn_m:
+            args["filename"] = fn_m.group(1)
+        intents.append(ParsedIntent(
+            tool_name="capture_viewport",
+            arguments=args,
+            description="Capture viewport screenshot",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Visibility / lock / rename (require a target object)
+    if scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects)
+        if tgt:
+            if any(k in msg_lower for k in ["hide", "隐藏"]):
+                intents.append(ParsedIntent(
+                    tool_name="set_visibility",
+                    arguments={"target": tgt, "visible": False},
+                    description=f"Hide {tgt}",
+                ))
+                matched_any = True
+            if any(k in msg_lower for k in ["show object", "显示对象", "显示物体", "unhide", "取消隐藏"]):
+                intents.append(ParsedIntent(
+                    tool_name="set_visibility",
+                    arguments={"target": tgt, "visible": True},
+                    description=f"Show {tgt}",
+                ))
+                matched_any = True
+            if any(k in msg_lower for k in ["unlock", "解锁"]):
+                intents.append(ParsedIntent(
+                    tool_name="lock_object",
+                    arguments={"target": tgt, "locked": False},
+                    description=f"Unlock {tgt}",
+                ))
+                matched_any = True
+            elif any(k in msg_lower for k in ["lock", "锁定"]):
+                intents.append(ParsedIntent(
+                    tool_name="lock_object",
+                    arguments={"target": tgt, "locked": True},
+                    description=f"Lock {tgt}",
+                ))
+                matched_any = True
+            rename_m = re.search(r'(?:rename|重命名|改名)\s*["\']?(\w+)["\']?', msg_lower)
+            if rename_m or any(k in msg_lower for k in ["rename", "重命名", "改名"]):
+                new_name = rename_m.group(1) if rename_m else ""
+                intents.append(ParsedIntent(
+                    tool_name="rename_object",
+                    arguments={"target": tgt, "name": new_name or f"{tgt}_renamed"},
+                    description=f"Rename {tgt}",
+                ))
+                matched_any = True
+
+    # Transform mode (move/rotate/scale gizmo)
+    if any(k in msg_lower for k in ["move mode", "translate mode", "移动模式"]):
+        intents.append(ParsedIntent(
+            tool_name="set_transform_mode",
+            arguments={"mode": "translate"},
+            description="Set transform mode to translate",
+        ))
+        matched_any = True
+    elif any(k in msg_lower for k in ["rotate mode", "旋转模式"]):
+        intents.append(ParsedIntent(
+            tool_name="set_transform_mode",
+            arguments={"mode": "rotate"},
+            description="Set transform mode to rotate",
+        ))
+        matched_any = True
+    elif any(k in msg_lower for k in ["scale mode", "缩放模式"]):
+        intents.append(ParsedIntent(
+            tool_name="set_transform_mode",
+            arguments={"mode": "scale"},
+            description="Set transform mode to scale",
+        ))
+        matched_any = True
+
+    # Select all / set selection
+    if any(k in msg_lower for k in ["select all", "全选", "选择全部", "选择所有"]):
+        intents.append(ParsedIntent(
+            tool_name="select_all",
+            arguments={},
+            description="Select all objects",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Align / distribute
+    if any(k in msg_lower for k in ["align", "对齐"]) and len(scene_objects) >= 2:
+        axis = "x"
+        if "y axis" in msg_lower or "y轴" in msg_lower:
+            axis = "y"
+        elif "z axis" in msg_lower or "z轴" in msg_lower:
+            axis = "z"
+        intents.append(ParsedIntent(
+            tool_name="align_objects",
+            arguments={"axis": axis},
+            description=f"Align objects on {axis} axis",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["distribute", "均匀分布", "分布"]) and len(scene_objects) >= 2:
+        axis = "x"
+        if "y axis" in msg_lower or "y轴" in msg_lower:
+            axis = "y"
+        elif "z axis" in msg_lower or "z轴" in msg_lower:
+            axis = "z"
+        intents.append(ParsedIntent(
+            tool_name="distribute_objects",
+            arguments={"axis": axis},
+            description=f"Distribute objects on {axis} axis",
+        ))
+        matched_any = True
+
+    # Composite modelling: array / mirror / boolean / snap
+    if any(k in msg_lower for k in ["array", "阵列"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        count_m = re.search(r'(\d+)\s*(?:copies|份|个|items|count)', msg_lower)
+        count = int(count_m.group(1)) if count_m else 5
+        intents.append(ParsedIntent(
+            tool_name="array_pattern",
+            arguments={"target": tgt, "count": count, "axis": "x", "spacing": 2.0},
+            description=f"Array {tgt} x{count}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["mirror", "镜像"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        axis = "x"
+        if "y axis" in msg_lower or "y轴" in msg_lower:
+            axis = "y"
+        elif "z axis" in msg_lower or "z轴" in msg_lower:
+            axis = "z"
+        intents.append(ParsedIntent(
+            tool_name="mirror_object",
+            arguments={"target": tgt, "axis": axis},
+            description=f"Mirror {tgt} on {axis} axis",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["boolean", "union", "subtract", "intersect", "布尔", "并集", "差集", "交集"]) and len(scene_objects) >= 2:
+        op = "union"
+        if any(k in msg_lower for k in ["subtract", "差集", "相减"]):
+            op = "subtract"
+        elif any(k in msg_lower for k in ["intersect", "交集", "相交"]):
+            op = "intersect"
+        names = [o.get("name", "") for o in scene_objects[:2]]
+        intents.append(ParsedIntent(
+            tool_name="boolean_operation",
+            arguments={"target_a": names[0], "target_b": names[1], "operation": op},
+            description=f"Boolean {op} on {names[0]} and {names[1]}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["snap to grid", "吸附到网格"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        intents.append(ParsedIntent(
+            tool_name="snap_to_grid",
+            arguments={"target": tgt, "grid_size": 0.5},
+            description=f"Snap {tgt} to grid",
+        ))
+        matched_any = True
+
+    # Advanced material: gradient / blend / batch
+    if any(k in msg_lower for k in ["gradient material", "渐变材质"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        c1 = _find_color(msg_lower) or "#3a7aff"
+        c2 = "#ff8a3a" if c1 != "#ff8a3a" else "#9a3aff"
+        intents.append(ParsedIntent(
+            tool_name="gradient_material",
+            arguments={"target": tgt, "color_a": c1, "color_b": c2, "axis": "y"},
+            description=f"Gradient material on {tgt}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["blend material", "material blend", "混合材质"]) and len(scene_objects) >= 2:
+        names = [o.get("name", "") for o in scene_objects[:2]]
+        intents.append(ParsedIntent(
+            tool_name="material_blend",
+            arguments={"target_a": names[0], "target_b": names[1], "ratio": 0.5},
+            description=f"Blend materials of {names[0]} and {names[1]}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["batch material", "apply material to all", "批量材质", "全部上色"]) and scene_objects:
+        preset = _find_preset(msg_lower)
+        color = _find_color(msg_lower)
+        args: Dict[str, Any] = {}
+        if preset:
+            args["preset"] = preset
+        if color:
+            args["color"] = color
+        intents.append(ParsedIntent(
+            tool_name="apply_material_batch",
+            arguments=args,
+            description="Apply material to all objects",
+        ))
+        matched_any = True
+
+    # Layer & group management
+    if any(k in msg_lower for k in ["move to layer", "set layer", "设置层", "移动到层"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        layer_m = re.search(r'(?:layer|层)\s*["\']?(\w+)["\']?', msg_lower)
+        layer = layer_m.group(1) if layer_m else "default"
+        intents.append(ParsedIntent(
+            tool_name="set_object_layer",
+            arguments={"target": tgt, "layer": layer},
+            description=f"Set {tgt} layer to {layer}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["reorder layer", "bring to front", "send to back", "调整层级", "置顶", "置底"]):
+        direction = "front"
+        if any(k in msg_lower for k in ["send to back", "置底", "后退"]):
+            direction = "back"
+        intents.append(ParsedIntent(
+            tool_name="reorder_layer",
+            arguments={"direction": direction},
+            description=f"Reorder layer {direction}",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["assign to group", "分配到组", "加入组"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        grp_m = re.search(r'(?:group|组)\s*["\']?(\w+)["\']?', msg_lower)
+        grp = grp_m.group(1) if grp_m else "Group"
+        intents.append(ParsedIntent(
+            tool_name="assign_to_group",
+            arguments={"target": tgt, "group": grp},
+            description=f"Assign {tgt} to {grp}",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["rename group", "重命名组", "改名组"]):
+        grp_m = re.search(r'(?:rename group|重命名组|改名组)\s*["\']?(\w+)["\']?', msg_lower)
+        new_name = grp_m.group(1) if grp_m else "RenamedGroup"
+        intents.append(ParsedIntent(
+            tool_name="rename_group",
+            arguments={"target": "Group", "name": new_name},
+            description=f"Rename group to {new_name}",
+        ))
+        matched_any = True
+
+    # Camera management
+    if any(k in msg_lower for k in ["add camera", "添加相机", "新建相机"]):
+        intents.append(ParsedIntent(
+            tool_name="add_camera",
+            arguments={},
+            description="Add a camera",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["delete camera", "删除相机"]) :
+        intents.append(ParsedIntent(
+            tool_name="delete_camera",
+            arguments={},
+            description="Delete camera",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["modify camera", "change camera", "修改相机", "调整相机"]):
+        intents.append(ParsedIntent(
+            tool_name="modify_camera",
+            arguments={},
+            description="Modify camera",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["animate camera", "camera animation", "相机动画", "相机移动"]):
+        intents.append(ParsedIntent(
+            tool_name="animate_camera",
+            arguments={"path": "orbit", "duration": 8.0},
+            description="Animate camera along a path",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["set camera position", "camera position", "设置相机位置", "相机位置"]):
+        pos = _parse_number_list(msg_lower)
+        args: Dict[str, Any] = {}
+        if pos and len(pos) >= 3:
+            args["position"] = pos[:3]
+        intents.append(ParsedIntent(
+            tool_name="set_viewport_camera",
+            arguments=args,
+            description="Set viewport camera position",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Environment & snapshot
+    if any(k in msg_lower for k in ["environment", "hdr", "环境贴图", "环境光贴图"]):
+        intents.append(ParsedIntent(
+            tool_name="set_environment",
+            arguments={"preset": "studio"},
+            description="Set environment",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["snapshot view", "save view", "保存视图", "快照视图"]):
+        intents.append(ParsedIntent(
+            tool_name="snapshot_view",
+            arguments={},
+            description="Snapshot current view",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Measurement
+    if any(k in msg_lower for k in ["measure distance", "distance between", "测量距离", "测量间距"]) and len(scene_objects) >= 2:
+        names = [o.get("name", "") for o in scene_objects[:2]]
+        intents.append(ParsedIntent(
+            tool_name="measure_distance",
+            arguments={"target_a": names[0], "target_b": names[1]},
+            description=f"Measure distance between {names[0]} and {names[1]}",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # Light & geometry modification
+    if any(k in msg_lower for k in ["modify light", "change light", "adjust light", "修改灯光", "调整灯光", "改变灯光"]):
+        intents.append(ParsedIntent(
+            tool_name="modify_light",
+            arguments={},
+            description="Modify light",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["modify geometry", "change geometry", "change shape", "修改几何", "修改形状"]) and scene_objects:
+        tgt = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+        intents.append(ParsedIntent(
+            tool_name="modify_geometry",
+            arguments={"target": tgt},
+            description=f"Modify geometry of {tgt}",
+        ))
+        matched_any = True
+
+    # Export code
+    if any(k in msg_lower for k in ["export code", "导出代码", "生成代码"]):
+        fmt = "three_js"
+        if "react" in msg_lower or "r3f" in msg_lower:
+            fmt = "react_r3f"
+        elif "html" in msg_lower:
+            fmt = "html"
+        intents.append(ParsedIntent(
+            tool_name="export_code",
+            arguments={"format": fmt},
+            description=f"Export scene as {fmt} code",
+        ))
+        matched_any = True
+
+    # Music generation & audio transcription
+    if any(k in msg_lower for k in ["generate music", "create music", "生成音乐", "创作音乐"]):
+        prompt = msg
+        for trig in ["generate music", "create music", "生成音乐", "创作音乐"]:
+            prompt = prompt.replace(trig, "")
+        prompt = prompt.strip(" :,.-")
+        intents.append(ParsedIntent(
+            tool_name="generate_music",
+            arguments={"prompt": prompt or "ambient background music"},
+            description="Generate music from prompt",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["transcribe", "speech to text", "语音转文字", "转写"]):
+        intents.append(ParsedIntent(
+            tool_name="transcribe_audio",
+            arguments={},
+            description="Transcribe audio to text",
+        ))
+        matched_any = True
+
+    # Sub-agent dispatch
+    if any(k in msg_lower for k in ["dispatch subagent", "sub-agent", "子代理", "调度子代理"]):
+        task = msg
+        for trig in ["dispatch subagent", "sub-agent", "子代理", "调度子代理"]:
+            task = task.replace(trig, "")
+        task = task.strip(" :,.-")
+        intents.append(ParsedIntent(
+            tool_name="dispatch_subagent",
+            arguments={"task": task or "help with scene editing"},
+            description="Dispatch sub-agent for a sub-task",
+        ))
+        matched_any = True
+
+    # 17d. Extended per-field editor tools — set_material_property,
+    # set_geometry_params, set_object_parent, add_annotation,
+    # remove_annotation, configure_shortcuts. These give the offline rule
+    # engine direct access to the per-field material/geometry/hierarchy/
+    # annotation capabilities added alongside the basic editor tools.
+    _EXT_MATERIAL_PROPS = {
+        "clearcoat": "clearcoat", "clearcoat_roughness": "clearcoat_roughness",
+        "transmission": "transmission", "thickness": "thickness", "ior": "ior",
+        "iridescence": "iridescence", "iridescence_ior": "iridescence_ior",
+        "iridescence_thickness_min": "iridescence_thickness_min",
+        "iridescence_thickness_max": "iridescence_thickness_max",
+        "sheen": "sheen", "sheen_color": "sheen_color",
+        "sheen_roughness": "sheen_roughness",
+        "specular_intensity": "specular_intensity", "specular_color": "specular_color",
+        "attenuation_color": "attenuation_color",
+        "attenuation_distance": "attenuation_distance",
+        "metalness": "metalness", "roughness": "roughness",
+        "opacity": "opacity", "emissive_intensity": "emissive_intensity",
+    }
+    for _prop_phrase, _prop_name in _EXT_MATERIAL_PROPS.items():
+        _pat = f"{_prop_phrase} "
+        if _pat in msg_lower or f"set {_prop_phrase}" in msg_lower or f"material {_prop_phrase}" in msg_lower:
+            # Capture a numeric (or hex for color props) value following the prop name.
+            _val = _parse_number_after(msg_lower, _prop_phrase)
+            if _prop_phrase.endswith("_color") or _prop_phrase == "emissive":
+                _hex = re.search(r"#([0-9a-fA-F]{3,8})", msg)
+                _val = _hex.group(0) if _hex else _val
+            if _val is None:
+                continue
+            if scene_objects:
+                _target = scene_objects[-1].get("name", "")
+                intents.append(ParsedIntent(
+                    tool_name="set_material_property",
+                    arguments={"target": _target, "property": _prop_name, "value": _val},
+                    description=f"Set material.{_prop_name} = {_val}",
+                ))
+                matched_any = True
+            break
+
+    # set_geometry_params — "set geometry radius to 0.8" etc.
+    if any(k in msg_lower for k in ["geometry param", "set radius", "set height", "set width", "set depth", "set segments", "几何参数", "设置半径"]):
+        _geo_target = scene_objects[-1].get("name", "") if scene_objects else ""
+        _params: Dict[str, Any] = {}
+        for _pname in ("radius", "height", "width", "depth", "widthSegments", "heightSegments", "radialSegments", "tubularSegments"):
+            _val = _parse_number_after(msg_lower, _pname)
+            if _val is not None:
+                _params[_pname] = _val
+        if _geo_target and _params:
+            intents.append(ParsedIntent(
+                tool_name="set_geometry_params",
+                arguments={"target": _geo_target, "params": _params},
+                description=f"Update geometry params: {list(_params.keys())}",
+            ))
+            matched_any = True
+
+    # set_object_parent — "parent X to group Y", "把X加入组Y"
+    if any(k in msg_lower for k in ["parent to", "parent object", "assign to group", "加入组", "归属组", "父级为"]):
+        _target = scene_objects[-1].get("name", "") if scene_objects else ""
+        # Find a group name following the trigger phrase.
+        _grp_match = re.search(r"(?:parent to|parent object|assign to group|加入组|归属组|父级为)\s+(?:group\s+)?([A-Za-z0-9_\-一-龥]+)", msg)
+        _group_id = _grp_match.group(1) if _grp_match else ""
+        if _target and _group_id:
+            intents.append(ParsedIntent(
+                tool_name="set_object_parent",
+                arguments={"target": _target, "group_id": _group_id},
+                description=f"Parent '{_target}' to group '{_group_id}'",
+            ))
+            matched_any = True
+
+    # add_annotation — "add annotation/note/label", "添加标注/注释/标签"
+    if any(k in msg_lower for k in ["add an annotation", "add annotation", "add note", "add label", "add a note", "an annotation labeled", "添加标注", "添加注释", "添加标签", "加标注"]):
+        _text = msg
+        for _trig in ["add an annotation", "add annotation", "add note", "add label", "add a note", "an annotation labeled", "annotation labeled", "labeled", "labelled", "添加标注", "添加注释", "添加标签", "加标注"]:
+            _text = _text.replace(_trig, "")
+        _text = _text.strip(" :,.-")
+        if not _text:
+            _text = "New annotation"
+        _target = scene_objects[-1].get("name", "") if scene_objects else ""
+        intents.append(ParsedIntent(
+            tool_name="add_annotation",
+            arguments={"object_id": _target, "text": _text} if _target else {"text": _text},
+            description=f"Add annotation: {_text}",
+        ))
+        matched_any = True
+
+    # remove_annotation — "remove annotation", "删除标注/注释/标签"
+    if any(k in msg_lower for k in ["remove annotation", "remove note", "remove label", "delete annotation", "删除标注", "删除注释", "删除标签"]):
+        _id_match = re.search(r"(?:ann_|note_)[A-Za-z0-9]+", msg)
+        _ann_id = _id_match.group(0) if _id_match else ""
+        if _ann_id:
+            intents.append(ParsedIntent(
+                tool_name="remove_annotation",
+                arguments={"id": _ann_id},
+                description=f"Remove annotation '{_ann_id}'",
+            ))
+            matched_any = True
+
+    # configure_shortcuts — "configure shortcuts / remap keys", "配置快捷键"
+    if any(k in msg_lower for k in ["configure shortcut", "remap shortcut", "remap key", "rebind key", "配置快捷键", "重映射快捷键"]):
+        intents.append(ParsedIntent(
+            tool_name="configure_shortcuts",
+            arguments={"shortcuts": {"frame_all": "A"}},
+            description="Configure keyboard shortcuts (recorded)",
+        ))
+        matched_any = True
 
     # 18. Reset / clear scene
     if any(k in msg_lower for k in ["clear scene", "reset scene", "清空", "重置"]):
