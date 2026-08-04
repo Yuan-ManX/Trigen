@@ -349,6 +349,31 @@ async def scene_history_status(session_id: str) -> JSONResponse:
     return JSONResponse(content={"session_id": session_id, **status})
 
 
+@router.get("/scene/diff")
+async def scene_diff(
+    session_id: str = "default",
+    frm: str = "prev",
+    to: str = "current",
+) -> JSONResponse:
+    """Compute a structural diff between two scene snapshots.
+
+    Query params:
+      - ``session_id``: target session
+      - ``from`` (aliased as ``frm`` to avoid the Python keyword): snapshot
+        label — one of ``prev`` (most recent undo entry), ``current``
+        (live scene), or ``redo`` (most recent redo entry).
+      - ``to``: snapshot label, same vocabulary as ``from``.
+
+    Returns ``added`` / ``removed`` / ``changed`` lists for objects and
+    lights, plus per-snapshot object counts and the set of changed
+    scene-level fields (background/fog/grid/etc.). When either snapshot
+    is unavailable (e.g. empty undo stack), ``available`` is False.
+    """
+    agent = AgentService.get()
+    diff = agent.orchestrator.scene_diff(session_id, from_label=frm, to_label=to)
+    return JSONResponse(content={"session_id": session_id, **diff})
+
+
 # ---------------------------------------------------------------------------
 # Selection + viewport (editor-state endpoints; return editor deltas)
 # ---------------------------------------------------------------------------
