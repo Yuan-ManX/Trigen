@@ -45,6 +45,51 @@ class ExplainRequest(BaseModel):
     name: str = Field(..., description="Tool or skill name to explain")
 
 
+class DescribeSceneRequest(BaseModel):
+    """Request body for the scene-description endpoint."""
+
+    session_id: str = Field(default="default", description="Session ID whose scene to describe")
+    focus: str = Field(
+        default="all",
+        description="Optional aspect to focus on: 'all' | 'layout' | 'palette' | 'lighting' | 'balance' | 'geometry'",
+    )
+    include_metrics: bool = Field(default=True, description="Include the structured metrics block")
+
+
+class SuggestRequest(BaseModel):
+    """Request body for the suggest-next-actions endpoint."""
+
+    session_id: str = Field(default="default", description="Session ID whose scene to suggest for")
+    count: Optional[int] = Field(default=None, description="Max suggestions to return (default 3, capped at 5)")
+    direction: str = Field(
+        default="any",
+        description="Creative direction bias: 'any' | 'lighting' | 'motion' | 'material' | 'composition' | 'population'",
+    )
+
+
+class PinMemoryRequest(BaseModel):
+    """Request body for the pin-fact endpoint."""
+
+    text: str = Field(..., description="The fact text to pin (non-empty)")
+    category: Optional[str] = Field(
+        default=None,
+        description="Optional category bucket (e.g. 'project', 'preference', 'constraint'). Defaults to 'general'.",
+    )
+
+
+class ForgetMemoryRequest(BaseModel):
+    """Request body for the forget-fact endpoint."""
+
+    text: Optional[str] = Field(
+        default=None,
+        description="If supplied, remove a single fact by case-insensitive exact match. If omitted, clear by category.",
+    )
+    category: Optional[str] = Field(
+        default=None,
+        description="When 'text' is omitted, clear every fact in this category (or all when also empty).",
+    )
+
+
 @router.post("/agent/plan")
 async def agent_plan(req: PlanRequest) -> JSONResponse:
     """Produce a structured plan for ``message`` without executing any tools.
@@ -66,6 +111,46 @@ async def agent_plan(req: PlanRequest) -> JSONResponse:
         return JSONResponse(
             status_code=500,
             content={"error": str(e), "plan": None},
+        )
+    return JSONResponse(content=result)
+
+
+@router.post("/agent/plan/graph")
+async def agent_plan_graph(req: PlanRequest) -> JSONResponse:
+    """Plan-only preview enriched with the dependency DAG + critique + perception.
+
+    Mirrors ``/agent/plan`` (single LLM pass, no execution, no scene
+    mutation) but also returns:
+      - ``graph``: the plan dependency DAG (``{nodes, edges, layers}``) for
+        node-graph rendering. Each node carries ``status`` ("pending" here),
+        ``dependencies``, ``tool``, ``label``, and ``arguments``.
+      - ``critique``: pre-execution critique findings
+        (``{summary, findings, pruned_step_ids}``) — advisory diagnostics
+        for dead-after-delete, target-miss, redundant-repeat, and
+        duplicate-create issues.
+      - ``perception``: heuristic scene-perception findings
+        (``{summary, findings, metrics}``) when the plan contains a
+        multimodal 3D-generation step; ``null`` otherwise.
+
+    The DAG node ``status`` is always ``"pending"`` at preview time; the
+    frontend merges live ``plan_update`` transitions during a real run.
+    """
+    agent = AgentService.get()
+    try:
+        result = await agent.orchestrator.plan_graph(
+            req.message, req.session_id, model=req.model
+        )
+    except Exception as e:
+        logger.exception("agent/plan/graph error")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": str(e),
+                "plan": None,
+                "graph": None,
+                "critique": None,
+                "perception": None,
+            },
         )
     return JSONResponse(content=result)
 
@@ -128,6 +213,156 @@ async def agent_explain(req: ExplainRequest) -> JSONResponse:
                 })
         return JSONResponse(status_code=404, content={"error": f"Skill not found: {name}"})
     return JSONResponse(status_code=400, content={"error": f"kind must be 'tool' or 'skill', got {kind}"})
+
+
+@router.post("/agent/describe_scene")
+async def agent_describe_scene(req: DescribeSceneRequest) -> JSONResponse:
+    """Generate a semantic description of the current scene.
+
+    Resolves the session's scene, invokes the registered ``describe_scene``
+    tool, and returns the natural-language description plus (optionally)
+    the structured metrics block. Read-only — does not mutate the scene.
+    Falls back to a fresh empty scene if the session is unknown.
+    """
+    agent = AgentService.get()
+    tool = agent.orchestrator.registry.get("describe_scene")
+    if tool is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "describe_scene tool is not registered"},
+        )
+    scene = agent.orchestrator.get_scene(req.session_id)
+    args: Dict[str, Any] = {"focus": req.focus, "include_metrics": req.include_metrics}
+    try:
+        result = await tool.execute(scene, args)
+    except Exception as e:
+        logger.exception("agent/describe_scene error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if not result.success:
+        return JSONResponse(status_code=500, content={"error": result.message})
+    return JSONResponse(content=result.data)
+
+
+@router.post("/agent/suggest")
+async def agent_suggest(req: SuggestRequest) -> JSONResponse:
+    """Propose actionable creative next steps for the current scene.
+
+    Resolves the session's scene, invokes the registered
+    ``suggest_next_actions`` tool, and returns the suggestion list. The
+    count is capped at 5 by the tool. Read-only — does not mutate the
+    scene. Falls back to a fresh empty scene if the session is unknown.
+    """
+    agent = AgentService.get()
+    tool = agent.orchestrator.registry.get("suggest_next_actions")
+    if tool is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "suggest_next_actions tool is not registered"},
+        )
+    scene = agent.orchestrator.get_scene(req.session_id)
+    args: Dict[str, Any] = {"direction": req.direction}
+    if req.count is not None:
+        args["count"] = req.count
+    try:
+        result = await tool.execute(scene, args)
+    except Exception as e:
+        logger.exception("agent/suggest error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if not result.success:
+        return JSONResponse(status_code=500, content={"error": result.message})
+    return JSONResponse(content=result.data)
+
+
+@router.get("/agent/memory")
+async def agent_memory_get() -> JSONResponse:
+    """Return the Agent's explicit (pinned) memory contents.
+
+    Exposes the full episodic-memory dict (preferences, patterns,
+    pinned_facts, last_updated) so the frontend MemoryPanel can render
+    a live inspector. Read-only — does not mutate the store.
+    """
+    from trigen.episodic_memory import store as episodic_store
+
+    try:
+        mem = episodic_store.get()
+        payload = mem.to_dict()
+        payload["summary"] = {
+            "total_facts": len(mem.pinned_facts),
+            "categories": sorted({f.category for f in mem.pinned_facts}),
+            "pattern_count": len(mem.patterns),
+        }
+        return JSONResponse(content=payload)
+    except Exception as e:
+        logger.exception("agent/memory GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/agent/memory/pin")
+async def agent_memory_pin(req: PinMemoryRequest) -> JSONResponse:
+    """Pin a durable fact the Agent should remember across turns.
+
+    Body: ``{text, category?}``. Deduplicates case-insensitively (refreshes
+    the timestamp/category of an existing identical fact). Persists to the
+    workspace episodic memory file. Returns the pinned fact and the new
+    total fact count.
+    """
+    from trigen.episodic_memory import store as episodic_store
+
+    text = (req.text or "").strip()
+    if not text:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "'text' must be a non-empty string"},
+        )
+    category = (req.category or "general").strip().lower() or "general"
+    try:
+        mem = episodic_store.get()
+        fact = mem.add_fact(text, category)
+        episodic_store.save()
+        return JSONResponse(content={
+            "fact": fact.to_dict(),
+            "total_facts": len(mem.pinned_facts),
+        })
+    except Exception as e:
+        logger.exception("agent/memory/pin error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/memory")
+async def agent_memory_delete(req: ForgetMemoryRequest) -> JSONResponse:
+    """Remove pinned fact(s) by text or by category.
+
+    Body: ``{text?, category?}``. If ``text`` is supplied, remove a single
+    matching fact (case-insensitive exact match) and return
+    ``{removed: bool}``. Otherwise clear every fact in ``category`` (or
+    all facts when ``category`` is also empty) and return the count
+    removed. Persists the change to disk.
+    """
+    from trigen.episodic_memory import store as episodic_store
+
+    text = (req.text or "").strip()
+    category = (req.category or "").strip()
+    try:
+        mem = episodic_store.get()
+        if text:
+            removed = mem.remove_fact(text)
+            if removed:
+                episodic_store.save()
+            return JSONResponse(content={
+                "removed": removed,
+                "text": text,
+                "remaining": len(mem.pinned_facts),
+            })
+        cleared = mem.clear_facts(category or None)
+        episodic_store.save()
+        return JSONResponse(content={
+            "removed": cleared,
+            "category": category or None,
+            "remaining": len(mem.pinned_facts),
+        })
+    except Exception as e:
+        logger.exception("agent/memory DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @router.post("/agent/upload/image")
@@ -284,4 +519,122 @@ async def agent_episodic_delete() -> JSONResponse:
         })
     except Exception as e:
         logger.exception("agent/episodic DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Macro registry REST surface — read/browse/delete user-defined macros.
+# Definition and invocation happen via the agent tool flow (define_macro /
+# invoke_macro); these endpoints exist so the frontend can render a macro
+# browser and let users manage saved recipes without going through chat.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/macros")
+async def agent_macros_get() -> JSONResponse:
+    """Return all defined macros in the workspace.
+
+    Each entry includes the name, description, ordered steps (tool +
+    arguments), creation timestamp, and use count. Read-only.
+    """
+    from trigen.macros import macro_store
+
+    try:
+        collection = macro_store.get()
+        items = [
+            m.to_dict()
+            for m in sorted(collection.macros.values(), key=lambda x: x.name)
+        ]
+        return JSONResponse(content={"macros": items, "count": len(items)})
+    except Exception as e:
+        logger.exception("agent/macros GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/macros")
+async def agent_macros_delete(name: str = "") -> JSONResponse:
+    """Delete a single macro by name (query param ``name``).
+
+    If ``name`` is empty or unknown, returns 404. On success the macro is
+    removed from the in-memory store and the persisted JSON is rewritten.
+    """
+    from trigen.macros import macro_store
+
+    try:
+        normalized = name.strip().lower().replace(" ", "_")
+        if not normalized:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Query parameter 'name' is required"},
+            )
+        collection = macro_store.get()
+        if normalized not in collection.macros:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Macro '{normalized}' not found"},
+            )
+        del collection.macros[normalized]
+        macro_store.save()
+        return JSONResponse(content={"deleted": True, "name": normalized})
+    except Exception as e:
+        logger.exception("agent/macros DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Scene-variant REST surface — read/browse/delete named scene snapshots.
+# Save / load / randomize happen via the agent tool flow; these endpoints
+# let the frontend render a variant browser and prune saved snapshots.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/variants")
+async def agent_variants_get() -> JSONResponse:
+    """Return all saved scene variants in the workspace.
+
+    Each entry includes the name, full scene snapshot, parent variant,
+    and creation timestamp. Read-only. The scene payloads can be large,
+    so callers that only need the variant list should filter client-side.
+    """
+    from trigen.variants import variant_store
+
+    try:
+        collection = variant_store.get()
+        items = [
+            v.to_dict()
+            for v in sorted(collection.variants.values(), key=lambda x: x.name)
+        ]
+        return JSONResponse(content={"variants": items, "count": len(items)})
+    except Exception as e:
+        logger.exception("agent/variants GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/variants")
+async def agent_variants_delete(name: str = "") -> JSONResponse:
+    """Delete a single scene variant by name (query param ``name``).
+
+    If ``name`` is empty or unknown, returns 404. On success the variant
+    is removed from the in-memory store and the persisted JSON is rewritten.
+    """
+    from trigen.variants import variant_store
+
+    try:
+        normalized = name.strip().lower().replace(" ", "_")
+        if not normalized:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Query parameter 'name' is required"},
+            )
+        collection = variant_store.get()
+        if normalized not in collection.variants:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Variant '{normalized}' not found"},
+            )
+        del collection.variants[normalized]
+        variant_store.save()
+        return JSONResponse(content={"deleted": True, "name": normalized})
+    except Exception as e:
+        logger.exception("agent/variants DELETE error")
         return JSONResponse(status_code=500, content={"error": str(e)})
