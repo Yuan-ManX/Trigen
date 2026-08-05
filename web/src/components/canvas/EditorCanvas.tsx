@@ -12,6 +12,7 @@ import { useScene } from '../../store/useScene'
 import type { CameraObject } from '../../types'
 import { CameraRig } from './CameraRig'
 import { Minimap } from './Minimap'
+import { RadialMenu } from './RadialMenu'
 import { SceneLight } from './SceneLight'
 import { SceneMesh } from './SceneMesh'
 
@@ -570,6 +571,11 @@ export function EditorCanvas({ mode = 'edit' }: EditorCanvasProps) {
           {clippingLabel}
         </div>
       )}
+
+      {/* Radial pie-menu overlay (right-click on a mesh). Rendered as a
+          fixed-position portal so it floats above the canvas; only present
+          in edit mode — run mode is a clean showcase. */}
+      {mode === 'edit' && <RadialMenu />}
     </>
   )
 }
