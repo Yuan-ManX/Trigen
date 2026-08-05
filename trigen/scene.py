@@ -30,7 +30,14 @@ class Transform:
 
 @dataclass
 class Material:
-    """Standard PBR material."""
+    """Standard PBR material with extended physical properties.
+
+    Beyond the base metalness/roughness model, supports the clearcoat,
+    transmission, iridescence, and sheen layers used by modern PBR
+    shaders (three.js MeshPhysicalMaterial). All extended fields default
+    to physically-plausible zero values so existing scenes round-trip
+    without changes — older payloads simply omit the new keys.
+    """
 
     color: str = "#cccccc"
     metalness: float = 0.0
@@ -41,6 +48,29 @@ class Material:
     emissive_intensity: float = 0.0
     flat_shading: bool = False
     side: str = "front"  # front / back / double
+    # Clearcoat layer (car paint, lacquer). 0 = no clearcoat.
+    clearcoat: float = 0.0
+    clearcoat_roughness: float = 0.0
+    # Transmission (glass, water). 0 = opaque, 1 = fully transmissive.
+    transmission: float = 0.0
+    thickness: float = 0.0  # volume thickness for refraction
+    ior: float = 1.5  # index of refraction (1.0 = air, 1.5 = glass, 2.4 = diamond)
+    # Iridescence (thin-film interference — soap bubbles, oil slicks).
+    iridescence: float = 0.0
+    iridescence_ior: float = 1.3
+    iridescence_thickness_min: float = 100.0
+    iridescence_thickness_max: float = 400.0
+    # Sheen (velvet, fabric, dust). 0 = no sheen.
+    sheen: float = 0.0
+    sheen_color: str = "#000000"
+    sheen_roughness: float = 1.0
+    # Specular intensity scaling (controls dielectric specular highlight).
+    specular_intensity: float = 1.0
+    specular_color: str = "#ffffff"
+    # Attenuation color + distance for volumetric absorption inside
+    # transmissive materials (tinted glass, colored liquids).
+    attenuation_color: str = "#ffffff"
+    attenuation_distance: float = 0.0  # 0 = no attenuation
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -207,6 +237,11 @@ class Scene:
     fog: Optional[Dict[str, Any]] = None  # {"color": "#0a0a0f", "near": 18, "far": 55}
     grid_visible: bool = True
     grid_size: float = 40.0
+    # On-canvas annotations: text labels anchored to an object id or a
+    # world-space position. Stored as plain dicts to keep the dataclass
+    # forward-compatible with future annotation fields without costly
+    # schema migrations.
+    annotations: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -219,6 +254,7 @@ class Scene:
             "fog": self.fog,
             "grid_visible": self.grid_visible,
             "grid_size": self.grid_size,
+            "annotations": list(self.annotations),
         }
 
     @classmethod
@@ -233,6 +269,7 @@ class Scene:
             fog=data.get("fog"),
             grid_visible=data.get("grid_visible", True),
             grid_size=data.get("grid_size", 40.0),
+            annotations=list(data.get("annotations", [])),
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
@@ -305,6 +342,14 @@ GEOMETRY_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "ring": {"innerRadius": 0.4, "outerRadius": 0.7, "thetaSegments": 24},
     "capsule": {"radius": 0.4, "length": 0.8, "capSegments": 12, "radialSegments": 16},
     "tube": {"radius": 0.3, "tubularSegments": 64, "radialSegments": 8},
+    # Lathe — surface of revolution swept along a 2D point profile.
+    "lathe": {"points": [[0.0, 0.0], [0.4, 0.2], [0.3, 0.6], [0.0, 0.8]], "segments": 32, "phiStart": 0.0, "phiLength": 6.2832},
+    # Extrude — 2D shape (closed polygon outline) pushed along the Z axis.
+    "extrude": {"outline": [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], "depth": 0.4, "bevelEnabled": True, "bevelThickness": 0.04, "bevelSize": 0.04, "bevelSegments": 3, "curveSegments": 12},
+    # Text — SDF/freetype glyph geometry. ``text`` is the rendered string.
+    "text": {"text": "Trigen", "size": 0.6, "height": 0.12, "curveSegments": 8, "bevelEnabled": False},
+    # Spline — a Catmull-Rom curve mesh (open tube following control points).
+    "spline": {"points": [[-1.0, 0.0, 0.0], [0.0, 0.6, 0.3], [1.0, 0.0, 0.0]], "tubularSegments": 64, "radius": 0.06, "radialSegments": 8, "closed": False},
 }
 
 
@@ -324,6 +369,10 @@ GEOMETRY_DISPLAY_NAMES: Dict[str, str] = {
     "ring": "Ring",
     "capsule": "Capsule",
     "tube": "Tube",
+    "lathe": "Lathe",
+    "extrude": "Extrude",
+    "text": "Text",
+    "spline": "Spline",
 }
 
 
@@ -341,4 +390,12 @@ MATERIAL_PRESETS: Dict[str, Dict[str, Any]] = {
     "ceramic": {"color": "#f5f1ea", "metalness": 0.05, "roughness": 0.35, "opacity": 1.0},
     "marble": {"color": "#e8e6e0", "metalness": 0.1, "roughness": 0.2, "opacity": 1.0},
     "wireframe": {"color": "#00F0FF", "metalness": 0.0, "roughness": 0.5, "opacity": 1.0, "wireframe": True},
+    # Extended-PBR presets leveraging the clearcoat / transmission /
+    # iridescence / sheen layers added in this revision.
+    "carpaint": {"color": "#7a0d0d", "metalness": 0.85, "roughness": 0.3, "clearcoat": 1.0, "clearcoat_roughness": 0.08},
+    "crystal": {"color": "#bfe9ff", "metalness": 0.0, "roughness": 0.02, "transmission": 0.95, "thickness": 0.6, "ior": 2.0, "attenuation_distance": 1.2},
+    "bubble": {"color": "#ffffff", "metalness": 0.0, "roughness": 0.0, "transmission": 0.6, "iridescence": 1.0, "iridescence_ior": 1.33, "ior": 1.25, "opacity": 0.5},
+    "velvet": {"color": "#5b1a66", "metalness": 0.0, "roughness": 0.9, "sheen": 1.0, "sheen_color": "#c486d6", "sheen_roughness": 0.3},
+    "diamond": {"color": "#ffffff", "metalness": 0.0, "roughness": 0.0, "transmission": 1.0, "ior": 2.42, "thickness": 0.5},
+    "oilsllick": {"color": "#101010", "metalness": 0.4, "roughness": 0.3, "iridescence": 1.0, "iridescence_ior": 1.5, "iridescence_thickness_min": 200.0, "iridescence_thickness_max": 700.0},
 }
