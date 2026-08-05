@@ -381,3 +381,96 @@ class SetRenderQualityTool(ToolBase):
             deltas=[SceneDelta(action="editor_set_render_quality", payload={"quality": quality})],
             data={"quality": quality},
         )
+
+
+_RADIAL_MENU_PARAMS = {
+    "type": "object",
+    "properties": {
+        "show": {"type": "boolean", "description": "True to show the radial menu, false to dismiss it"},
+        "position": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "Optional viewport-space [x, y] pixel anchor for the menu (default screen center)",
+        },
+        "target": {
+            "type": "string",
+            "description": "Optional object id the menu is anchored to",
+        },
+    },
+    "required": ["show"],
+}
+
+
+class ControlRadialMenuTool(ToolBase):
+    """Show or dismiss the radial context menu overlay."""
+
+    name = "control_radial_menu"
+    description = "Show or dismiss the radial context menu overlay at an optional viewport position."
+
+    def schema(self) -> Dict[str, Any]:
+        return _RADIAL_MENU_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        show = bool(arguments.get("show"))
+        if not show:
+            return ToolResult(
+                success=True,
+                message="Radial menu dismissed",
+                deltas=[SceneDelta(action="editor_radial_menu", payload={"show": False})],
+            )
+        target = str(arguments.get("target", "") or "").strip()
+        pos = arguments.get("position")
+        if isinstance(pos, list) and len(pos) == 2:
+            try:
+                position = [float(pos[0]), float(pos[1])]
+            except (TypeError, ValueError):
+                return ToolResult(success=False, message="position must be [x, y] numbers")
+        else:
+            position = None  # Frontend will fall back to screen center
+        payload: Dict[str, Any] = {"show": True}
+        if position is not None:
+            payload["position"] = position
+        if target:
+            payload["target"] = target
+        where = f" at {position}" if position is not None else " at screen center"
+        toward = f" for '{target}'" if target else ""
+        return ToolResult(
+            success=True,
+            message=f"Radial menu shown{where}{toward}",
+            deltas=[SceneDelta(action="editor_radial_menu", payload=payload)],
+            data=payload,
+        )
+
+
+class ClearMeasurementTool(ToolBase):
+    """Dismiss the on-canvas measurement overlay."""
+
+    name = "clear_measurement"
+    description = "Clear the on-canvas measurement overlay (distance line + label)."
+
+    def schema(self) -> Dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            success=True,
+            message="Measurement overlay cleared",
+            deltas=[SceneDelta(action="editor_clear_measurement", payload={})],
+        )
+
+
+class StopCameraFlythroughTool(ToolBase):
+    """Stop any running cinematic camera flythrough preview."""
+
+    name = "stop_camera_flythrough"
+    description = "Stop the cinematic camera flythrough preview if one is currently playing."
+
+    def schema(self) -> Dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            success=True,
+            message="Camera flythrough stopped",
+            deltas=[SceneDelta(action="editor_stop_camera_flythrough", payload={})],
+        )
