@@ -320,6 +320,7 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
   const currentTime = usePlayback((s) => s.currentTime)
   const gridSnapEnabled = useEditor((s) => s.gridSnapEnabled)
   const snapIncrement = useEditor((s) => s.snapIncrement)
+  const setRadialMenu = useEditor((s) => s.setRadialMenu)
   // Capture the base transforms of every secondary selection at drag start
   // so the gizmo can move them as a rigid group alongside the primary.
   // The ref is populated lazily in the onObjectChange handler when the
@@ -362,6 +363,16 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
     select(object.id, additive)
   }
 
+  // Right-click opens the radial pie-menu at the cursor. The native browser
+  // context menu is suppressed so the radial overlay owns the interaction.
+  const handleContextMenu = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+    if (object.locked) return
+    e.nativeEvent.preventDefault()
+    select(object.id, false)
+    setRadialMenu({ objectId: object.id, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })
+  }
+
   // Cache rotation/scale/position to avoid creating new arrays every time
   const transform = useMemo(
     () => ({
@@ -389,6 +400,7 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
         rotation={transform.rotation}
         scale={transform.scale}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         castShadow
         receiveShadow
         userData={{ id: object.id, name: object.name }}
