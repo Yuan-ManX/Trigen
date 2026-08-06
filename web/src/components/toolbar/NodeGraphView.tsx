@@ -42,6 +42,7 @@ import type {
   PipelineNodeStatus,
   PipelineNodeType,
   PipelinePortType,
+  PlanGraphPayload,
 } from '../../types'
 
 // ---------------------------------------------------------------------------
@@ -202,15 +203,213 @@ function makeNodeId(type: string, existing: PipelineGraphNode[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Plan DAG canvas — read-only rendering of the agent's plan dependency graph.
+// Reuses the pipeline editor's geometry constants and autoLayout so the
+// topology is laid out left-to-right by dependency depth, but renders
+// simplified status-coded cards (no ports, no editing).
+// ---------------------------------------------------------------------------
+
+const PLAN_STATUS_META: Record<string, { label: string; color: string; icon: typeof CheckCircle2; spin?: boolean }> = {
+  pending: { label: 'Pending', color: 'text-fg-muted', icon: CircleDot },
+  running: { label: 'Running', color: 'text-accent-cyan', icon: Loader2, spin: true },
+  done: { label: 'Done', color: 'text-emerald-400', icon: CheckCircle2 },
+  failed: { label: 'Failed', color: 'text-rose-400', icon: AlertTriangle },
+}
+
+function PlanDagCanvas({ graph }: { graph: PlanGraphPayload }) {
+  // Adapt plan nodes/edges to the pipeline shapes autoLayout understands,
+  // then position them. Recomputed on every render — graph is small.
+  const { nodes, edges } = useMemo(() => {
+    const adapted: PipelineGraphNode[] = graph.nodes.map((n) => ({
+      id: n.id,
+      type: 'literal',
+      inputs: {},
+      position: { x: 0, y: 0 },
+    }))
+    const adaptedEdges: PipelineGraphEdge[] = graph.edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      output: 'out',
+      input: 'in',
+    }))
+    // If the backend provided layers, prefer them for column grouping;
+    // otherwise fall back to autoLayout's depth computation.
+    if (graph.layers && graph.layers.length > 0) {
+      const COLUMN_GAP = 80
+      const ROW_GAP = 32
+      const CARD_HEIGHT = HEADER_HEIGHT + PORT_HEIGHT
+      const maxCol = graph.layers.length - 1
+      const positioned: PipelineGraphNode[] = []
+      graph.layers.forEach((ids, col) => {
+        const colHeight = ids.length * (CARD_HEIGHT + ROW_GAP)
+        let y = -colHeight / 2
+        for (const id of ids) {
+          const orig = graph.nodes.find((n) => n.id === id)
+          if (!orig) continue
+          positioned.push({
+            id: orig.id,
+            type: 'literal',
+            inputs: {},
+            position: {
+              x: col * (NODE_WIDTH + COLUMN_GAP) - (maxCol * (NODE_WIDTH + COLUMN_GAP)) / 2,
+              y: y + CARD_HEIGHT / 2,
+            },
+          })
+          y += CARD_HEIGHT + ROW_GAP
+        }
+      })
+      return { nodes: positioned, edges: adaptedEdges }
+    }
+    return { nodes: autoLayout(adapted, adaptedEdges), edges: adaptedEdges }
+  }, [graph])
+
+  const nodeById = useMemo(() => {
+    const m = new Map<string, (typeof graph.nodes)[number]>()
+    for (const n of graph.nodes) m.set(n.id, n)
+    return m
+  }, [graph])
+
+  // Edge geometry: source right-center → target left-center (no ports).
+  const edgePaths = useMemo(() => {
+    return edges
+      .map((e) => {
+        const a = nodes.find((n) => n.id === e.from)
+        const b = nodes.find((n) => n.id === e.to)
+        if (!a || !b) return null
+        const ax = a.position.x + NODE_WIDTH
+        const ay = a.position.y + HEADER_HEIGHT / 2
+        const bx = b.position.x
+        const by = b.position.y + HEADER_HEIGHT / 2
+        const midX = (ax + bx) / 2
+        return { key: `${e.from}->${e.to}`, d: `M ${ax},${ay} C ${midX},${ay} ${midX},${by} ${bx},${by}` }
+      })
+      .filter((p): p is { key: string; d: string } => p !== null)
+  }, [nodes, edges])
+
+  const doneCount = graph.nodes.filter((n) => n.status === 'done').length
+  const failedCount = graph.nodes.filter((n) => n.status === 'failed').length
+  const running = graph.nodes.some((n) => n.status === 'running')
+
+  return (
+    <div
+      className="relative flex-1 overflow-hidden bg-bg-base"
+      style={{
+        backgroundImage:
+          'radial-gradient(circle, rgba(148,163,184,0.08) 1px, transparent 1px)',
+        backgroundSize: '24px 24px',
+      }}
+    >
+      <svg className="absolute inset-0 w-full h-full pointer-events-none">
+        <defs>
+          <marker
+            id="plan-edge-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(148,163,184,0.7)" />
+          </marker>
+        </defs>
+        {edgePaths.map((p) => (
+          <path
+            key={p.key}
+            d={p.d}
+            stroke="rgba(148,163,184,0.6)"
+            strokeWidth="1.6"
+            fill="none"
+            markerEnd="url(#plan-edge-arrow)"
+          />
+        ))}
+      </svg>
+
+      {nodes.map((n) => {
+        const orig = nodeById.get(n.id)
+        if (!orig) return null
+        const statusMeta = PLAN_STATUS_META[orig.status] ?? PLAN_STATUS_META.pending
+        const StatusIcon = statusMeta.icon
+        return (
+          <div
+            key={n.id}
+            className={`absolute rounded-md border bg-bg-panel shadow-lg select-none ${
+              orig.status === 'running'
+                ? 'border-accent-cyan shadow-glow'
+                : orig.status === 'failed'
+                  ? 'border-rose-400/50'
+                  : orig.status === 'done'
+                    ? 'border-emerald-400/30'
+                    : 'border-border'
+            }`}
+            style={{ left: n.position.x, top: n.position.y, width: NODE_WIDTH }}
+          >
+            <div className="flex items-center justify-between gap-2 px-2.5 h-[38px] border-b border-border-subtle bg-bg-elevated/40">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <StatusIcon
+                  size={12}
+                  className={`${statusMeta.color} ${statusMeta.spin ? 'animate-spin' : ''}`}
+                />
+                <span className="text-[11px] font-semibold text-fg-primary truncate">
+                  {orig.label || orig.id}
+                </span>
+              </div>
+            </div>
+            <div className="px-2.5 py-1.5 flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] text-fg-secondary truncate">{orig.tool}</span>
+              <span className={`text-[9px] uppercase tracking-wide ${statusMeta.color}`}>{statusMeta.label}</span>
+            </div>
+          </div>
+        )
+      })}
+
+      {nodes.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <p className="text-[12px] text-fg-secondary font-medium">Empty plan graph</p>
+            <p className="text-[11px] text-fg-muted mt-1">No steps in this plan.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Summary toast */}
+      <div className="absolute bottom-3 right-3 rounded-md border border-border bg-bg-elevated/95 backdrop-blur shadow-lg px-3 py-2 text-[11px]">
+        <div className="flex items-center gap-2 mb-1">
+          {running ? (
+            <Loader2 size={12} className="text-accent-cyan animate-spin" />
+          ) : (
+            <CheckCircle2 size={12} className={failedCount === 0 ? 'text-emerald-400' : 'text-amber-400'} />
+          )}
+          <span className="font-semibold text-fg-primary">
+            {running ? 'Plan executing' : failedCount === 0 ? 'Plan ready' : 'Plan has failures'}
+          </span>
+        </div>
+        <div className="text-fg-muted">
+          <span className="text-emerald-400">{doneCount} done</span>
+          {' · '}
+          <span className="text-rose-400">{failedCount} failed</span>
+          {' · '}
+          {graph.nodes.length} steps · {graph.edges.length} deps
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 interface NodeGraphViewProps {
   open: boolean
   onClose: () => void
+  /** Optional plan DAG payload. When supplied, the modal renders the agent's
+   *  plan dependency graph in read-only mode instead of the editable
+   *  pipeline editor. Used by the chat UI to visualize a turn's plan DAG. */
+  planGraph?: PlanGraphPayload
 }
 
-export function NodeGraphView({ open, onClose }: NodeGraphViewProps) {
+export function NodeGraphView({ open, onClose, planGraph }: NodeGraphViewProps) {
   // ----- node type catalog (from backend) -----
   const [nodeTypes, setNodeTypes] = useState<PipelineNodeType[]>([])
   const [templates, setTemplates] = useState<PipelineTemplate[]>([])
@@ -593,60 +792,71 @@ export function NodeGraphView({ open, onClose }: NodeGraphViewProps) {
             {/* Header */}
             <header className="flex items-center justify-between h-12 px-4 border-b border-border bg-bg-elevated/40">
               <div className="flex items-center gap-2.5">
-                <div className="flex items-center justify-center w-7 h-7 rounded-md bg-accent-cyan/15 border border-accent-cyan/30">
-                  <Sparkles size={14} className="text-accent-cyan" />
+                <div className={`flex items-center justify-center w-7 h-7 rounded-md border ${
+                  planGraph
+                    ? 'bg-accent-gold/15 border-accent-gold/30'
+                    : 'bg-accent-cyan/15 border-accent-cyan/30'
+                }`}>
+                  <Sparkles size={14} className={planGraph ? 'text-accent-gold' : 'text-accent-cyan'} />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-fg-primary leading-tight">Pipeline Node Graph</h2>
+                  <h2 className="text-sm font-semibold text-fg-primary leading-tight">
+                    {planGraph ? 'Plan Dependency Graph' : 'Pipeline Node Graph'}
+                  </h2>
                   <p className="text-[10px] text-fg-muted leading-tight">
-                    Multi-step generation pipeline
+                    {planGraph ? 'Agent plan DAG (read-only)' : 'Multi-step generation pipeline'}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Template selector */}
-                <select
-                  className="text-[11px] bg-bg-elevated border border-border rounded px-2 py-1 text-fg-secondary hover:border-accent-cyan/40 transition-colors outline-none"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const id = e.target.value
-                    const tpl = templates.find((t) => t.id === id)
-                    if (tpl) loadTemplate(tpl)
-                    e.target.value = ''
-                  }}
-                  title="Load a pre-built pipeline template"
-                >
-                  <option value="" disabled>
-                    Load template…
-                  </option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                {/* Editor-only controls — hidden in plan-DAG read-only mode. */}
+                {!planGraph && (
+                  <>
+                    {/* Template selector */}
+                    <select
+                      className="text-[11px] bg-bg-elevated border border-border rounded px-2 py-1 text-fg-secondary hover:border-accent-cyan/40 transition-colors outline-none"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const tpl = templates.find((t) => t.id === id)
+                        if (tpl) loadTemplate(tpl)
+                        e.target.value = ''
+                      }}
+                      title="Load a pre-built pipeline template"
+                    >
+                      <option value="" disabled>
+                        Load template…
+                      </option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Clear */}
-                <button
-                  onClick={clearGraph}
-                  disabled={running || nodes.length === 0}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border text-[11px] text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Clear the canvas"
-                >
-                  <Eraser size={12} />
-                  Clear
-                </button>
+                    {/* Clear */}
+                    <button
+                      onClick={clearGraph}
+                      disabled={running || nodes.length === 0}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border text-[11px] text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Clear the canvas"
+                    >
+                      <Eraser size={12} />
+                      Clear
+                    </button>
 
-                {/* Run */}
-                <button
-                  onClick={runGraph}
-                  disabled={running || nodes.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-accent-cyan/15 border border-accent-cyan/40 text-accent-cyan text-[11px] font-semibold hover:bg-accent-cyan/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-                  {running ? 'Running…' : 'Run pipeline'}
-                </button>
+                    {/* Run */}
+                    <button
+                      onClick={runGraph}
+                      disabled={running || nodes.length === 0}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-accent-cyan/15 border border-accent-cyan/40 text-accent-cyan text-[11px] font-semibold hover:bg-accent-cyan/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                      {running ? 'Running…' : 'Run pipeline'}
+                    </button>
+                  </>
+                )}
 
                 <button
                   onClick={onClose}
@@ -658,7 +868,11 @@ export function NodeGraphView({ open, onClose }: NodeGraphViewProps) {
               </div>
             </header>
 
-            {/* Body: palette | canvas | properties */}
+            {/* Body: palette | canvas | properties — OR read-only plan DAG
+                when a planGraph payload was supplied via props. */}
+            {planGraph ? (
+              <PlanDagCanvas graph={planGraph} />
+            ) : (
             <div className="flex flex-1 min-h-0">
               {/* Palette */}
               <aside className="w-[220px] shrink-0 border-r border-border bg-bg-panel overflow-y-auto">
@@ -742,16 +956,50 @@ export function NodeGraphView({ open, onClose }: NodeGraphViewProps) {
                     const b = portPos(toNode, 'in', toIdx)
                     const midX = (a.x + b.x) / 2
                     const path = `M ${a.x},${a.y} C ${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}`
+                    // Animated flow: when the source node is running, render
+                    // a dashed overlay whose dashoffset animates so dashes
+                    // appear to flow from source to target, plus a small dot
+                    // that travels the bezier path via SMIL animateMotion.
+                    const isFlowing = statusById[edge.from] === 'running'
                     return (
                       <g key={`${edge.from}.${edge.output}->${edge.to}.${edge.input}`} className="pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); removeEdge(edge) }}>
                         <path d={path} stroke="transparent" strokeWidth="10" fill="none" />
                         <path
                           d={path}
-                          stroke="rgba(148,163,184,0.7)"
-                          strokeWidth="1.6"
+                          stroke={isFlowing ? 'rgba(34,211,238,0.85)' : 'rgba(148,163,184,0.7)'}
+                          strokeWidth={isFlowing ? '2' : '1.6'}
                           fill="none"
                           markerEnd="url(#edge-arrow)"
                         />
+                        {isFlowing && (
+                          <>
+                            {/* Dashed flow overlay — stroke-dashoffset animates
+                                so the dashes appear to travel source → target. */}
+                            <path
+                              d={path}
+                              stroke="rgba(34,211,238,0.9)"
+                              strokeWidth="1.6"
+                              fill="none"
+                              strokeDasharray="6 8"
+                            >
+                              <animate
+                                attributeName="stroke-dashoffset"
+                                from="0"
+                                to="-14"
+                                dur="0.8s"
+                                repeatCount="indefinite"
+                              />
+                            </path>
+                            {/* Moving dot along the bezier path. Using
+                                animateMotion with the same path keeps the
+                                dot glued to the curve even when endpoints
+                                move during a drag (the path is recomputed
+                                on every render and SMIL re-binds). */}
+                            <circle r="2.4" fill="rgb(34,211,238)">
+                              <animateMotion dur="1.4s" repeatCount="indefinite" path={path} />
+                            </circle>
+                          </>
+                        )}
                       </g>
                     )
                   })}
@@ -980,6 +1228,7 @@ export function NodeGraphView({ open, onClose }: NodeGraphViewProps) {
                 )}
               </aside>
             </div>
+            )}
           </motion.div>
         </motion.div>
       )}
