@@ -11,6 +11,7 @@ import {
   Redo2,
   RotateCcw,
   Settings2,
+  Sparkles,
   Triangle,
   Undo2,
   HelpCircle,
@@ -23,6 +24,7 @@ import { useScene } from '../../store/useScene'
 import { MaterialLibrary } from './MaterialLibrary'
 import { NodeGraphView } from './NodeGraphView'
 import { SceneTemplates } from './SceneTemplates'
+import { SmartLayout } from './SmartLayout'
 
 interface TopToolbarProps {
   mode: 'edit' | 'run'
@@ -57,6 +59,7 @@ export function TopToolbar({ mode, onToggleMode, onShowTour }: TopToolbarProps) 
   const [showTemplates, setShowTemplates] = useState(false)
   const [showMaterialLibrary, setShowMaterialLibrary] = useState(false)
   const [showNodeGraph, setShowNodeGraph] = useState(false)
+  const [showSmartLayout, setShowSmartLayout] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const isRun = mode === 'run'
@@ -139,6 +142,17 @@ export function TopToolbar({ mode, onToggleMode, onShowTour }: TopToolbarProps) 
       action: () => {
         setMenuOpen(false)
         setShowNodeGraph(true)
+      },
+      disabled: isRun,
+    },
+    {
+      id: 'smart-layout',
+      label: 'Smart Layout',
+      description: 'Auto-arrange objects into a grid, ring, or scatter',
+      icon: Sparkles,
+      action: () => {
+        setMenuOpen(false)
+        setShowSmartLayout(true)
       },
       disabled: isRun,
     },
@@ -324,6 +338,12 @@ export function TopToolbar({ mode, onToggleMode, onShowTour }: TopToolbarProps) 
       <NodeGraphView
         open={showNodeGraph}
         onClose={() => setShowNodeGraph(false)}
+      />
+
+      {/* Smart Layout dialog */}
+      <SmartLayout
+        open={showSmartLayout}
+        onClose={() => setShowSmartLayout(false)}
       />
     </>
   )
