@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Boxes,
   Camera,
+  Clock,
   Code2,
   Eye,
   Flag,
@@ -14,18 +15,70 @@ import {
   Lightbulb,
   Loader2,
   Package,
+  Pin,
   Play,
   Search,
   Settings2,
   Sparkles,
+  Star,
   Wand2,
   Wrench,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { executeTool, fetchToolCategories } from '../../api/client'
 import { useScene } from '../../store/useScene'
 import type { ToolCategoriesResponse, ToolSchema } from '../../types'
+
+/** localStorage keys for pinned (favorites) and recently-used tools. */
+const FAVORITES_KEY = 'trigen.toolFavorites'
+const RECENTS_KEY = 'trigen.toolRecents'
+/** Maximum number of recent tools to remember. */
+const MAX_RECENTS = 8
+
+/** Read a JSON array from localStorage; return [] on any error. */
+function readList(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** Persist a string array to localStorage; silently ignore failures. */
+function writeList(key: string, list: string[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(list))
+  } catch {
+    // Ignore quota / privacy-mode failures — favorites are best-effort.
+  }
+}
+
+/** Hook over a localStorage-backed string list. Returns the list, a setter
+ *  that accepts an updater, and a no-op for ergonomics. Re-syncs from
+ *  storage when the window regains focus so multiple tabs stay consistent. */
+function useStoredList(key: string): [string[], (updater: (prev: string[]) => string[]) => void] {
+  const [list, setList] = useState<string[]>(() => readList(key))
+  useEffect(() => {
+    const onFocus = () => setList(readList(key))
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [key])
+  const update = useCallback(
+    (updater: (prev: string[]) => string[]) => {
+      setList((prev) => {
+        const next = updater(prev)
+        writeList(key, next)
+        return next
+      })
+    },
+    [key],
+  )
+  return [list, update]
+}
 
 /** Visual metadata for each functional category. The backend taxonomy is
  *  the single source of truth for category names; this map only styles
@@ -132,8 +185,25 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
   const [running, setRunning] = useState(false)
   const [runResult, setRunResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [args, setArgs] = useState<Record<string, unknown>>({})
+  const [favorites, setFavorites] = useStoredList(FAVORITES_KEY)
+  const [recents, setRecents] = useStoredList(RECENTS_KEY)
   const commitScene = useScene((s) => s.commitScene)
   const currentScene = useScene((s) => s.scene)
+
+  /** Toggle a tool's pinned/favorite state. */
+  const toggleFavorite = useCallback((name: string) => {
+    setFavorites((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [name, ...prev],
+    )
+  }, [setFavorites])
+
+  /** Push a tool name onto the recents stack (deduped, capped at MAX_RECENTS). */
+  const pushRecent = useCallback((name: string) => {
+    setRecents((prev) => {
+      const next = [name, ...prev.filter((n) => n !== name)]
+      return next.slice(0, MAX_RECENTS)
+    })
+  }, [setRecents])
 
   useEffect(() => {
     let cancelled = false
@@ -161,6 +231,33 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
     if (!data) return []
     return Object.values(data.categories).flat()
   }, [data])
+
+  /** Tool name → schema lookup, used to resolve favorites/recents lists
+   *  (which only store names) into renderable rows. */
+  const toolByName = useMemo(() => {
+    const map = new Map<string, ToolSchema>()
+    for (const t of allTools) map.set(t.name, t)
+    return map
+  }, [allTools])
+
+  /** Pinned (favorite) tools that exist in the current catalog. Hidden
+   *  entirely when a search query is active so it doesn't shadow results. */
+  const favoriteTools = useMemo<ToolSchema[]>(
+    () =>
+      favorites
+        .map((name) => toolByName.get(name))
+        .filter((t): t is ToolSchema => Boolean(t)),
+    [favorites, toolByName],
+  )
+
+  /** Recently-used tools that exist in the current catalog. */
+  const recentTools = useMemo<ToolSchema[]>(
+    () =>
+      recents
+        .map((name) => toolByName.get(name))
+        .filter((t): t is ToolSchema => Boolean(t)),
+    [recents, toolByName],
+  )
 
   /** Filtered category groups — when the query is empty, mirrors the
    *  backend's category order; when typing, only categories containing a
@@ -201,7 +298,8 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
   }, [selectedSchema])
 
   /** Run the selected tool with the current argument values. On success,
-   *  commit the returned scene so undo/redo covers the change. */
+   *  commit the returned scene so undo/redo covers the change, and bump
+   *  the tool to the top of the recents list. */
   const handleRun = () => {
     if (!selectedSchema) return
     setRunning(true)
@@ -210,6 +308,9 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
       .then((result) => {
         if (result.success && result.scene) {
           commitScene(result.scene, currentScene)
+        }
+        if (result.success) {
+          pushRecent(selectedSchema.name)
         }
         setRunResult({ ok: result.success, message: result.message })
       })
@@ -283,6 +384,68 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
 
       {/* Tool list */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+        {/* Pinned (favorites) — hidden while searching so it doesn't shadow
+            the result list. Rendered above categories for fast access. */}
+        {!query.trim() && favoriteTools.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 px-1 py-0.5">
+              <Pin size={11} className="text-accent-gold" />
+              <span className="text-[9.5px] uppercase tracking-wider font-semibold text-fg-secondary">
+                Pinned
+              </span>
+              <span className="text-[9px] text-fg-muted/60 font-mono ml-auto">
+                {favoriteTools.length}
+              </span>
+            </div>
+            <div className="space-y-0.5 ml-0.5">
+              {favoriteTools.map((tool) => {
+                const isSelected = selectedTool === tool.name
+                return (
+                  <ToolRow
+                    key={tool.name}
+                    tool={tool}
+                    selected={isSelected}
+                    onSelect={() => setSelectedTool(isSelected ? null : tool.name)}
+                    isFavorite
+                    onToggleFavorite={() => toggleFavorite(tool.name)}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Recently used — hidden while searching. Renders a compact list
+            capped by MAX_RECENTS so it doesn't dominate the panel. */}
+        {!query.trim() && recentTools.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 px-1 py-0.5">
+              <Clock size={11} className="text-fg-secondary" />
+              <span className="text-[9.5px] uppercase tracking-wider font-semibold text-fg-secondary">
+                Recent
+              </span>
+              <span className="text-[9px] text-fg-muted/60 font-mono ml-auto">
+                {recentTools.length}
+              </span>
+            </div>
+            <div className="space-y-0.5 ml-0.5">
+              {recentTools.map((tool) => {
+                const isSelected = selectedTool === tool.name
+                return (
+                  <ToolRow
+                    key={tool.name}
+                    tool={tool}
+                    selected={isSelected}
+                    onSelect={() => setSelectedTool(isSelected ? null : tool.name)}
+                    isFavorite={favorites.includes(tool.name)}
+                    onToggleFavorite={() => toggleFavorite(tool.name)}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {filteredGroups.map((group) => {
           const meta = categoryMeta(group.category)
           const GroupIcon = meta.icon
@@ -311,6 +474,8 @@ export function ToolBrowser({ sessionId = 'default' }: ToolBrowserProps) {
                         tool={tool}
                         selected={isSelected}
                         onSelect={() => setSelectedTool(isSelected ? null : tool.name)}
+                        isFavorite={favorites.includes(tool.name)}
+                        onToggleFavorite={() => toggleFavorite(tool.name)}
                       />
                     )
                   })}
@@ -350,14 +515,19 @@ interface ToolRowProps {
   tool: ToolSchema
   selected: boolean
   onSelect: () => void
+  /** True when this tool is in the user's favorites (star filled). */
+  isFavorite?: boolean
+  /** Toggle handler for the favorite star. Clicking the star stops
+   *  propagation so it doesn't also select the row. */
+  onToggleFavorite?: () => void
 }
 
-function ToolRow({ tool, selected, onSelect }: ToolRowProps) {
+function ToolRow({ tool, selected, onSelect, isFavorite, onToggleFavorite }: ToolRowProps) {
   const paramCount = useMemo(() => Object.keys(extractParams(tool)).length, [tool])
   return (
-    <button
+    <div
       onClick={onSelect}
-      className={`w-full group flex flex-col gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors ${
+      className={`w-full group cursor-pointer flex flex-col gap-0.5 rounded-md border px-2 py-1.5 text-left transition-colors ${
         selected
           ? 'border-accent-cyan/50 bg-accent-cyan/10'
           : 'border-transparent hover:bg-bg-hover hover:border-border'
@@ -387,12 +557,29 @@ function ToolRow({ tool, selected, onSelect }: ToolRowProps) {
               {paramCount}p
             </span>
           )}
+          {onToggleFavorite && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleFavorite()
+              }}
+              aria-label={isFavorite ? 'Unpin tool' : 'Pin tool'}
+              title={isFavorite ? 'Unpin from favorites' : 'Pin to favorites'}
+              className={`shrink-0 transition-colors ${
+                isFavorite
+                  ? 'text-accent-gold'
+                  : 'text-fg-muted/50 hover:text-accent-gold opacity-0 group-hover:opacity-100'
+              }`}
+            >
+              <Star size={10} fill={isFavorite ? 'currentColor' : 'none'} />
+            </button>
+          )}
         </div>
       </div>
       <p className="text-[9px] text-fg-muted leading-snug line-clamp-2">
         {tool.description}
       </p>
-    </button>
+    </div>
   )
 }
 
