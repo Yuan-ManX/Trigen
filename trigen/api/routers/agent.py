@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from trigen.api.services.agent_service import AgentService
+from trigen.scene import Scene
 
 logger = logging.getLogger("trigen.api.agent")  # Agent router logger
 router = APIRouter(tags=["agent"])  # Agent router
@@ -64,6 +65,25 @@ class SuggestRequest(BaseModel):
     direction: str = Field(
         default="any",
         description="Creative direction bias: 'any' | 'lighting' | 'motion' | 'material' | 'composition' | 'population'",
+    )
+
+
+class RunToolRequest(BaseModel):
+    """Request body for direct tool execution.
+
+    Runs a single registered Agent tool against the session's scene with
+    the supplied arguments, bypassing the LLM and the plan loop. This is
+    the "Agent as remote control" surface: the frontend Command Palette
+    and Quick Actions can invoke any editor capability directly. The scene
+    is mutated in place and the updated snapshot is returned so the
+    frontend can swap it in.
+    """
+
+    name: str = Field(..., description="Registered tool name to execute")
+    session_id: str = Field(default="default", description="Session whose scene to run against")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool arguments (validated against the tool's own schema)",
     )
 
 
@@ -271,6 +291,87 @@ async def agent_suggest(req: SuggestRequest) -> JSONResponse:
     if not result.success:
         return JSONResponse(status_code=500, content={"error": result.message})
     return JSONResponse(content=result.data)
+
+
+@router.post("/agent/run")
+async def agent_run(req: RunToolRequest) -> JSONResponse:
+    """Execute a single registered Agent tool directly against the scene.
+
+    Body: ``{name, session_id?, arguments?}``. Resolves the tool, validates
+    its arguments against the tool's own JSON schema, and runs it in place
+    against the session's scene. Returns ``{result, scene, tool_call}``:
+    the tool result payload, the mutated scene snapshot, and a tool_call
+    record shaped like the streaming event so the frontend can render it
+    uniformly. This is the direct-execution path used by the Command
+    Palette — it bypasses the LLM and the plan loop entirely. Unknown
+    tools return 404; a failed tool returns 422 with its message.
+    """
+    agent = AgentService.get()
+    name = (req.name or "").strip()
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "tool name is required"})
+    tool = agent.orchestrator.registry.get(name)
+    if tool is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Tool not registered: {name}"},
+        )
+    scene = agent.orchestrator.get_scene(req.session_id)
+    args = dict(req.arguments or {})
+    # Coerce argument types to match the tool schema before execution so
+    # JSON payloads (all numbers are floats) map cleanly to integer params.
+    try:
+        schema = tool.schema()
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        for key, value in list(args.items()):
+            if value is None:
+                args.pop(key, None)
+                continue
+            prop = props.get(key) or {}
+            typ = prop.get("type")
+            if typ == "integer" and isinstance(value, float) and value.is_integer():
+                args[key] = int(value)
+            elif typ == "boolean" and not isinstance(value, bool):
+                args[key] = bool(value)
+    except Exception:
+        # Schema coercion is advisory; never block execution on it.
+        logger.debug("agent/run schema coercion skipped for %s", name)
+    try:
+        result = await tool.execute(scene, args)
+    except Exception as e:
+        logger.exception("agent/run error executing %s", name)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if not result.success:
+        return JSONResponse(
+            status_code=422,
+            content={"error": result.message, "tool": name},
+        )
+    result_payload = result.to_dict() if hasattr(result, "to_dict") else {"message": result.message}
+    deltas = getattr(result, "deltas", None) or []
+
+    def _delta_dict(d):
+        if hasattr(d, "to_dict"):
+            return d.to_dict()
+        if hasattr(d, "__dict__"):
+            return d.__dict__
+        return d
+
+    tool_call = {
+        "type": "tool_call",
+        "name": name,
+        "arguments": args,
+        "result": result_payload,
+        "deltas": [_delta_dict(d) for d in deltas],
+        "direct": True,
+        "ts": time.time(),
+    }
+    return JSONResponse(content={
+        "session_id": req.session_id,
+        "tool": name,
+        "result": result_payload,
+        "scene": scene.to_dict(),
+        "tool_call": tool_call,
+    })
 
 
 @router.get("/agent/memory")
@@ -523,6 +624,161 @@ async def agent_episodic_delete() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Agent trace REST surface — per-session event replay for inspection.
+# The trace store is populated by ``AgentService.chat_stream`` recording
+# every streamed AgentEvent. These endpoints let the frontend render a
+# turn-by-turn activity timeline / debugger without consuming the WS stream.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/trace/{session_id}")
+async def agent_trace_get(
+    session_id: str,
+    limit: Optional[int] = None,
+    since_seq: Optional[int] = None,
+) -> JSONResponse:
+    """Return the recorded event trace for ``session_id``.
+
+    The trace is a bounded, in-memory ring buffer of every AgentEvent
+    streamed through ``chat_stream`` for this session, each tagged with a
+    ``turn`` marker (incremented after each ``done`` event). Optional
+    query params:
+
+    * ``limit`` — return only the most recent ``limit`` entries (capped at
+      the buffer size). Useful for an initial "tail" view.
+    * ``since_seq`` — return only entries whose ``seq`` is strictly greater
+      than the supplied value, enabling incremental polling.
+
+    The response also includes a ``summary`` block (entry count, turn
+    count, last seq, first/last timestamps) so the frontend can render a
+    status header without a second round-trip. Returns an empty entry
+    list (not 404) for unknown sessions — a session with no recorded
+    activity is a valid state.
+    """
+    from trigen.agent_trace import trace_store
+
+    try:
+        # Cap limit to the store's max to avoid huge payloads; negative
+        # limits are treated as "no limit".
+        cap = trace_store.max_per_session
+        eff_limit: Optional[int] = None
+        if limit is not None:
+            if limit < 0:
+                eff_limit = None
+            else:
+                eff_limit = min(limit, cap)
+        entries = trace_store.get(session_id, limit=eff_limit, since_seq=since_seq)
+        summary = trace_store.summary(session_id)
+        return JSONResponse(content={
+            "session_id": session_id,
+            "entries": entries,
+            "count": len(entries),
+            "summary": summary,
+        })
+    except Exception as e:
+        logger.exception("agent/trace GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/agent/trace")
+async def agent_trace_sessions() -> JSONResponse:
+    """List every session that has a non-empty trace.
+
+    Returns a ``sessions`` array of summary objects (session_id, count,
+    turn, last_seq, first/last timestamps). Intended for a trace-browser
+    or debug dashboard so the user can pick a session to inspect.
+    """
+    from trigen.agent_trace import trace_store
+
+    try:
+        sessions = trace_store.sessions()
+        return JSONResponse(content={
+            "sessions": sessions,
+            "count": len(sessions),
+        })
+    except Exception as e:
+        logger.exception("agent/trace sessions GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/trace/{session_id}")
+async def agent_trace_delete(session_id: str) -> JSONResponse:
+    """Clear the recorded trace for one session.
+
+    Removes every entry for ``session_id`` from the in-memory ring buffer
+    and resets that session's turn / last-seq counters. Returns the number
+    of entries removed. The trace store is not persisted, so a server
+    restart has the same effect globally.
+    """
+    from trigen.agent_trace import trace_store
+
+    try:
+        removed = trace_store.clear(session_id)
+        return JSONResponse(content={
+            "session_id": session_id,
+            "removed": removed,
+        })
+    except Exception as e:
+        logger.exception("agent/trace DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Agent reflection REST surface — durable per-turn self-assessment.
+# Drawn from the same stream as the trace: each completed turn's narrative
+# reflection is folded into a structured record by ``chat_stream``. These
+# endpoints let the frontend surface "what the Agent thinks it just did"
+# and let the ``reflect_on_session`` tool ground responses in past turns.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/reflection/{session_id}")
+async def agent_reflection_get(
+    session_id: str,
+    limit: Optional[int] = None,
+) -> JSONResponse:
+    """Return the recorded turn reflections for ``session_id``.
+
+    Each entry is a structured record of one completed turn: ``goal`` (the
+    user's message), ``tool_calls`` (the distinct tools that ran), ``outcome``
+    (the orchestrator's narrative self-assessment), ``quality`` (the score /
+    verdict block), ``elapsed``, and ``ts``. Entries are newest-first;
+    ``limit`` caps the number returned. Returns an empty list (not 404) for
+    unknown sessions — no reflections yet is a valid state.
+    """
+    from trigen.reflection import reflection_store
+
+    try:
+        entries = reflection_store.get(session_id, limit=limit)
+        summary = reflection_store.summary(session_id)
+        return JSONResponse(content={
+            "session_id": session_id,
+            "reflections": entries,
+            "summary": summary,
+        })
+    except Exception as e:
+        logger.exception("agent/reflection GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/reflection/{session_id}")
+async def agent_reflection_delete(session_id: str) -> JSONResponse:
+    """Clear the recorded reflections for one session (or all when
+    ``session_id`` is the literal ``"all"``)."""
+    from trigen.reflection import reflection_store
+
+    try:
+        removed = reflection_store.clear(session_id)
+        return JSONResponse(content={
+            "session_id": session_id,
+            "removed": removed,
+        })
+    except Exception as e:
+        logger.exception("agent/reflection DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
 # Macro registry REST surface — read/browse/delete user-defined macros.
 # Definition and invocation happen via the agent tool flow (define_macro /
 # invoke_macro); these endpoints exist so the frontend can render a macro
@@ -637,4 +893,300 @@ async def agent_variants_delete(name: str = "") -> JSONResponse:
         return JSONResponse(content={"deleted": True, "name": normalized})
     except Exception as e:
         logger.exception("agent/variants DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Scene checkpoint REST surface — persistent, revisioned version history.
+# The store is populated by the checkpoint_scene tool (and the POST below);
+# these endpoints let the frontend render a version-history timeline, create
+# a new revision from the current scene, restore any revision, and diff two
+# revisions without going through chat.
+# ---------------------------------------------------------------------------
+
+
+class CheckpointCreateRequest(BaseModel):
+    """Request body for creating a scene checkpoint from the current scene."""
+
+    session_id: str = Field(default="default", description="Session whose scene to snapshot")
+    description: str = Field(default="", description="Optional human-readable label")
+
+
+@router.get("/agent/checkpoints")
+async def agent_checkpoints_get(limit: int = -1) -> JSONResponse:
+    """List the scene's checkpoint history, newest-first.
+
+    Each entry includes the revision number, description, semantic summary
+    (geometry counts, palette, light rig), creation timestamp, and creator.
+    The heavy scene payload is omitted for the list. ``limit`` caps the
+    number of entries returned (negative = all).
+    """
+    from trigen.checkpoints import checkpoint_store
+
+    try:
+        history = checkpoint_store.get()
+        cps = sorted(history.checkpoints, key=lambda c: c.revision, reverse=True)
+        if limit >= 0:
+            cps = cps[:limit] if limit else []
+        items = [
+            {
+                "revision": c.revision,
+                "description": c.description,
+                "created_at": c.created_at,
+                "created_by": c.created_by,
+                "summary": c.summary,
+            }
+            for c in cps
+        ]
+        return JSONResponse(content={
+            "checkpoints": items,
+            "count": len(items),
+            "total": len(history.checkpoints),
+            "next_revision": history._next_revision,
+        })
+    except Exception as e:
+        logger.exception("agent/checkpoints GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/agent/checkpoints")
+async def agent_checkpoints_create(req: CheckpointCreateRequest) -> JSONResponse:
+    """Capture the current scene as a new immutable revision.
+
+    The scene for ``session_id`` is snapshotted and appended to the history
+    with the next revision number. A semantic summary is auto-generated.
+    Returns the new revision's metadata plus the full scene snapshot.
+    """
+    from trigen.checkpoints import build_scene_summary, checkpoint_store
+    from trigen.checkpoints import SceneCheckpoint
+
+    try:
+        service = AgentService.get()
+        orch = service.orchestrator
+        scene = orch.get_scene(req.session_id)
+        scene_dict = scene.to_dict()
+        summary = build_scene_summary(scene_dict)
+        history = checkpoint_store.get()
+        revision = history._next_revision
+        history.checkpoints.append(
+            SceneCheckpoint(
+                revision=revision,
+                scene_dict=scene_dict,
+                description=req.description.strip(),
+                summary=summary,
+            )
+        )
+        history._next_revision = revision + 1
+        checkpoint_store.save()
+        return JSONResponse(content={
+            "revision": revision,
+            "description": req.description.strip(),
+            "summary": summary,
+            "scene": scene_dict,
+            "total": len(history.checkpoints),
+        })
+    except Exception as e:
+        logger.exception("agent/checkpoints POST error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/agent/checkpoints/{revision}/restore")
+async def agent_checkpoints_restore(revision: int, session_id: str = "default") -> JSONResponse:
+    """Restore the live scene to a checkpoint revision.
+
+    The scene for ``session_id`` is swapped in place (lossless) to the given
+    revision. Checkpoints are immutable, so later revisions are preserved.
+    Returns the restored scene snapshot plus the revision metadata.
+    """
+    from trigen.checkpoints import checkpoint_store
+
+    try:
+        history = checkpoint_store.get()
+        target = next((c for c in history.checkpoints if c.revision == revision), None)
+        if target is None:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": f"Checkpoint revision {revision} not found",
+                    "available": sorted(c.revision for c in history.checkpoints),
+                },
+            )
+        service = AgentService.get()
+        orch = service.orchestrator
+        scene = orch.get_scene(session_id)
+        restored = Scene.from_dict(target.scene_dict)
+        scene.__dict__.clear()
+        scene.__dict__.update(restored.__dict__)
+        return JSONResponse(content={
+            "revision": target.revision,
+            "description": target.description,
+            "summary": target.summary,
+            "scene": scene.to_dict(),
+        })
+    except Exception as e:
+        logger.exception("agent/checkpoints restore error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/agent/checkpoints/diff")
+async def agent_checkpoints_diff(revision_a: int, revision_b: int) -> JSONResponse:
+    """Diff two checkpoint revisions.
+
+    Returns added / removed / changed object lists with ids and names, plus
+    high-level counts, so the frontend can render a concise version-comparison.
+    """
+    from trigen.checkpoints import checkpoint_store, diff_checkpoint_scenes
+
+    try:
+        history = checkpoint_store.get()
+        by_rev = {c.revision: c for c in history.checkpoints}
+        ca = by_rev.get(revision_a)
+        cb = by_rev.get(revision_b)
+        if ca is None or cb is None:
+            missing = [r for r in (revision_a, revision_b) if r not in by_rev]
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Missing checkpoint revision(s): {missing}"},
+            )
+        diff = diff_checkpoint_scenes(ca.scene_dict, cb.scene_dict)
+        return JSONResponse(content={
+            "revision_a": revision_a,
+            "revision_b": revision_b,
+            **diff,
+        })
+    except Exception as e:
+        logger.exception("agent/checkpoints diff error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Cinematic storyboard endpoints
+# ---------------------------------------------------------------------------
+
+
+class StoryComposeRequest(BaseModel):
+    """Request body for composing/updating the cinematic storyboard."""
+
+    session_id: str = Field(default="default", description="Session whose scene holds the storyboard")
+    title: str = Field(default="Untitled scene", description="Short title for the sequence")
+    shots: list = Field(default_factory=list, description="Ordered list of shot dictionaries")
+    loop: bool = Field(default=True, description="Loop the sequence forever")
+
+
+class StoryPlayRequest(BaseModel):
+    """Request body for controlling storyboard playback."""
+
+    session_id: str = Field(default="default", description="Session whose scene holds the storyboard")
+    mode: str = Field(default="play", description="play / pause / stop")
+    speed: Optional[float] = Field(default=None, description="Playback speed multiplier")
+    index: Optional[int] = Field(default=None, description="Shot index to jump to (0-based)")
+
+
+def _story_response(scene: Scene) -> Dict[str, Any]:
+    """Snapshot the storyboard into a response payload."""
+    sb = scene.storyboard
+    if sb is None:
+        return {"storyboard": None, "shots": [], "total_duration": 0.0}
+    from trigen.storyboard import total_duration
+
+    return {
+        "storyboard": sb,
+        "shots": sb.get("shots", []),
+        "total_duration": total_duration(sb),
+    }
+
+
+@router.get("/agent/story")
+async def agent_story_get(session_id: str = "default") -> JSONResponse:
+    """Read the scene's cinematic storyboard.
+
+    Returns the storyboard (title, shots, playback state) plus the total
+    sequence duration. Never mutates the scene.
+    """
+    try:
+        orch = AgentService.get().orchestrator
+        scene = orch.get_scene(session_id)
+        return JSONResponse(content={"session_id": session_id, **_story_response(scene)})
+    except Exception as e:
+        logger.exception("agent/story GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/agent/story")
+async def agent_story_compose(req: StoryComposeRequest) -> JSONResponse:
+    """Compose or replace the scene's cinematic storyboard.
+
+    Normalizes each shot (camera position, look-at target, fov, duration,
+    easing) and stores the sequence on the scene. Returns the new storyboard
+    plus the full scene snapshot so the frontend can swap it in.
+    """
+    from trigen.storyboard import new_storyboard
+
+    try:
+        if not isinstance(req.shots, list) or len(req.shots) == 0:
+            return JSONResponse(status_code=400, content={"error": "At least one shot is required"})
+        orch = AgentService.get().orchestrator
+        scene = orch.get_scene(req.session_id)
+        scene.storyboard = new_storyboard(req.title or "Untitled scene", req.shots, loop=req.loop)
+        return JSONResponse(content={
+            "session_id": req.session_id,
+            **_story_response(scene),
+            "scene": scene.to_dict(),
+        })
+    except Exception as e:
+        logger.exception("agent/story compose error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/story")
+async def agent_story_clear(session_id: str = "default") -> JSONResponse:
+    """Remove the scene's cinematic storyboard."""
+    try:
+        orch = AgentService.get().orchestrator
+        scene = orch.get_scene(session_id)
+        cleared = scene.storyboard is not None
+        scene.storyboard = None
+        return JSONResponse(content={
+            "session_id": session_id,
+            "cleared": cleared,
+            **_story_response(scene),
+        })
+    except Exception as e:
+        logger.exception("agent/story clear error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/agent/story/play")
+async def agent_story_play(req: StoryPlayRequest) -> JSONResponse:
+    """Control storyboard playback (play / pause / stop).
+
+    Playback state is stored on the storyboard so the frontend camera rig
+    can drive itself. Optionally set the speed and starting shot index.
+    """
+    try:
+        orch = AgentService.get().orchestrator
+        scene = orch.get_scene(req.session_id)
+        sb = scene.storyboard
+        if sb is None:
+            return JSONResponse(status_code=404, content={"error": "No storyboard composed yet"})
+        if req.mode == "play":
+            sb["playing"] = True
+        elif req.mode == "pause":
+            sb["playing"] = False
+        elif req.mode == "stop":
+            sb["playing"] = False
+            sb["index"] = 0
+        else:
+            return JSONResponse(status_code=400, content={"error": "mode must be play/pause/stop"})
+        if req.speed is not None:
+            sb["speed"] = max(0.25, min(4.0, float(req.speed)))
+        if req.index is not None and 0 <= int(req.index) < len(sb["shots"]):
+            sb["index"] = int(req.index)
+        return JSONResponse(content={
+            "session_id": req.session_id,
+            "playing": sb["playing"],
+            **_story_response(scene),
+        })
+    except Exception as e:
+        logger.exception("agent/story play error")
         return JSONResponse(status_code=500, content={"error": str(e)})
