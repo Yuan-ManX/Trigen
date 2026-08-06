@@ -8,7 +8,7 @@ import {
   type SocketStatus,
   type TokenUsage,
 } from '../api/client'
-import type { PlanStep, SceneData, ServerEvent, Vec3 } from '../types'
+import type { PlanGraphPayload, PlanStep, SceneData, ServerEvent, Vec3 } from '../types'
 import { useEditor, type PanelTab, type RenderQuality, type TransformMode } from './useEditor'
 import { usePlayback } from './usePlayback'
 import { useScene } from './useScene'
@@ -48,10 +48,22 @@ export interface ChatMessage {
   /** Live execution-plan roadmap (sub-task checklist). Populated by the
    *  `plan` event and updated in place by subsequent `plan_update` events. */
   planSteps?: PlanStep[]
+  /** Agent-stated goal for the current turn, surfaced from the `plan`
+   *  event's `goal` field and rendered as the PlanTrace headline. */
+  planGoal?: string
   /** Mid-turn plan refinements emitted when the agent revises its plan
    *  (alternative-tool proposals after a failure, budget-driven pruning).
    *  Advisory only — the LLM still decides whether to follow the hint. */
   planRefinements?: PlanRefinement[]
+  /** Plan dependency DAG emitted by the `plan_graph` event. Optional —
+   *  only present when the orchestrator derived at least one edge. The
+   *  chat UI may surface a "view graph" affordance when this is set. */
+  planGraph?: PlanGraphPayload
+  /** Proactive next-action suggestions attached to this assistant message
+   *  by the `done` event. Rendered as a compact "Quick Actions" chip strip
+   *  below the message body so the user can re-send a suggestion as a new
+   *  message with one click. */
+  suggestions?: Suggestion[]
 }
 
 /** An advisory plan-refinement notice. Rendered as a subtle annotation on
@@ -261,6 +273,27 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
       // deltas when load_scene_slot replaces the scene.
       break
     }
+    case 'editor_camera_flythrough': {
+      const waypoints = Array.isArray(payload.waypoints)
+        ? (payload.waypoints as Array<Record<string, unknown>>).map((w) => ({
+            position: (w.position as Vec3) ?? [0, 0, 0],
+            target: (w.target as Vec3) ?? [0, 0.5, 0],
+            dwell: Number(w.dwell ?? 0),
+            speed: Number(w.speed ?? 2),
+          }))
+        : []
+      if (waypoints.length >= 2) {
+        editor.setCameraFlythrough({
+          waypoints,
+          loop: Boolean(payload.loop ?? false),
+          smooth: Boolean(payload.smooth ?? true),
+          speed: Number(payload.speed ?? 2),
+          duration: Number(payload.duration ?? 0),
+          distance: Number(payload.distance ?? 0),
+        })
+      }
+      break
+    }
     case 'editor_measure': {
       const aPosition = (payload.a_position ?? [0, 0, 0]) as Vec3
       const bPosition = (payload.b_position ?? [0, 0, 0]) as Vec3
@@ -273,6 +306,28 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
         distance,
         label: `${aName} ↔ ${bName}: ${distance.toFixed(3)}`,
       })
+      break
+    }
+    case 'editor_clear_measurement': {
+      editor.clearMeasurement()
+      break
+    }
+    case 'editor_stop_camera_flythrough': {
+      editor.clearCameraFlythrough()
+      break
+    }
+    case 'editor_radial_menu': {
+      if (payload.show === false) {
+        editor.clearRadialMenu()
+      } else {
+        // Anchor the radial menu at the supplied viewport pixel position,
+        // falling back to the screen center if the agent did not specify one.
+        const target = String(payload.target ?? '')
+        const pos = Array.isArray(payload.position) ? (payload.position as number[]) : null
+        const x = pos && pos.length >= 2 ? Number(pos[0]) : (window.innerWidth / 2)
+        const y = pos && pos.length >= 2 ? Number(pos[1]) : (window.innerHeight / 2)
+        editor.setRadialMenu({ objectId: target, x, y })
+      }
       break
     }
     default:
@@ -388,11 +443,12 @@ export const useChat = create<ChatState>((set, get) => {
           arguments: s.arguments,
           status: (s.status as PlanStep['status']) ?? 'pending',
         }))
+        const goal = typeof ev.data.goal === 'string' ? ev.data.goal : ''
         set((state) => {
           const msgs = [...state.messages]
           for (let i = msgs.length - 1; i >= 0; i--) {
             if (msgs[i].role === 'assistant' && msgs[i].streaming) {
-              msgs[i] = { ...msgs[i], planSteps: steps }
+              msgs[i] = { ...msgs[i], planSteps: steps, planGoal: goal }
               return { messages: msgs }
             }
           }
@@ -402,6 +458,7 @@ export const useChat = create<ChatState>((set, get) => {
             content: '',
             streaming: true,
             planSteps: steps,
+            planGoal: goal,
           })
           return { messages: msgs }
         })
@@ -459,6 +516,30 @@ export const useChat = create<ChatState>((set, get) => {
             content: '',
             streaming: true,
             planRefinements: [refinement],
+          })
+          return { messages: msgs }
+        })
+        break
+      }
+      case 'plan_graph': {
+        // Plan dependency DAG — store on the streaming message so a
+        // "view graph" affordance can render the topology alongside the
+        // linear PlanTrace checklist.
+        const graph: PlanGraphPayload = ev.data.graph
+        set((state) => {
+          const msgs = [...state.messages]
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'assistant' && msgs[i].streaming) {
+              msgs[i] = { ...msgs[i], planGraph: graph }
+              return { messages: msgs }
+            }
+          }
+          msgs.push({
+            id: genId(),
+            role: 'assistant',
+            content: '',
+            streaming: true,
+            planGraph: graph,
           })
           return { messages: msgs }
         })
@@ -584,6 +665,11 @@ export const useChat = create<ChatState>((set, get) => {
                 ...msgs[i],
                 streaming: false,
                 content: ev.data.content || msgs[i].content,
+                // Attach suggestions to the message so the "Quick Actions"
+                // chip strip renders inline below this assistant turn. The
+                // top-level suggestions state is also kept for any consumer
+                // that reads it directly.
+                suggestions: doneSuggestions,
               }
               break
             }
