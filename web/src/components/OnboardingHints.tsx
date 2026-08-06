@@ -6,8 +6,11 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
   ArrowRight,
+  Brain,
   Check,
+  Clapperboard,
   Film,
+  GitCommitVertical,
   Keyboard,
   MessageSquare,
   MousePointerClick,
@@ -25,10 +28,13 @@ type StepId =
   | 'chat'
   | 'templates'
   | 'tools'
+  | 'scene_intelligence'
   | 'pipeline'
   | 'annotations'
   | 'multi_select'
   | 'timeline'
+  | 'checkpoints'
+  | 'storyboard'
   | 'shortcuts'
 
 interface TourStep {
@@ -66,6 +72,14 @@ const STEPS: TourStep[] = [
     hint: 'Tip: the export_code tool can ship the current scene as Three.js, React+R3F, or a standalone HTML file.',
   },
   {
+    id: 'scene_intelligence',
+    icon: Brain,
+    accent: 'text-accent-cyan',
+    title: 'Scene intelligence, Quick Actions, and memory',
+    body: 'The Agent sees your scene semantically: ask "describe the scene" and it uses the describe_scene tool to read layout, palette, lighting, balance, and geometry — then grounds its next reply in what it sees. After each turn, gold Quick Actions chips appear below the assistant message: one-tap follow-ups like "add a rim light" or "swap to matte material" culled from the suggest_next_actions tool. Want the Agent to remember something durable? Pin it. Say "remember that my target platform is mobile WebGL" or use the Memory tab in the right panel — pinned facts survive across sessions and steer every subsequent turn.',
+    hint: 'Tip: open the Memory tab (Brain icon) to review, add, and forget pinned facts; categories color-code them so you can spot constraints at a glance.',
+  },
+  {
     id: 'pipeline',
     icon: Workflow,
     accent: 'text-accent-cyan',
@@ -96,6 +110,22 @@ const STEPS: TourStep[] = [
     title: 'Animate with the timeline',
     body: 'The Timeline panel exposes per-keyframe tick marks on the scrubber, inline duration editing, per-row loop toggles, and an easing picker (linear / easeIn / easeOut / easeInOut) for keyframe animations. Press P to play/pause, Shift+P to stop, and scrub the timeline to scrub the animation directly.',
     hint: 'Tip: press R to cycle render quality while scrubbing long animations to keep the viewport responsive.',
+  },
+  {
+    id: 'checkpoints',
+    icon: GitCommitVertical,
+    accent: 'text-accent-purple',
+    title: "Checkpoint your scene's evolution",
+    body: 'Open the Checkpoints panel (git-commit icon) in the right bar to capture the current scene as an immutable, semantically labeled revision (R1, R2, R3, …). Each revision auto-summarizes geometry counts, material palette, and light rig. Restore any earlier revision at any time, or diff two revisions to see exactly what was added, removed, or changed. Ask the Agent "checkpoint this scene", or use the checkpoint_scene / restore_checkpoint / checkpoint_diff tools directly.',
+    hint: 'Tip: checkpoint before a risky or exploratory edit so you can always roll back — restoring never deletes later revisions.',
+  },
+  {
+    id: 'storyboard',
+    icon: Clapperboard,
+    accent: 'text-rose-300',
+    title: 'Direct the camera with a storyboard',
+    body: 'Open the Storyboard panel (film-reel icon) in the right bar to compose an ordered sequence of camera shots — each with a position, look-at target, fov, duration, and easing curve. Play the cut to drive the camera through the shots as a scripted cinematic tour of your scene. Ask the Agent "compose a storyboard panning around the scene", or capture the current viewport camera as a shot and layer them into a reveal.',
+    hint: 'Tip: set a shot to easeInOut for smooth arrives, and use loop to keep the tour cycling during a showcase.',
   },
   {
     id: 'shortcuts',
