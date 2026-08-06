@@ -12,6 +12,7 @@ import {
   Target,
   Triangle,
 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useScene } from '../../store/useScene'
 import type {
   CameraAnimation,
@@ -36,12 +37,72 @@ interface NumberSliderProps {
   onChange: (v: number) => void
 }
 
-/** Numeric slider + number input */
+/** Numeric slider + number input. The label is also drag-to-scrub: hold
+ *  pointer down on it and move horizontally to nudge the value by `step`
+ *  per pixel of horizontal movement (clamped to [min, max]). Useful for
+ *  fine-tuning without hunting for the tiny range thumb. */
 function NumberSlider({ label, value, min, max, step, onChange }: NumberSliderProps) {
+  // Drag-to-scrub state. lastX is the previous client X observed; while
+  // dragging, every pointermove computes deltaX and applies it.
+  const [dragging, setDragging] = useState(false)
+  const lastXRef = useRef<number | null>(null)
+  // Hold latest onChange in a ref so the move listener (attached once per
+  // drag) always calls the freshest closure without re-binding on every
+  // value change.
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  // While dragging, listen on window so movement outside the label still
+  // counts. Also disable text selection globally while the drag is active
+  // to avoid highlighting the label text on fast horizontal moves.
+  useEffect(() => {
+    if (!dragging) return
+    const move = (e: PointerEvent) => {
+      if (lastXRef.current === null) {
+        lastXRef.current = e.clientX
+        return
+      }
+      const dx = e.clientX - lastXRef.current
+      lastXRef.current = e.clientX
+      // Shift = 10x faster scrub for power users; matches common DCC tools.
+      const speed = e.shiftKey ? 10 : 1
+      const delta = dx * step * speed
+      const next = Math.min(max, Math.max(min, value + delta))
+      onChangeRef.current(next)
+    }
+    const up = () => {
+      setDragging(false)
+      lastXRef.current = null
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+  }, [dragging, step, min, max, value])
+
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <label className="text-[11px] text-fg-secondary">{label}</label>
+        <label
+          onPointerDown={(e) => {
+            // Start a drag scrub. Left-button only so right-click context
+            // menus and middle-click paste keep working.
+            if (e.button !== 0) return
+            e.preventDefault()
+            lastXRef.current = e.clientX
+            setDragging(true)
+          }}
+          className={`text-[11px] text-fg-secondary select-none cursor-ew-resize ${
+            dragging ? 'text-accent-cyan' : 'hover:text-fg-primary'
+          }`}
+          title="Drag horizontally to scrub · Shift = 10×"
+        >
+          {label}
+        </label>
         <input
           type="number"
           value={Number(value.toFixed(3))}
