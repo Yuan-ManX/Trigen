@@ -65,6 +65,142 @@ _SUBAGENT_SYSTEM_MUTATING = (
 )
 
 
+# Specialized sub-agent profiles. Each profile bundles a curated tool
+# whitelist, a tailored system prompt, and a default max_steps so the
+# orchestrator can delegate a focused task without hand-picking tools.
+# When the caller supplies ``profile``, the profile's whitelist is
+# intersected with the caller's ``tools`` (so the caller can only narrow
+# the profile, never broaden it) and the profile's system prompt is used
+# in place of the generic mutating/readonly templates.
+SUBAGENT_PROFILES: Dict[str, Dict[str, Any]] = {
+    "lighting_specialist": {
+        "description": (
+            "Sub-agent focused on scene lighting: balancing intensities, "
+            "choosing light types, placing rim/fill/key lights, and tuning "
+            "shadows for mood."
+        ),
+        "tools": [
+            "add_light", "modify_light", "delete_light",
+            "scene_info", "list_objects", "describe_scene",
+            "set_environment", "set_shadows",
+        ],
+        "default_max_steps": 4,
+        "system_prompt": (
+            "You are Trigen's lighting specialist sub-agent. You tune the "
+            "scene's light rig for mood, balance, and physical plausibility. "
+            "Prefer additive lighting (key + fill + rim) before removing "
+            "lights. Adjust intensity in small increments (≤0.4) and watch "
+            "shadow-casting lights for over-darkening. After your last tool "
+            "call, reply with a one-line summary of the lighting changes."
+        ),
+    },
+    "material_specialist": {
+        "description": (
+            "Sub-agent focused on surface appearance: PBR presets, color "
+            "palettes, gradients, and per-property fine tuning."
+        ),
+        "tools": [
+            "apply_material", "apply_material_preset", "set_material_property",
+            "gradient_material", "material_blend", "randomize_palette",
+            "apply_material_batch", "scene_info", "list_objects",
+        ],
+        "default_max_steps": 4,
+        "system_prompt": (
+            "You are Trigen's material specialist sub-agent. You craft "
+            "coherent surface appearance: pick presets that match the "
+            "project's aesthetic, blend gradients where appropriate, and "
+            "keep the palette within 5 distinct hues. Avoid pure-black or "
+            "pure-white albedo unless explicitly requested. After your last "
+            "tool call, reply with a one-line summary of the material changes."
+        ),
+    },
+    "composition_specialist": {
+        "description": (
+            "Sub-agent focused on spatial composition: framing, alignment, "
+            "distribution, rule-of-thirds, and crowd/cluster layouts."
+        ),
+        "tools": [
+            "transform_object", "align_objects", "distribute_objects",
+            "arrange_layout", "smart_compose", "snap_to_grid", "frame_view",
+            "set_view", "scene_info", "describe_scene", "list_objects",
+        ],
+        "default_max_steps": 5,
+        "system_prompt": (
+            "You are Trigen's composition specialist sub-agent. You improve "
+            "spatial composition: rule-of-thirds framing, balanced clusters, "
+            "rhythmic spacing, and clear silhouettes. Avoid perfectly aligned "
+            "grids unless explicitly requested; prefer jittered but readable "
+            "arrangements. After your last tool call, reply with a one-line "
+            "summary of the composition changes."
+        ),
+    },
+    "animation_specialist": {
+        "description": (
+            "Sub-agent focused on motion: keyframes, orbit/wave/bounce "
+            "patterns, and playback pacing."
+        ),
+        "tools": [
+            "keyframe_animation", "orbit_animation", "wave_animation",
+            "bounce_animation", "animate_camera", "play_animation",
+            "pause_animation", "seek_animation", "set_playback_speed",
+            "scene_info", "list_objects",
+        ],
+        "default_max_steps": 4,
+        "system_prompt": (
+            "You are Trigen's animation specialist sub-agent. You design "
+            "lightweight, legible motion: one focal animation per turn, "
+            "amplitudes kept modest (≤2 units), periods ≥1s to avoid strobing. "
+            "After your last tool call, reply with a one-line summary of the "
+            "animation you created."
+        ),
+    },
+    "geometry_specialist": {
+        "description": (
+            "Sub-agent focused on geometry editing: creation, boolean ops, "
+            "mirroring, arrays, and primitive parameter tuning."
+        ),
+        "tools": [
+            "create_object", "modify_geometry", "duplicate_object",
+            "delete_object", "mirror_object", "array_pattern",
+            "boolean_operation", "set_geometry_params", "snap_to_grid",
+            "scene_info", "list_objects",
+        ],
+        "default_max_steps": 5,
+        "system_prompt": (
+            "You are Trigen's geometry specialist sub-agent. You build and "
+            "edit meshes: prefer non-destructive ops (duplicate, mirror, "
+            "array) over boolean unions; keep poly counts low; name new "
+            "objects by their role (e.g. 'Pillar', 'RoofBeam') not their "
+            "shape. After your last tool call, reply with a one-line summary "
+            "of the geometry you produced."
+        ),
+    },
+    "critique_specialist": {
+        "description": (
+            "Sub-agent focused on editorial review: running the scene "
+            "critique, prioritizing findings by severity, and applying "
+            "concrete fixes for the highest-impact problems."
+        ),
+        "tools": [
+            "critique_scene", "analyze_scene", "describe_scene",
+            "scene_statistics", "scene_info", "list_objects",
+            "add_light", "modify_light", "transform_object",
+            "apply_material", "arrange_layout", "set_background",
+        ],
+        "default_max_steps": 4,
+        "system_prompt": (
+            "You are Trigen's critique specialist sub-agent. You act as a "
+            "fresh pair of editorial eyes. First call critique_scene to get "
+            "the ranked findings, then address only the highest-severity "
+            "issues (high before medium before low) using their proposed "
+            "fixes. Never introduce new problems while fixing — keep changes "
+            "minimal and legible. After your last tool call, reply with a "
+            "one-line summary of the problems you found and fixed."
+        ),
+    },
+}
+
+
 _SUBAGENT_PARAMS = {
     "type": "object",
     "properties": {
@@ -98,6 +234,22 @@ _SUBAGENT_PARAMS = {
             "type": "string",
             "description": "Optional model id to use for the sub-agent. If omitted, the default "
             "configured model is used.",
+        },
+        "profile": {
+            "type": "string",
+            "enum": list(SUBAGENT_PROFILES.keys()),
+            "description": (
+                "Optional specialist profile. When supplied, the sub-agent "
+                "uses the profile's curated tool whitelist (intersected with "
+                "any caller-supplied 'tools') and the profile's tailored "
+                "system prompt. Profiles: lighting_specialist, "
+                "material_specialist, composition_specialist, "
+                "animation_specialist, geometry_specialist, "
+                "critique_specialist. When a profile "
+                "is supplied without an explicit 'tools' list, the profile's "
+                "default whitelist is used and mutate_scene is treated as "
+                "true unless explicitly set to false."
+            ),
         },
     },
     "required": ["task"],
@@ -142,6 +294,36 @@ class DispatchSubagentTool(ToolBase):
         model = arguments.get("model") or None
         tools_whitelist = self._normalize_whitelist(arguments.get("tools"))
         mutate_scene = bool(arguments.get("mutate_scene", False))
+        profile_name = arguments.get("profile")
+        profile = None
+        if profile_name:
+            profile = SUBAGENT_PROFILES.get(profile_name)
+            if profile is None:
+                return ToolResult(
+                    success=False,
+                    message=(
+                        f"Unknown sub-agent profile: {profile_name}. "
+                        f"Available: {', '.join(SUBAGENT_PROFILES.keys())}"
+                    ),
+                )
+            # When a profile is supplied without an explicit tools list,
+            # inherit the profile's whitelist. When the caller also supplied
+            # a tools list, intersect it with the profile's whitelist so the
+            # caller can only narrow the profile, never broaden it.
+            profile_tools = list(profile.get("tools", []))
+            if not tools_whitelist:
+                tools_whitelist = profile_tools
+            else:
+                allowed = set(profile_tools)
+                tools_whitelist = [t for t in tools_whitelist if t in allowed]
+            # A profile implies mutating mode unless the caller explicitly
+            # opted out via mutate_scene=false.
+            if "mutate_scene" not in arguments:
+                mutate_scene = True
+            # Apply the profile's default max_steps when the caller did not.
+            if arguments.get("max_steps") is None:
+                arguments = dict(arguments)
+                arguments["max_steps"] = int(profile.get("default_max_steps", 3))
 
         # Mutating mode requires both a non-empty whitelist and a registry.
         if mutate_scene and tools_whitelist:
@@ -150,24 +332,33 @@ class DispatchSubagentTool(ToolBase):
                     success=False,
                     message="Sub-agent mutating mode requires a tool registry, none configured.",
                 )
-            return await self._run_mutating(scene, task, tools_whitelist, arguments, model)
+            return await self._run_mutating(scene, task, tools_whitelist, arguments, model, profile=profile)
 
         # Default: read-only single-shot analysis.
-        return await self._run_readonly(scene, task, model)
+        return await self._run_readonly(scene, task, model, profile=profile)
 
     # ------------------------------------------------------------------
     # Read-only path
     # ------------------------------------------------------------------
 
-    async def _run_readonly(self, scene: Scene, task: str, model: Optional[str]) -> ToolResult:
+    async def _run_readonly(
+        self,
+        scene: Scene,
+        task: str,
+        model: Optional[str],
+        profile: Optional[Dict[str, Any]] = None,
+    ) -> ToolResult:
         client = LLMClient(self.llm_config)
         summary = self._scene_summary(scene)
+        system_prompt = _SUBAGENT_SYSTEM_READONLY
+        if profile is not None:
+            system_prompt = str(profile.get("system_prompt", system_prompt))
         messages = [
-            {"role": "system", "content": _SUBAGENT_SYSTEM_READONLY},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"{summary}\n\nTask: {task}"},
         ]
         try:
-            response = await client.complete(messages=messages, system=_SUBAGENT_SYSTEM_READONLY, model=model)
+            response = await client.complete(messages=messages, system=system_prompt, model=model)
         except Exception as exc:
             logger.exception("Sub-agent complete() failed")
             return ToolResult(success=False, message=f"Sub-agent call failed: {exc}")
@@ -176,15 +367,18 @@ class DispatchSubagentTool(ToolBase):
         if response.finish_reason == "error":
             return ToolResult(success=False, message=f"Sub-agent error: {content}")
 
+        data = {
+            "task": task,
+            "model": model or self.llm_config.model,
+            "finish_reason": response.finish_reason,
+            "mode": "readonly",
+        }
+        if profile is not None:
+            data["profile"] = profile.get("name") if isinstance(profile, dict) and "name" in profile else None
         return ToolResult(
             success=True,
             message=content,
-            data={
-                "task": task,
-                "model": model or self.llm_config.model,
-                "finish_reason": response.finish_reason,
-                "mode": "readonly",
-            },
+            data=data,
         )
 
     # ------------------------------------------------------------------
@@ -198,6 +392,7 @@ class DispatchSubagentTool(ToolBase):
         whitelist: List[str],
         arguments: Dict[str, Any],
         model: Optional[str],
+        profile: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         # Resolve the effective whitelist: drop forbidden names and any
         # name not present in the registry.
@@ -228,7 +423,18 @@ class DispatchSubagentTool(ToolBase):
             max_steps = 3
         max_steps = max(1, min(max_steps, _MAX_STEPS_CAP))
 
-        system_prompt = _SUBAGENT_SYSTEM_MUTATING.format(max_steps=max_steps)
+        # When a profile is supplied, use its tailored system prompt but
+        # append the bounded-loop directive so the model still knows the
+        # step budget. Otherwise fall back to the generic mutating template.
+        if profile is not None:
+            base_prompt = str(profile.get("system_prompt", ""))
+            system_prompt = (
+                base_prompt
+                + f" You may call at most {max_steps} tool(s) in total. "
+                "Do not ask follow-up questions and do not spawn further sub-agents."
+            )
+        else:
+            system_prompt = _SUBAGENT_SYSTEM_MUTATING.format(max_steps=max_steps)
         summary = self._scene_summary(scene)
 
         messages: List[Dict[str, Any]] = [
@@ -336,17 +542,26 @@ class DispatchSubagentTool(ToolBase):
             final_text.strip()
             or f"Sub-agent completed {steps_taken} tool call(s); produced {len(deltas)} scene delta(s)."
         )
+        data = {
+            "task": task,
+            "mode": "mutating",
+            "model": model or self.llm_config.model,
+            "steps_taken": steps_taken,
+            "steps": step_log,
+        }
+        if profile is not None:
+            # Surface the profile name (key in SUBAGENT_PROFILES) so callers
+            # can audit which specialist ran. We pass the resolved profile
+            # dict in via execute(); recover the name by reverse lookup.
+            for k, v in SUBAGENT_PROFILES.items():
+                if v is profile:
+                    data["profile"] = k
+                    break
         return ToolResult(
             success=True,
             message=summary_line,
             deltas=deltas,
-            data={
-                "task": task,
-                "mode": "mutating",
-                "model": model or self.llm_config.model,
-                "steps_taken": steps_taken,
-                "steps": step_log,
-            },
+            data=data,
         )
 
     # ------------------------------------------------------------------
