@@ -9,7 +9,7 @@ import type { Vec3 } from '../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 export type RenderQuality = 'low' | 'medium' | 'high'
-export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools'
+export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools' | 'memory' | 'activity' | 'checkpoints' | 'storyboard'
 
 export interface ViewportCameraState {
   position: Vec3
@@ -53,6 +53,38 @@ export type ViewportProjection = 'perspective' | 'orthographic'
  *  Driven by the editor_set_mode delta from set_editor_mode tool execution. */
 export type EditorMode = 'edit' | 'run'
 
+/** Cinematic camera flythrough descriptor. Driven by the
+ *  editor_camera_flythrough delta from camera_flythrough tool execution.
+ *  The canvas component watches the token to (re)start the preview. */
+export interface CameraFlythroughState {
+  waypoints: Array<{
+    position: Vec3
+    target: Vec3
+    dwell: number
+    speed: number
+  }>
+  loop: boolean
+  smooth: boolean
+  speed: number
+  duration: number
+  distance: number
+  /** Monotonic token so repeated identical descriptors still trigger a
+   *  re-render / replay of the flythrough. */
+  token: number
+}
+
+/** Radial context-menu descriptor. Triggered by right-clicking a mesh in
+ *  the viewport; the canvas renders a pie-menu overlay at the cursor. The
+ *  token re-triggers the open animation even for repeated clicks on the
+ *  same object. */
+export interface RadialMenuState {
+  objectId: string
+  /** Viewport-space origin (px) where the menu anchors. */
+  x: number
+  y: number
+  token: number
+}
+
 interface EditorState {
   transformMode: TransformMode
   gridSnapEnabled: boolean
@@ -82,6 +114,12 @@ interface EditorState {
   /** Editor authoring mode (edit vs run/preview). Driven by the
    *  editor_set_mode delta from set_editor_mode tool execution. */
   editorMode: EditorMode
+  /** Active cinematic camera flythrough, or null when cleared. Set by the
+   *  editor_camera_flythrough delta from camera_flythrough tool execution. */
+  cameraFlythrough: CameraFlythroughState | null
+  /** Active radial context-menu, or null when dismissed. Set by the
+   *  onContextMenu handler in SceneMesh; rendered as a pie overlay. */
+  radialMenu: RadialMenuState | null
 
   setTransformMode: (m: TransformMode) => void
   setGridSnap: (enabled: boolean, increment?: number) => void
@@ -96,6 +134,10 @@ interface EditorState {
   setShadowsEnabled: (enabled: boolean) => void
   setProjectionMode: (mode: ViewportProjection) => void
   setEditorMode: (mode: EditorMode) => void
+  setCameraFlythrough: (f: Omit<CameraFlythroughState, 'token'> | null) => void
+  clearCameraFlythrough: () => void
+  setRadialMenu: (m: Omit<RadialMenuState, 'token'> | null) => void
+  clearRadialMenu: () => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -113,6 +155,8 @@ export const useEditor = create<EditorState>((set) => ({
   shadowsEnabled: true,
   projectionMode: 'perspective',
   editorMode: 'edit',
+  cameraFlythrough: null,
+  radialMenu: null,
 
   setTransformMode: (m) => set({ transformMode: m }),
   setGridSnap: (enabled, increment) =>
@@ -148,4 +192,18 @@ export const useEditor = create<EditorState>((set) => ({
   setShadowsEnabled: (enabled) => set({ shadowsEnabled: enabled }),
   setProjectionMode: (mode) => set({ projectionMode: mode }),
   setEditorMode: (mode) => set({ editorMode: mode }),
+  setCameraFlythrough: (f) =>
+    set((state) => ({
+      cameraFlythrough: f
+        ? { ...f, token: (state.cameraFlythrough?.token ?? 0) + 1 }
+        : null,
+    })),
+  clearCameraFlythrough: () => set({ cameraFlythrough: null }),
+  setRadialMenu: (m) =>
+    set((state) => ({
+      radialMenu: m
+        ? { ...m, token: (state.radialMenu?.token ?? 0) + 1 }
+        : null,
+    })),
+  clearRadialMenu: () => set({ radialMenu: null }),
 }))
