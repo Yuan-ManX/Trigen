@@ -3,6 +3,9 @@
 
 import type {
   AgentStatusResponse,
+  CheckpointDiff,
+  CheckpointEntry,
+  CheckpointListResponse,
   ClientMessage,
   HealthResponse,
   InvokeSkillResponse,
@@ -10,6 +13,7 @@ import type {
   PresetsResponse,
   SceneData,
   ServerEvent,
+  StoryboardResponse,
   ToolCategoriesResponse,
   ToolsResponse,
 } from '../types'
@@ -414,6 +418,46 @@ export async function fetchAgentPlan(
   return res.json() as Promise<AgentPlanResult>
 }
 
+/** Critique findings block returned by POST /api/agent/plan/graph. */
+export interface AgentPlanCritique {
+  summary: string
+  findings: Array<{ kind: string; step_id?: string; tool?: string; target?: string; targets?: string[]; message: string }>
+  pruned_step_ids: string[]
+}
+
+/** Perception findings block returned by POST /api/agent/plan/graph. */
+export interface AgentPlanPerception {
+  summary: string
+  findings: Array<{ kind: string; severity?: string; message: string }>
+  metrics: Record<string, unknown>
+}
+
+/** Result of POST /api/agent/plan/graph — plan preview + DAG + critique + perception. */
+export interface AgentPlanGraphResult extends AgentPlanResult {
+  /** Plan dependency DAG (``{nodes, edges, layers}``) for node-graph rendering. */
+  graph?: import('../types').PlanGraphPayload
+  /** Pre-execution critique findings (advisory). */
+  critique?: AgentPlanCritique | null
+  /** Heuristic scene-perception findings, or null for non-3D plans. */
+  perception?: AgentPlanPerception | null
+}
+
+/** Preview the plan + dependency DAG + critique + perception for ``message``
+ *  without executing any tools. Mirrors fetchAgentPlan with extra fields. */
+export async function fetchAgentPlanGraph(
+  message: string,
+  sessionId: string = 'default',
+  model?: string,
+): Promise<AgentPlanGraphResult> {
+  const res = await fetch('/api/agent/plan/graph', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId, model }),
+  })
+  if (!res.ok) throw new Error(`Agent plan/graph failed: ${res.status}`)
+  return res.json() as Promise<AgentPlanGraphResult>
+}
+
 /** Tool / skill documentation returned by POST /api/agent/explain. */
 export interface ExplainResult {
   kind: 'tool' | 'skill'
@@ -452,6 +496,63 @@ export async function uploadChatImage(file: File): Promise<UploadedImage> {
   const res = await fetch('/api/agent/upload/image', { method: 'POST', body: fd })
   if (!res.ok) throw new Error(`Image upload failed: ${res.status}`)
   return res.json() as Promise<UploadedImage>
+}
+
+/* ============ Agent memory (pinned facts) ============ */
+
+/** A single pinned fact the Agent remembers across sessions. */
+export interface PinnedFact {
+  text: string
+  category: string
+  pinned_at: number
+}
+
+/** Response payload from GET /api/agent/memory. */
+export interface AgentMemoryResponse {
+  preferences: Record<string, Record<string, number>>
+  patterns: Record<string, unknown>
+  pinned_facts: PinnedFact[]
+  last_updated: number
+  summary: {
+    total_facts: number
+    categories: string[]
+    pattern_count: number
+  }
+}
+
+/** Fetch the Agent's explicit memory (pinned facts + preferences summary). */
+export async function fetchAgentMemory(): Promise<AgentMemoryResponse> {
+  const res = await fetch('/api/agent/memory')
+  if (!res.ok) throw new Error(`Failed to fetch agent memory: ${res.status}`)
+  return res.json() as Promise<AgentMemoryResponse>
+}
+
+/** Pin a durable fact. Returns the new fact plus the total fact count. */
+export async function pinAgentFact(
+  text: string,
+  category?: string,
+): Promise<{ fact: PinnedFact; total_facts: number }> {
+  const res = await fetch('/api/agent/memory/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, category }),
+  })
+  if (!res.ok) throw new Error(`Failed to pin fact: ${res.status}`)
+  return res.json()
+}
+
+/** Remove a pinned fact by text, or clear a whole category. */
+export async function forgetAgentFact(body: {
+  text?: string
+  category?: string
+}): Promise<{ removed: number | boolean; remaining?: number; text?: string; category?: string | null }> {
+  const res = await fetch('/api/agent/memory', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Failed to forget fact: ${res.status}`)
+  return res.json()
 }
 
 /** Supported scene-to-code export formats */
@@ -592,6 +693,121 @@ export async function* runPipelineStream(
       }
     }
   }
+}
+
+/* ============ Scene checkpoints (version history) ============ */
+
+/** Fetch the scene's checkpoint history, newest-first. */
+export async function fetchCheckpoints(limit?: number): Promise<CheckpointListResponse> {
+  const qs = limit !== undefined && limit >= 0 ? `?limit=${limit}` : ''
+  const res = await fetch(`/api/agent/checkpoints${qs}`)
+  if (!res.ok) throw new Error(`Failed to fetch checkpoints: ${res.status}`)
+  return res.json() as Promise<CheckpointListResponse>
+}
+
+/** Capture the current scene as a new immutable revision. */
+export async function createCheckpoint(
+  description: string,
+  sessionId: string = 'default',
+): Promise<{ revision: number; description: string; summary: CheckpointEntry['summary']; total: number }> {
+  const res = await fetch('/api/agent/checkpoints', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, session_id: sessionId }),
+  })
+  if (!res.ok) throw new Error(`Failed to create checkpoint: ${res.status}`)
+  return res.json()
+}
+
+/** Restore the live scene to a checkpoint revision. Returns the restored scene. */
+export async function restoreCheckpoint(
+  revision: number,
+  sessionId: string = 'default',
+): Promise<{ revision: number; description: string; summary: CheckpointEntry['summary']; scene: SceneData }> {
+  const res = await fetch(`/api/agent/checkpoints/${revision}/restore?session_id=${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to restore checkpoint: ${res.status}`)
+  return res.json()
+}
+
+/** Diff two checkpoint revisions. */
+export async function diffCheckpoints(
+  revisionA: number,
+  revisionB: number,
+): Promise<CheckpointDiff> {
+  const res = await fetch(`/api/agent/checkpoints/diff?revision_a=${revisionA}&revision_b=${revisionB}`)
+  if (!res.ok) throw new Error(`Failed to diff checkpoints: ${res.status}`)
+  return res.json() as Promise<CheckpointDiff>
+}
+
+/* ============ Cinematic storyboard ============ */
+
+/** A raw (un-normalized) shot payload accepted by the compose endpoint. */
+export interface StoryboardShotInput {
+  name?: string
+  position?: [number, number, number]
+  target?: [number, number, number]
+  fov?: number
+  duration?: number
+  easing?: string
+  description?: string
+}
+
+/** Fetch the scene's cinematic storyboard. */
+export async function fetchStoryboard(sessionId: string = 'default'): Promise<StoryboardResponse> {
+  const res = await fetch(`/api/agent/story?session_id=${encodeURIComponent(sessionId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch storyboard: ${res.status}`)
+  return res.json() as Promise<StoryboardResponse>
+}
+
+/** Compose or replace the scene's cinematic storyboard. Returns the full
+ *  scene snapshot so the caller can swap it into the editor. */
+export async function composeStoryboard(
+  title: string,
+  shots: StoryboardShotInput[],
+  opts: { sessionId?: string; loop?: boolean } = {},
+): Promise<StoryboardResponse> {
+  const res = await fetch('/api/agent/story', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: opts.sessionId ?? 'default',
+      title,
+      shots,
+      loop: opts.loop ?? true,
+    }),
+  })
+  if (!res.ok) throw new Error(`Failed to compose storyboard: ${res.status}`)
+  return res.json() as Promise<StoryboardResponse>
+}
+
+/** Remove the scene's cinematic storyboard. */
+export async function clearStoryboard(sessionId: string = 'default'): Promise<StoryboardResponse> {
+  const res = await fetch(`/api/agent/story?session_id=${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`Failed to clear storyboard: ${res.status}`)
+  return res.json() as Promise<StoryboardResponse>
+}
+
+/** Control storyboard playback (play / pause / stop). */
+export async function controlStoryboard(
+  mode: 'play' | 'pause' | 'stop',
+  opts: { sessionId?: string; speed?: number; index?: number } = {},
+): Promise<StoryboardResponse> {
+  const res = await fetch('/api/agent/story/play', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: opts.sessionId ?? 'default',
+      mode,
+      speed: opts.speed,
+      index: opts.index,
+    }),
+  })
+  if (!res.ok) throw new Error(`Failed to control storyboard: ${res.status}`)
+  return res.json() as Promise<StoryboardResponse>
 }
 
 /* ============ WebSocket client ============ */
