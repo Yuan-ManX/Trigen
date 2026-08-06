@@ -505,7 +505,7 @@ function SceneContent({
       {/* On-canvas annotation overlay — edit mode only */}
       {mode === 'edit' && <AnnotationLayer />}
 
-      <CameraRig autoRotate={mode === 'run'} animation={animation} />
+      <CameraRig autoRotate={mode === 'run'} animation={animation} storyboard={scene.storyboard ?? null} />
     </>
   )
 }
