@@ -10,6 +10,7 @@ import {
   type ModelEntry,
 } from '../../api/client'
 import { useChat } from '../../store/useChat'
+import { PromptGallery } from './PromptGallery'
 
 /** Fallback model list used before API loads */
 const FALLBACK_MODELS: ModelEntry[] = [
@@ -424,6 +425,17 @@ export function InputBar() {
             <span>Drop image to attach</span>
           </div>
         )}
+        {/* Prompt gallery — illustrated example prompts shown when the input
+            is empty and Trigen is idle. Clicking inserts the prompt into the
+            textarea (not sending it), so the user can refine before running. */}
+        <PromptGallery
+          onInsert={(prompt) => {
+            handleInput(prompt)
+            textareaRef.current?.focus()
+          }}
+          disabled={text.trim().length > 0 || isResponding}
+        />
+
         {/* Image preview thumbnail (with upload-in-flight spinner overlay) */}
         {(imagePreview || uploading) && (
           <div className="mb-2 relative inline-block">
