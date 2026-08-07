@@ -9,7 +9,7 @@ import type { Vec3 } from '../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 export type RenderQuality = 'low' | 'medium' | 'high'
-export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools' | 'memory' | 'activity' | 'checkpoints' | 'storyboard'
+export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools' | 'memory' | 'activity' | 'checkpoints' | 'storyboard' | 'critique' | 'constraints'
 
 export interface ViewportCameraState {
   position: Vec3
@@ -85,6 +85,23 @@ export interface RadialMenuState {
   token: number
 }
 
+/** Turntable orbit descriptor. Driven by the editor_orbit_viewport delta
+ *  from the orbit_viewport tool execution. The canvas component watches
+ *  the token to (re)start the turntable orbit; when ``active`` is false
+ *  the camera rig cancels any active orbit and returns to free look. */
+export interface OrbitViewportState {
+  active: boolean
+  target: Vec3
+  radius: number
+  height: number
+  speed: number
+  duration: number
+  loop: boolean
+  /** Monotonic token so repeated identical descriptors still trigger a
+   *  re-render / replay of the orbit. */
+  token: number
+}
+
 interface EditorState {
   transformMode: TransformMode
   gridSnapEnabled: boolean
@@ -120,6 +137,9 @@ interface EditorState {
   /** Active radial context-menu, or null when dismissed. Set by the
    *  onContextMenu handler in SceneMesh; rendered as a pie overlay. */
   radialMenu: RadialMenuState | null
+  /** Active turntable orbit, or null when inactive. Set by the
+   *  editor_orbit_viewport delta from orbit_viewport tool execution. */
+  orbitViewport: OrbitViewportState | null
 
   setTransformMode: (m: TransformMode) => void
   setGridSnap: (enabled: boolean, increment?: number) => void
@@ -138,6 +158,8 @@ interface EditorState {
   clearCameraFlythrough: () => void
   setRadialMenu: (m: Omit<RadialMenuState, 'token'> | null) => void
   clearRadialMenu: () => void
+  setOrbitViewport: (o: Omit<OrbitViewportState, 'token'> | null) => void
+  clearOrbitViewport: () => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -157,6 +179,7 @@ export const useEditor = create<EditorState>((set) => ({
   editorMode: 'edit',
   cameraFlythrough: null,
   radialMenu: null,
+  orbitViewport: null,
 
   setTransformMode: (m) => set({ transformMode: m }),
   setGridSnap: (enabled, increment) =>
@@ -206,4 +229,11 @@ export const useEditor = create<EditorState>((set) => ({
         : null,
     })),
   clearRadialMenu: () => set({ radialMenu: null }),
+  setOrbitViewport: (o) =>
+    set((state) => ({
+      orbitViewport: o
+        ? { ...o, token: (state.orbitViewport?.token ?? 0) + 1 }
+        : null,
+    })),
+  clearOrbitViewport: () => set({ orbitViewport: null }),
 }))
