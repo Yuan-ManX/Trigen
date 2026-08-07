@@ -196,6 +196,30 @@ export interface Annotation {
   visible?: boolean
 }
 
+/** A single camera shot in a cinematic storyboard. */
+export interface StoryboardShot {
+  id: string
+  name: string
+  position: Vec3
+  target: Vec3
+  fov: number
+  duration: number
+  easing: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+  description: string
+}
+
+/** Cinematic storyboard — an ordered sequence of camera shots that plays as
+ *  a scripted camera tour of the scene. Mirrors trigen/storyboard.py. */
+export interface Storyboard {
+  title: string
+  shots: StoryboardShot[]
+  loop: boolean
+  playing: boolean
+  speed: number
+  index: number
+  created_at: number
+}
+
 /** Complete scene */
 export interface SceneData {
   objects: SceneObject[]
@@ -209,6 +233,9 @@ export interface SceneData {
   grid_size: number
   /** On-canvas annotations (text labels anchored to objects or world points). */
   annotations?: Annotation[]
+  /** Cinematic storyboard (sequence of camera shots). Optional — absent for
+   *  scenes that have never composed one. */
+  storyboard?: Storyboard | null
 }
 
 /** Empty scene default value */
@@ -223,6 +250,7 @@ export const EMPTY_SCENE: SceneData = {
   grid_visible: true,
   grid_size: 40,
   annotations: [],
+  storyboard: null,
 }
 
 /* ============ WebSocket event types ============ */
@@ -381,6 +409,44 @@ export interface PlanRefineEvent {
   }
 }
 
+/** A single node in the plan DAG. Mirrors the backend `to_graph_payload()`
+ *  node shape — `id`, human `label`, the `tool` it represents, current
+ *  `status`, and the list of upstream step ids it `dependencies` on. */
+export interface PlanGraphNode {
+  id: string
+  label: string
+  tool: string
+  status: string
+  dependencies: string[]
+}
+
+/** A single directed edge in the plan DAG. `kind` is advisory metadata
+ *  (e.g. "data" vs "control") — the frontend renders all edges the same. */
+export interface PlanGraphEdge {
+  from: string
+  to: string
+  kind: string
+}
+
+/** Full plan DAG payload emitted by the orchestrator's PLAN_GRAPH event
+ *  and returned by the /api/agent/plan/graph endpoint. `layers` is a
+ *  topologically-ordered list of id groups (one sub-list per depth column). */
+export interface PlanGraphPayload {
+  nodes: PlanGraphNode[]
+  edges: PlanGraphEdge[]
+  layers: string[][]
+}
+
+/** Plan DAG event — emitted immediately after the `plan` event, carrying
+ *  the dependency graph derived from the plan steps. The chat UI uses this
+ *  to optionally render a visual DAG alongside the plan checklist. */
+export interface PlanGraphEvent {
+  type: 'plan_graph'
+  data: {
+    graph: PlanGraphPayload
+  }
+}
+
 /** Message sent by the client */
 export interface ClientMessage {
   type: 'message'
@@ -401,6 +467,7 @@ export type ServerEvent =
   | PlanEvent
   | PlanUpdateEvent
   | PlanRefineEvent
+  | PlanGraphEvent
   | DoneEvent
   | ErrorEvent
 
@@ -549,3 +616,302 @@ export interface PipelineGraphEdge {
 
 /** Per-node execution status surfaced by the SSE stream. */
 export type PipelineNodeStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+/* ============ Scene checkpoints (version history) ============ */
+
+/** Semantic summary auto-generated for a checkpoint. */
+export interface CheckpointSummary {
+  object_count: number
+  geometry_counts: Record<string, number>
+  light_counts: Record<string, number>
+  palette: string[]
+  prose: string
+}
+
+/** A single immutable revision of the scene (list view — no scene payload). */
+export interface CheckpointEntry {
+  revision: number
+  description: string
+  created_at: number
+  created_by: string
+  summary: CheckpointSummary
+}
+
+/** Response of GET /api/agent/checkpoints. */
+export interface CheckpointListResponse {
+  checkpoints: CheckpointEntry[]
+  count: number
+  total: number
+  next_revision: number
+}
+
+/** A structural diff between two checkpoint revisions. */
+export interface CheckpointDiff {
+  revision_a: number
+  revision_b: number
+  added_count: number
+  removed_count: number
+  changed_count: number
+  kept_count: number
+  added: Array<{ id: string; name: string }>
+  removed: Array<{ id: string; name: string }>
+  changed: Array<{ id: string; name: string }>
+}
+
+/* ============ Cinematic storyboard ============ */
+
+/** Response of GET /api/agent/story — the scene's cinematic storyboard. */
+export interface StoryboardResponse {
+  session_id: string
+  storyboard: Storyboard | null
+  shots: StoryboardShot[]
+  total_duration: number
+  /** Present on compose responses: the full scene snapshot after the update. */
+  scene?: SceneData
+  /** Present on play responses: whether the sequence is now playing. */
+  playing?: boolean
+  /** Present on clear responses: whether a storyboard existed. */
+  cleared?: boolean
+}
+
+/* ============ Scene critique + auto-fix ============ */
+
+/** Severity bucket a critique finding is ranked into. Mirrors the backend
+ *  SceneCritiqueTool's severity enum. */
+export type CritiqueSeverity = 'high' | 'medium' | 'low'
+
+/** Verdict the critique engine emits after running all checks. 'clean' means
+ *  no findings; 'needs_attention' means at least one was raised. */
+export type CritiqueVerdict = 'clean' | 'needs_attention'
+
+/** A proposed corrective tool call attached to a critique finding. The
+ *  `tool` is always a registered Agent tool name; `arguments` is the
+ *  ready-to-execute payload (validated server-side). */
+export interface CritiqueProposedFix {
+  tool: string
+  arguments: Record<string, unknown>
+}
+
+/** A single prescriptive design finding produced by critique_scene. Mirrors
+ *  the per-finding dict emitted by trigen/tools/scene_critique.py. */
+export interface CritiqueFinding {
+  id: string
+  severity: CritiqueSeverity
+  title: string
+  detail: string
+  proposed_fix: CritiqueProposedFix
+}
+
+/** Data block returned by critique_scene (and by POST /api/agent/run when
+ *  name='critique_scene'). */
+export interface CritiqueData {
+  object_count: number
+  light_count: number
+  verdict: CritiqueVerdict
+  findings: CritiqueFinding[]
+}
+
+/** One applied fix in an auto_fix_scene report. */
+export interface AutoFixApplied {
+  id: string
+  title?: string
+  tool: string
+  arguments: Record<string, unknown>
+  message: string
+}
+
+/** One skipped fix in an auto_fix_scene report. `reason` explains why the
+ *  fix could not be applied (missing tool, execution error, etc.). */
+export interface AutoFixSkipped {
+  id: string
+  tool?: string
+  reason: string
+}
+
+/** Data block returned by auto_fix_scene (and by POST /api/agent/run when
+ *  name='auto_fix_scene'). `changed` is false when nothing was applied. */
+export interface AutoFixData {
+  applied: AutoFixApplied[]
+  skipped: AutoFixSkipped[]
+  remaining: CritiqueFinding[]
+  changed: boolean
+  object_count: number
+}
+
+/* ============ Constraint authoring + goal-driven refinement ============ */
+
+/** Supported spatial constraint kinds. Mirrors CONSTRAINT_KINDS in
+ *  trigen/constraints.py. */
+export type ConstraintKind =
+  | 'above'
+  | 'below'
+  | 'above_floor'
+  | 'faces'
+  | 'centered'
+  | 'min_distance'
+  | 'aligned'
+
+/** A single spatial constraint between scene objects (or an object and a
+ *  world point). Mirrors the Constraint dataclass in trigen/constraints.py. */
+export interface Constraint {
+  id: string
+  kind: ConstraintKind
+  subject: string
+  anchor?: string | null
+  target_point?: number[] | null
+  axis?: 'x' | 'y' | 'z' | null
+  distance?: number | null
+  offset?: number | null
+  tolerance: number
+  description: string
+}
+
+/** A constraint row augmented with its current pass/fail evaluation against
+ *  the live scene. Returned by list_constraints. */
+export interface ConstraintEvalRow extends Constraint {
+  passed: boolean
+  message: string
+}
+
+/** Data block returned by list_constraints. */
+export interface ListConstraintsData {
+  constraints: ConstraintEvalRow[]
+  count: number
+  passed: number
+  failed: number
+}
+
+/** Data block returned by add_constraint (the freshly-added constraint). */
+export interface AddConstraintData {
+  constraint: Constraint
+}
+
+/** Data block returned by clear_constraints. */
+export interface ClearConstraintsData {
+  cleared: number
+}
+
+/** One moved-object entry in a solve_constraints report. */
+export interface SolveMovedEntry {
+  id: string
+  name: string
+  from: number[]
+  to: number[]
+}
+
+/** One still-violated constraint entry in a solve_constraints report. */
+export interface SolveViolatedEntry {
+  id: string
+  kind: ConstraintKind
+  subject: string
+  anchor?: string | null
+  message: string
+}
+
+/** Data block returned by solve_constraints. */
+export interface SolveConstraintsData {
+  solved: number
+  total: number
+  still_violated: SolveViolatedEntry[]
+  moved: SolveMovedEntry[]
+  passes: number
+}
+
+/** One iteration trace in a refine_scene report. */
+export interface RefineIteration {
+  iteration: number
+  findings_count?: number
+  applied?: AutoFixApplied[]
+  skipped?: AutoFixSkipped[]
+  remaining_after?: number
+  applied_count?: number
+  skipped_count?: number
+  verdict?: string
+  error?: string
+}
+
+/** Data block returned by refine_scene. */
+export interface RefineData {
+  goal: string
+  iterations: RefineIteration[]
+  iteration_count: number
+  total_applied: number
+  total_skipped: number
+  remaining_findings: number
+  stopped_reason: string
+}
+
+/** Generic payload of POST /api/agent/run — direct tool execution. The
+ *  `result.data` block depends on the tool: CritiqueData for critique_scene,
+ *  AutoFixData for auto_fix_scene, etc. The updated scene snapshot is always
+ *  returned so the caller can swap it into the editor immediately. */
+export interface AgentRunResponse<TResultData = Record<string, unknown>> {
+  session_id: string
+  tool: string
+  result: {
+    success: boolean
+    message: string
+    data: TResultData
+  }
+  scene: SceneData
+  tool_call: {
+    type: 'tool_call'
+    name: string
+    arguments: Record<string, unknown>
+    result: unknown
+    deltas: Array<Record<string, unknown>>
+    direct: boolean
+    ts: number
+  }
+}
+
+/* ============ Unified Workspace bootstrap (GET /api/agent/workspace) ============ */
+
+/** A single saved Agentic Workflow Template entry (list view). */
+export interface WorkflowEntry {
+  name: string
+  description: string
+  steps: Array<{ tool: string; arguments: Record<string, unknown> }>
+  created_at: number
+  uses: number
+}
+
+/** Response block for the workflows section of the workspace payload. */
+export interface WorkspaceWorkflowsBlock {
+  workflows: WorkflowEntry[]
+  count: number
+}
+
+/** A single per-turn reflection record. */
+export interface ReflectionEntry {
+  goal?: string
+  tool_calls?: string[]
+  outcome?: string
+  quality?: Record<string, unknown>
+  elapsed?: number
+  ts?: number
+}
+
+/** Response block for the recent_reflections section. */
+export interface WorkspaceReflectionsBlock {
+  reflections: ReflectionEntry[]
+  summary: Record<string, unknown>
+}
+
+/** Response block for the skills section. */
+export interface WorkspaceSkillsBlock {
+  skills: Array<Record<string, unknown>>
+  count: number
+}
+
+/** Response of GET /api/agent/workspace — bundles everything the frontend
+ *  needs on initial load so it can render every panel from one fetch. */
+export interface WorkspaceResponse {
+  session_id: string
+  scene: SceneData
+  agent_status: AgentStatusResponse
+  tool_categories: ToolCategoriesResponse
+  skills: WorkspaceSkillsBlock
+  recent_reflections: WorkspaceReflectionsBlock
+  workflows: WorkspaceWorkflowsBlock
+}
