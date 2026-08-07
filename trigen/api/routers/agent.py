@@ -572,6 +572,143 @@ async def agent_status() -> JSONResponse:
     })
 
 
+# ---------------------------------------------------------------------------
+# Unified Workspace bootstrap — single call that bundles everything the
+# frontend needs on initial load: live scene, agent online/offline status
+# + capability summary, tool catalog grouped by category, creative skill
+# list, recent per-turn reflections, and saved Agentic Workflow Templates.
+# Removing N round-trips on startup smooths first-paint and lets the UI
+# render every right-panel tab from one payload.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/workspace")
+async def agent_workspace_get(
+    session_id: str = "default",
+    reflection_limit: Optional[int] = 10,
+) -> JSONResponse:
+    """Bootstrap the full workspace state in one call.
+
+    Bundles ``scene``, ``agent_status``, ``tool_categories``, ``skills``,
+    ``recent_reflections`` and ``workflows`` so the frontend can render
+    every panel from a single fetch on initial load. Each block mirrors
+    the shape returned by its dedicated endpoint, so callers can also
+    fetch any subset individually afterwards.
+    """
+    try:
+        agent = AgentService.get()
+        orch = agent.orchestrator
+        config = agent.config
+
+        # --- scene block (mirrors GET /scene/{session_id}) ---
+        scene = agent.get_scene(session_id)
+        history = orch.history_status(session_id)
+        scene_block = {"session_id": session_id, **scene, "history": history}
+
+        # --- agent_status block (mirrors GET /agent/status) ---
+        from trigen.llm.router import router as model_router
+
+        available_chat_models = model_router.list_available_chat_models()
+        real_chat_models = [m for m in available_chat_models if m != "trigen-default"]
+        online = bool(real_chat_models) or config.llm.is_configured
+        primary = None
+        if config.llm.is_configured:
+            primary = config.llm.model or None
+        fallback_chain = model_router.build_fallback_chain(primary)
+        usable_chain = [
+            m for m in fallback_chain
+            if m != "trigen-default"
+            and not model_router.is_generation_model(m)
+            and model_router.resolve(m).get("api_key")
+        ]
+        grouped = orch.registry.categories()
+        categories_summary = [
+            {"category": cat, "count": len(items)}
+            for cat, items in sorted(grouped.items())
+        ]
+        try:
+            from trigen.skills import build_default_registry
+            skill_count = len(build_default_registry().all())
+        except Exception:
+            skill_count = 0
+        agent_status_block = {
+            "online": online,
+            "mode": "online" if online else "offline",
+            "llm_configured": config.llm.is_configured,
+            "primary_model": primary,
+            "available_chat_models": available_chat_models,
+            "fallback_chain": fallback_chain,
+            "usable_fallback_chain": usable_chain,
+            "capabilities": {
+                "tools": len(orch.registry.all()),
+                "skills": skill_count,
+                "categories": categories_summary,
+                "total_categories": len(grouped),
+            },
+            "config": {
+                "max_iterations": config.max_iterations,
+                "memory_window": config.memory_window,
+                "max_tokens_per_turn": config.max_tokens_per_turn,
+            },
+        }
+
+        # --- tool_categories block (mirrors GET /tools/categories) ---
+        tool_categories_block = {
+            "categories": grouped,
+            "summary": categories_summary,
+            "total_categories": len(grouped),
+            "total_tools": sum(len(items) for items in grouped.values()),
+        }
+
+        # --- skills block (mirrors GET /skills) ---
+        try:
+            from trigen.skills import build_default_registry
+            skills_block = {
+                "skills": [s.to_dict() for s in build_default_registry().all()],
+                "count": skill_count,
+            }
+        except Exception:
+            skills_block = {"skills": [], "count": 0}
+
+        # --- recent_reflections block (mirrors GET /agent/reflection/{id}) ---
+        try:
+            from trigen.reflection import reflection_store
+            reflections = reflection_store.get(session_id, limit=reflection_limit)
+            reflection_summary = reflection_store.summary(session_id)
+        except Exception:
+            reflections = []
+            reflection_summary = {}
+        recent_reflections_block = {
+            "reflections": reflections,
+            "summary": reflection_summary,
+        }
+
+        # --- workflows block (mirrors GET /agent/workflows) ---
+        try:
+            from trigen.workflows import workflow_store
+            wf_collection = workflow_store.get()
+            wf_items = [
+                w.to_dict()
+                for w in sorted(wf_collection.workflows.values(), key=lambda x: x.name)
+            ]
+        except Exception:
+            wf_items = []
+        workflows_block = {"workflows": wf_items, "count": len(wf_items)}
+
+        return JSONResponse(content={
+            "session_id": session_id,
+            "scene": scene_block,
+            "agent_status": agent_status_block,
+            "tool_categories": tool_categories_block,
+            "skills": skills_block,
+            "recent_reflections": recent_reflections_block,
+            "workflows": workflows_block,
+        })
+    except Exception as e:
+        logger.exception("agent/workspace GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/agent/episodic")
 async def agent_episodic_get() -> JSONResponse:
     """Return the cross-session episodic memory contents.
@@ -834,6 +971,65 @@ async def agent_macros_delete(name: str = "") -> JSONResponse:
         return JSONResponse(content={"deleted": True, "name": normalized})
     except Exception as e:
         logger.exception("agent/macros DELETE error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Agentic Workflow Templates REST surface — read/browse/delete saved
+# tool-graph recipes. Save / invoke happen via the agent tool flow
+# (save_workflow / invoke_workflow); these endpoints let the frontend
+# render a workflow browser and prune saved recipes.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/workflows")
+async def agent_workflows_get() -> JSONResponse:
+    """Return all saved Agentic Workflow Templates in the workspace.
+
+    Each entry includes the name, description, ordered steps (tool +
+    arguments), creation timestamp, and use count. Read-only.
+    """
+    from trigen.workflows import workflow_store
+
+    try:
+        collection = workflow_store.get()
+        items = [
+            w.to_dict()
+            for w in sorted(collection.workflows.values(), key=lambda x: x.name)
+        ]
+        return JSONResponse(content={"workflows": items, "count": len(items)})
+    except Exception as e:
+        logger.exception("agent/workflows GET error")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.delete("/agent/workflows")
+async def agent_workflows_delete(name: str = "") -> JSONResponse:
+    """Delete a single Agentic Workflow Template by name (query param ``name``).
+
+    If ``name`` is empty or unknown, returns 404. On success the workflow
+    is removed from the in-memory store and the persisted JSON is rewritten.
+    """
+    from trigen.workflows import workflow_store
+
+    try:
+        normalized = name.strip().lower().replace(" ", "_")
+        if not normalized:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Query parameter 'name' is required"},
+            )
+        collection = workflow_store.get()
+        if normalized not in collection.workflows:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Workflow '{normalized}' not found"},
+            )
+        del collection.workflows[normalized]
+        workflow_store.save()
+        return JSONResponse(content={"deleted": True, "name": normalized})
+    except Exception as e:
+        logger.exception("agent/workflows DELETE error")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
