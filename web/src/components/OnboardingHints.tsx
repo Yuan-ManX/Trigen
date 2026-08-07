@@ -9,11 +9,13 @@ import {
   Brain,
   Check,
   Clapperboard,
+  ClipboardCheck,
   Film,
   GitCommitVertical,
   Keyboard,
   MessageSquare,
   MousePointerClick,
+  ShieldCheck,
   Sparkles,
   Tag,
   Wand2,
@@ -35,6 +37,8 @@ type StepId =
   | 'timeline'
   | 'checkpoints'
   | 'storyboard'
+  | 'critique'
+  | 'constraints'
   | 'shortcuts'
 
 interface TourStep {
@@ -126,6 +130,22 @@ const STEPS: TourStep[] = [
     title: 'Direct the camera with a storyboard',
     body: 'Open the Storyboard panel (film-reel icon) in the right bar to compose an ordered sequence of camera shots — each with a position, look-at target, fov, duration, and easing curve. Play the cut to drive the camera through the shots as a scripted cinematic tour of your scene. Ask the Agent "compose a storyboard panning around the scene", or capture the current viewport camera as a shot and layer them into a reveal.',
     hint: 'Tip: set a shot to easeInOut for smooth arrives, and use loop to keep the tour cycling during a showcase.',
+  },
+  {
+    id: 'critique',
+    icon: ClipboardCheck,
+    accent: 'text-accent-emerald',
+    title: 'Self-review and auto-fix the scene',
+    body: 'Open the Critique panel (clipboard-check icon) in the right bar to run a prescriptive design review of the current scene. It catches empty scenes, dim or missing lighting, floating objects, overlap, composition drift, palette monotony, and poor background contrast — each with a one-tap proposed fix. Hit "Auto-fix all" to apply the top-severity corrective tool calls in one shot, or apply fixes one finding at a time. Ask the Agent "how does this scene look?" or "auto-fix the scene" to trigger the same engine from chat.',
+    hint: 'Tip: critique is read-only — applying a fix runs the proposed tool directly, so checkpoint first if you want to roll back.',
+  },
+  {
+    id: 'constraints',
+    icon: ShieldCheck,
+    accent: 'text-accent-cyan',
+    title: 'Author spatial constraints and solve them',
+    body: 'Open the Constraints panel (link icon) in the right bar to declaratively pin spatial relationships between objects: above, below, above_floor, faces, centered, min_distance, and aligned. Add a rule like "lamp above table" or "chair faces desk", then hit Solve to run the greedy solver — it adjusts subject transforms (and rotation for faces) in one pass so the scene satisfies every rule. Ask the Agent "keep the lamp above the table" or "make the chair face the desk" to add and solve constraints from chat.',
+    hint: 'Tip: solve moves subjects only — anchors stay put. Pair with checkpoint before a risky re-arrange so you can roll back.',
   },
   {
     id: 'shortcuts',
