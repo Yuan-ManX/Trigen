@@ -3,12 +3,14 @@
 // scene checkpoints. Uses compact icon-only tabs (with tooltips) so the panels
 // fit within the 280px sidebar; the tab strip scrolls horizontally when needed.
 // Collapsible.
-import { Activity, Brain, Clapperboard, Film, GitCommitVertical, Globe, Layers, ListTree, PanelRightClose, Settings2, Wand2, Wrench } from 'lucide-react'
+import { Activity, Brain, Clapperboard, ClipboardCheck, Film, GitCommitVertical, Globe, Layers, Link2, ListTree, PanelRightClose, Settings2, Wand2, Wrench } from 'lucide-react'
 import { useEditor, type PanelTab } from '../../store/useEditor'
 import { useScene } from '../../store/useScene'
 import { useChat } from '../../store/useChat'
 import { ActivityTimeline } from '../chat/ActivityTimeline'
 import { CheckpointsPanel } from './CheckpointsPanel'
+import { ConstraintPanel } from './ConstraintPanel'
+import { CritiquePanel } from './CritiquePanel'
 import { LayersTab } from './LayersTab'
 import { MemoryPanel } from './MemoryPanel'
 import { Outliner } from './Outliner'
@@ -45,11 +47,13 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
     { id: 'activity', icon: Activity, label: 'Activity' },
     { id: 'checkpoints', icon: GitCommitVertical, label: 'Checkpoints' },
     { id: 'storyboard', icon: Film, label: 'Storyboard' },
+    { id: 'critique', icon: ClipboardCheck, label: 'Critique' },
+    { id: 'constraints', icon: Link2, label: 'Constraints' },
   ]
 
   return (
     <aside className="flex flex-col w-[280px] shrink-0 border-l border-border bg-bg-panel">
-      {/* Tab header — icon-only; scrolls horizontally to fit all eleven panels */}
+      {/* Tab header — icon-only; scrolls horizontally to fit all thirteen panels */}
       <header className="flex items-center justify-between h-11 border-b border-border">
         <div className="flex flex-1 overflow-x-auto no-scrollbar">
           {tabs.map((t) => {
@@ -94,6 +98,8 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
         {effectiveTab === 'activity' && <ActivityTimeline />}
         {effectiveTab === 'checkpoints' && <CheckpointsPanel />}
         {effectiveTab === 'storyboard' && <StoryboardPanel />}
+        {effectiveTab === 'critique' && <CritiquePanel />}
+        {effectiveTab === 'constraints' && <ConstraintPanel />}
       </div>
     </aside>
   )
