@@ -6,8 +6,10 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from trigen.agent_trace import trace_store
 from trigen.config import AgentConfig
 from trigen.orchestrator import AgentOrchestrator, AgentEvent, EventType
+from trigen.reflection import reflection_store
 from trigen.scene import GEOMETRY_DEFAULTS, MATERIAL_PRESETS
 
 logger = logging.getLogger("trigen.api.agent")
@@ -75,9 +77,62 @@ class AgentService:
         to the orchestrator. ``images`` is a list of ``{"base64", "mime"}``
         dicts produced by the chat router's ``_resolve_image_tags`` helper.
         """
+        # Per-call accumulator for the durable turn reflection. We fold the
+        # streamed events into a compact record that is persisted on ``done``.
+        refl_tools: List[str] = []
+        refl_seen: set = set()
+        refl_outcome: str = ""
+        refl_quality: Dict[str, Any] = {}
+        refl_elapsed: float = 0.0
+        refl_turn: int = 0
         async for event in self.orchestrator.run(
             message, session_id, model=model, images=images
         ):
+            # Record every streamed event to the per-session trace store
+            # so GET /agent/trace/{session_id} can replay the turn. The
+            # store is a bounded ring buffer; recording is cheap and
+            # never raises into the stream.
+            try:
+                trace_store.record(session_id, event.to_dict())
+            except Exception:  # pragma: no cover — defensive
+                logger.exception("trace_store.record failed; continuing")
+            # Fold reflection-relevant events into the accumulator.
+            try:
+                if event.type == EventType.TOOL_CALL:
+                    name = event.data.get("name") or event.data.get("tool") or ""
+                    if name and name not in refl_seen:
+                        refl_seen.add(name)
+                        refl_tools.append(name)
+                elif event.type == EventType.THINKING:
+                    data = event.data or {}
+                    if data.get("phase") == "reflection":
+                        refl_outcome = data.get("content", "") or refl_outcome
+                        if data.get("quality"):
+                            refl_quality = data["quality"]
+                elif event.type == EventType.DONE:
+                    data = event.data or {}
+                    stats = data.get("stats") or {}
+                    if stats.get("quality"):
+                        refl_quality = stats["quality"]
+                    refl_elapsed = float(stats.get("elapsed", 0.0) or 0.0)
+                    refl_turn += 1
+                    reflection_store.record(
+                        session_id,
+                        turn=refl_turn,
+                        goal=message,
+                        tool_calls=list(refl_tools),
+                        outcome=refl_outcome,
+                        quality=refl_quality,
+                        elapsed=refl_elapsed,
+                    )
+                    # Reset the accumulator for the next turn.
+                    refl_tools = []
+                    refl_seen = set()
+                    refl_outcome = ""
+                    refl_quality = {}
+                    refl_elapsed = 0.0
+            except Exception:  # pragma: no cover — defensive
+                logger.exception("reflection capture failed; continuing")
             yield event
 
     def get_scene(self, session_id: str) -> Dict[str, Any]:
