@@ -34,6 +34,11 @@ class TaskPlan:
     can render the agent's reasoning (goal / assumptions / risks) and
     the planned step chain. ``token_budget_used`` / ``token_budget_limit``
     snapshot the budget state at planning time.
+
+    ``dependencies`` maps a step's ``tool_call_id`` to the list of step ids
+    it must execute after. Edges are derived from name-creation chains and
+    same-target mutation conflicts, so the frontend can render a true
+    dependency graph (node-graph view) instead of only a linear checklist.
     """
 
     steps: List[TaskStep] = field(default_factory=list)
@@ -43,6 +48,14 @@ class TaskPlan:
     risks: List[str] = field(default_factory=list)
     token_budget_used: int = 0
     token_budget_limit: int = 0
+    # Explicit dependency edges: {step_id: [predecessor_step_id, ...]}.
+    # Populated by ``TaskPlanner._derive_dependency_edges``.
+    dependencies: Dict[str, List[str]] = field(default_factory=dict)
+    # Structured sub-goal chain derived from multi-intent plans. Each entry
+    # is ``{category, label, step_ids, tool_count}`` so the frontend can
+    # render the high-level objective sequence (create → material → light)
+    # alongside the linear step checklist. Empty for single-intent turns.
+    goal_breakdown: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -64,7 +77,62 @@ class TaskPlan:
             ],
             "token_budget_used": self.token_budget_used,
             "token_budget_limit": self.token_budget_limit,
+            "goal_breakdown": list(self.goal_breakdown),
         }
+
+    def to_graph_payload(self) -> Dict[str, Any]:
+        """Serialize the plan as a dependency graph for node-graph rendering.
+
+        Returns ``{nodes, edges, layers}`` where ``nodes`` is the step list
+        with stable ids, ``edges`` carries typed predecessor links, and
+        ``layers`` groups step ids by topological depth so the frontend can
+        lay out the graph left-to-right (each layer executes as a parallel
+        wave when the executor batches it).
+
+        Each node carries a ``status`` (always "pending" at plan-preview
+        time — the frontend merges live ``plan_update`` transitions into
+        the stored DAG) and a ``dependencies`` list (predecessor step ids)
+        so a renderer can draw edges without consulting the separate edges
+        list. Each edge carries a ``kind`` (advisory label such as
+        "dependency") so the frontend can style edge types uniformly.
+        """
+        step_ids = [s.tool_call_id for s in self.steps]
+        id_set = set(step_ids)
+        nodes = [
+            {
+                "id": s.tool_call_id,
+                "tool": s.tool_name,
+                "label": s.description or s.tool_name,
+                "arguments": s.arguments,
+                "status": "pending",
+                "dependencies": [
+                    p for p in self.dependencies.get(s.tool_call_id, []) if p in id_set
+                ],
+            }
+            for s in self.steps
+        ]
+        edges: List[Dict[str, str]] = []
+        for sid, preds in self.dependencies.items():
+            if sid not in id_set:
+                continue
+            for p in preds:
+                if p in id_set:
+                    edges.append({"from": p, "to": sid, "kind": "dependency"})
+        # Topological layering by longest-path depth so the frontend can
+        # render parallel waves. Steps with no predecessors are layer 0.
+        depth: Dict[str, int] = {sid: 0 for sid in step_ids}
+        # Resolve in step order (already topologically sorted by the planner)
+        # so predecessor depths are computed before dependents.
+        for s in self.steps:
+            sid = s.tool_call_id
+            preds = [p for p in self.dependencies.get(sid, []) if p in depth]
+            if preds:
+                depth[sid] = max(depth[p] for p in preds) + 1
+        layers: List[List[str]] = []
+        max_depth = max(depth.values()) if depth else 0
+        for d in range(max_depth + 1):
+            layers.append([sid for sid in step_ids if depth.get(sid, 0) == d])
+        return {"nodes": nodes, "edges": edges, "layers": layers}
 
 
 @dataclass
@@ -342,6 +410,18 @@ _PARALLEL_SAFE_TOOLS = {
     # load_scene_slot is intentionally excluded: it can replace the entire
     # scene (clear_scene=true), so running it in parallel with anything else
     # would race on scene.objects / lights / cameras.
+    # Editor gap tools — delta-only (no scene mutation), safe to parallelize.
+    "control_radial_menu",
+    "clear_measurement",
+    "stop_camera_flythrough",
+    # Read-only macro / variant listing — no side effects.
+    "list_macros",
+    "list_variants",
+    # invoke_macro / define_macro / delete_macro / save_variant / load_variant
+    # / randomize_variant are intentionally excluded: invoke_macro replays a
+    # multi-step plan (semantics parallel to invoke_skill), define/delete
+    # mutate the macro store, and save/load/randomize_variant can replace the
+    # entire scene — all of which would race under parallel execution.
 }
 
 
@@ -367,8 +447,59 @@ class TaskPlanner:
             )
         steps = self._order_by_dependencies(steps)
         plan = TaskPlan(steps=steps, reasoning=reasoning)
+        plan.dependencies = self._derive_dependency_edges(steps)
         self._enrich_plan(plan, tool_calls)
         return plan
+
+    def _derive_dependency_edges(self, steps: List[TaskStep]) -> Dict[str, List[str]]:
+        """Compute explicit predecessor edges for each step.
+
+        Two edge sources, both conservative (only add an edge when a real
+        ordering constraint exists, so unrelated steps stay parallel):
+          1. Name-creation chains — a step referencing a name produced by an
+             earlier creation step depends on that creator.
+          2. Same-target mutation — two steps mutating the same target name
+             depend on each other in declared order so the executor never
+             batches conflicting mutations.
+
+        Edges point from predecessor -> successor (successor id maps to its
+        predecessor ids). Self-edges and transitive duplicates are skipped.
+        """
+        edges: Dict[str, List[str]] = {s.tool_call_id: [] for s in steps}
+        if not steps:
+            return edges
+        # 1. Name-creation chains.
+        creator_of: Dict[str, str] = {}  # name -> creator step id
+        for s in steps:
+            if s.tool_name in _CREATION_TOOLS:
+                nm = s.arguments.get("name")
+                if isinstance(nm, str) and nm and nm not in creator_of:
+                    creator_of[nm] = s.tool_call_id
+        for s in steps:
+            if s.tool_name in _CREATION_TOOLS:
+                continue
+            preds = set(edges[s.tool_call_id])
+            for t in self._step_target_names(s):
+                creator_id = creator_of.get(t)
+                if creator_id and creator_id != s.tool_call_id:
+                    preds.add(creator_id)
+            edges[s.tool_call_id] = sorted(preds)
+
+        # 2. Same-target mutation ordering (declared order only).
+        # Track the most recent step that mutated each target name; a later
+        # step on the same target depends on it.
+        last_mutator: Dict[str, str] = {}
+        for s in steps:
+            preds = set(edges[s.tool_call_id])
+            for t in self._step_target_names(s):
+                prev = last_mutator.get(t)
+                if prev and prev != s.tool_call_id:
+                    preds.add(prev)
+            # Record this step as the latest mutator for its targets.
+            for t in self._step_target_names(s):
+                last_mutator[t] = s.tool_call_id
+            edges[s.tool_call_id] = sorted(preds)
+        return edges
 
     def _enrich_plan(self, plan: TaskPlan, tool_calls: List[ToolCall]) -> None:
         """Derive goal / assumptions / risks from reasoning text and tool calls.
@@ -394,6 +525,17 @@ class TaskPlanner:
         if not goal and tool_calls:
             names = [tc.name for tc in tool_calls]
             goal = f"Execute {len(names)} tool(s): {', '.join(names)}"
+        # Multi-intent goal decomposition: when the plan spans multiple
+        # distinct intent categories (e.g. creation + material + lighting),
+        # append a structured breakdown so the frontend can render the
+        # sub-goal chain alongside the linear step checklist. Cheap and
+        # deterministic — derived from the tool categories already
+        # registered on the orchestrator side.
+        breakdown = self._decompose_goal(plan.steps)
+        if breakdown:
+            plan.goal_breakdown = breakdown
+            if not goal:
+                goal = breakdown[0].get("label", "")
         plan.goal = goal
 
         # Assumption: when a creation tool precedes a mutation tool, the
@@ -433,6 +575,103 @@ class TaskPlanner:
                 plan.risks.append(
                     f"delete_object on '{step.arguments.get('target', '?')}' is irreversible"
                 )
+
+    # Tool-name → coarse intent category mirror of the orchestrator's
+    # _TOOL_CATEGORIES. Kept local to the planner so goal decomposition
+    # stays self-contained and does not import the orchestrator (which
+    # would create a circular dependency). Updated in lockstep with the
+    # orchestrator's taxonomy — covers the same 16 categories.
+    _TOOL_CATEGORY_MAP: Dict[str, str] = {
+        "create_object": "creation", "modify_geometry": "creation",
+        "duplicate_object": "creation", "delete_object": "creation",
+        "array_pattern": "creation", "boolean_operation": "creation",
+        "set_geometry_params": "creation", "place_asset": "creation",
+        "scatter_paint": "creation", "snap_to_surface": "creation",
+        "transform_object": "transform", "mirror_object": "transform",
+        "align_objects": "transform", "distribute_objects": "transform",
+        "snap_to_grid": "transform", "reset_transform": "transform",
+        "apply_material": "material", "apply_material_preset": "material",
+        "gradient_material": "material", "material_blend": "material",
+        "randomize_palette": "material", "apply_material_batch": "material",
+        "set_material_property": "material",
+        "add_light": "lighting", "modify_light": "lighting", "delete_light": "lighting",
+        "add_camera": "camera", "modify_camera": "camera", "delete_camera": "camera",
+        "set_view": "camera", "snapshot_view": "camera", "capture_viewport": "camera",
+        "animate_camera": "camera", "frame_view": "camera",
+        "group_objects": "scene", "ungroup_objects": "scene", "assign_to_group": "scene",
+        "rename_group": "scene", "reorder_layer": "scene", "arrange_layout": "scene",
+        "set_background": "scene", "set_fog": "scene", "set_environment": "scene",
+        "toggle_grid": "scene", "set_grid_size": "scene", "smart_compose": "scene",
+        "select_object": "editor", "select_all": "editor", "set_selection": "editor",
+        "focus_object": "editor", "focus_panel": "editor",
+        "keyframe_animation": "animation", "orbit_animation": "animation",
+        "wave_animation": "animation", "bounce_animation": "animation",
+        "play_animation": "animation", "pause_animation": "animation",
+        "seek_animation": "animation", "set_playback_speed": "animation",
+        "terrain_generator": "procedural", "l_system": "procedural",
+        "create_spiral_staircase": "procedural", "voronoi_shatter": "procedural",
+        "radial_symmetry": "procedural", "clone_with_jitter": "procedural",
+        "generate_image": "multimodal", "generate_3d_asset": "multimodal",
+        "generate_video": "multimodal", "generate_animation": "multimodal",
+        "generate_music": "multimodal", "synthesize_speech": "multimodal",
+        "transcribe_audio": "multimodal", "image_to_3d": "multimodal",
+        "export_scene": "export", "export_code": "export",
+        "scene_info": "inspection", "list_objects": "inspection",
+        "analyze_scene": "inspection", "measure_distance": "inspection",
+        "describe_scene": "inspection", "suggest_next_actions": "inspection",
+        "query_scene": "inspection", "scene_statistics": "inspection",
+        "list_annotations": "inspection",
+        "invoke_skill": "skills",
+    }
+
+    # Friendly per-category labels for the goal-breakdown chain.
+    _CATEGORY_LABELS: Dict[str, str] = {
+        "creation": "Create geometry",
+        "transform": "Position and shape",
+        "material": "Apply materials",
+        "lighting": "Set up lighting",
+        "camera": "Frame the view",
+        "scene": "Organize the scene",
+        "editor": "Editor control",
+        "animation": "Animate",
+        "procedural": "Procedural generation",
+        "multimodal": "Generate media",
+        "export": "Export the result",
+        "inspection": "Inspect the scene",
+        "skills": "Run a creative skill",
+    }
+
+    def _decompose_goal(self, steps: List[TaskStep]) -> List[Dict[str, Any]]:
+        """Group plan steps into an ordered sub-goal chain by category.
+
+        Returns a list of ``{category, label, step_ids, tool_count}`` entries
+        in first-occurrence order. Single-category plans return an empty list
+        (no decomposition needed — the linear checklist already captures the
+        intent). Multi-category plans return one entry per distinct category
+        in the order they first appear, so the frontend can render a compact
+        "create → material → light" sequence above the step checklist.
+        """
+        if not steps:
+            return []
+        order: List[str] = []
+        bucket: Dict[str, List[str]] = {}
+        for s in steps:
+            cat = self._TOOL_CATEGORY_MAP.get(s.tool_name, "editor")
+            if cat not in bucket:
+                bucket[cat] = []
+                order.append(cat)
+            bucket[cat].append(s.tool_call_id)
+        if len(order) <= 1:
+            return []
+        return [
+            {
+                "category": cat,
+                "label": self._CATEGORY_LABELS.get(cat, cat),
+                "step_ids": list(bucket[cat]),
+                "tool_count": len(bucket[cat]),
+            }
+            for cat in order
+        ]
 
     @staticmethod
     def _step_target_names(step: TaskStep) -> List[str]:
