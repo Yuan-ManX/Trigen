@@ -6,6 +6,7 @@ import {
   Camera,
   CheckCircle2,
   Download,
+  Eraser,
   Eye,
   Film,
   Globe,
@@ -13,15 +14,20 @@ import {
   Info,
   Layers,
   Lightbulb,
+  Link2,
+  List,
   Loader2,
   type LucideIcon,
   Move,
+  Orbit,
   Palette,
   Ruler,
+  Sparkles,
   Sun,
   Terminal,
   Trash2,
   Video,
+  Wand2,
   XCircle,
 } from 'lucide-react'
 import type { ToolCallRecord } from '../../store/useChat'
@@ -69,6 +75,17 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   generate_3d_asset: Box,
   generate_video: Video,
   generate_animation: Film,
+  // Frontend-editor coverage gap tools
+  list_scene_templates: Sparkles,
+  orbit_viewport: Orbit,
+  set_layer_visibility: Layers,
+  list_skills: Sparkles,
+  // Constraint authoring + goal-driven refinement
+  add_constraint: Link2,
+  list_constraints: List,
+  clear_constraints: Eraser,
+  solve_constraints: Wand2,
+  refine_scene: Sparkles,
 }
 
 /** Resolve the icon for a tool, falling back to Terminal */
