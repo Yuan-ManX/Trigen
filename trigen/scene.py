@@ -242,6 +242,11 @@ class Scene:
     # forward-compatible with future annotation fields without costly
     # schema migrations.
     annotations: List[Dict[str, Any]] = field(default_factory=list)
+    # Cinematic storyboard: a sequence of camera shots that plays as a
+    # scripted camera tour. Stored as a plain dict (title + shots + playback
+    # state) so the shape can evolve without dataclass churn. Mirrors the
+    # annotations field's forward-compatibility approach.
+    storyboard: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -255,6 +260,7 @@ class Scene:
             "grid_visible": self.grid_visible,
             "grid_size": self.grid_size,
             "annotations": list(self.annotations),
+            "storyboard": self.storyboard,
         }
 
     @classmethod
@@ -270,6 +276,7 @@ class Scene:
             grid_visible=data.get("grid_visible", True),
             grid_size=data.get("grid_size", 40.0),
             annotations=list(data.get("annotations", [])),
+            storyboard=data.get("storyboard"),
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
