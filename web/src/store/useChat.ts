@@ -330,6 +330,26 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
       }
       break
     }
+    case 'editor_orbit_viewport': {
+      // Turntable orbit delta from the orbit_viewport tool. When stop=true
+      // (or no target/radius is supplied), clear any active orbit; otherwise
+      // activate the orbit with the supplied target / radius / speed.
+      if (payload.stop === true) {
+        editor.clearOrbitViewport()
+      } else {
+        const tgt = (payload.target ?? [0, 0.5, 0]) as Vec3
+        editor.setOrbitViewport({
+          active: true,
+          target: tgt,
+          radius: Number(payload.radius ?? 5),
+          height: Number(payload.height ?? 2),
+          speed: Number(payload.speed ?? 0.5),
+          duration: Number(payload.duration ?? 0),
+          loop: Boolean(payload.loop ?? true),
+        })
+      }
+      break
+    }
     default:
       break
   }
