@@ -51,6 +51,15 @@ code {
   background: #3a3a4a;
 }
 
+/* Hide scrollbars on compact horizontal tab strips (e.g. the right panel). */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* range 滑块统一样式 */
 input[type='range'] {
   -webkit-appearance: none;
