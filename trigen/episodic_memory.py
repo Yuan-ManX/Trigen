@@ -38,8 +38,18 @@ logger = logging.getLogger("trigen.episodic_memory")
 # flaky sequences.
 _PATTERN_CACHE_MIN_QUALITY = 70
 
+# Maximum quality score at which a turn is considered a failure worth
+# remembering as an anti-pattern. Below this threshold the tool chain is
+# cached so future similar requests can be advised against reusing it.
+# Gap between 41 and 69 is intentionally neither cached: middling turns
+# don't carry a strong enough signal in either direction.
+_ANTI_PATTERN_MAX_QUALITY = 40
+
 # Cap the pattern cache size so it does not grow unbounded over long use.
 _MAX_PATTERNS = 60
+
+# Mirror cap for the anti-pattern cache.
+_MAX_ANTI_PATTERNS = 30
 
 # Cap the per-preference counter history so old stale preferences decay.
 _PREFERENCE_DECAY_KEEP = 8
@@ -79,12 +89,55 @@ class PatternEntry:
 
 
 @dataclass
+class PinnedFact:
+    """A user-scoped fact the Agent chose to remember explicitly.
+
+    Pinned facts survive session resets and are injected into the LLM
+    system note so the Agent can personalize its reasoning across
+    sessions. Each fact carries an optional category (e.g. 'project',
+    'preference', 'constraint') and a timestamp.
+    """
+
+    text: str
+    category: str = "general"
+    pinned_at: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "text": self.text,
+            "category": self.category,
+            "pinned_at": self.pinned_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PinnedFact":
+        return cls(
+            text=str(data.get("text", "")),
+            category=str(data.get("category", "general")),
+            pinned_at=float(data.get("pinned_at", 0.0)),
+        )
+
+
+@dataclass
 class EpisodicMemory:
     """Cross-session user preferences + successful plan-pattern cache."""
 
     preferences: Dict[str, Counter] = field(default_factory=dict)
     patterns: Dict[str, PatternEntry] = field(default_factory=dict)
+    pinned_facts: List[PinnedFact] = field(default_factory=list)
     last_updated: float = 0.0
+    # Anti-patterns: cached failed tool chains keyed by intent signature.
+    # When a turn's quality score falls below the anti-pattern threshold,
+    # the chain is recorded here so future similar requests can avoid it.
+    # Mirror structure of ``patterns`` but with a low quality score.
+    anti_patterns: Dict[str, PatternEntry] = field(default_factory=dict)
+    # Most recent successful tool chain (names only). Used by the
+    # orchestrator's recency-bias path: when the next turn's intent
+    # category overlaps with the last successful one, these tools are
+    # kept in the active schema set even when no keyword signal fires.
+    last_successful_tools: List[str] = field(default_factory=list)
+    # Last successful intent signature (for similarity comparison).
+    last_successful_signature: str = ""
 
     # ------------------------------------------------------------------
     # Preference extraction
@@ -103,11 +156,25 @@ class EpisodicMemory:
         ``tool_name`` and ``arguments``. ``results`` is a list of
         ToolResult-like objects with ``success``. ``quality`` is the 0-100
         turn-quality score from the orchestrator's self-assessment.
+
+        Side effects:
+          - Preferences are always extracted (regardless of quality).
+          - Successful turns (quality >= _PATTERN_CACHE_MIN_QUALITY) cache
+            a positive pattern AND update ``last_successful_tools`` so the
+            next turn's tool-selection can bias toward the same chain.
+          - Poor turns (quality <= _ANTI_PATTERN_MAX_QUALITY) cache an
+            anti-pattern so future similar requests can avoid the chain.
         """
         try:
             self._extract_preferences(user_message, plan_steps, results)
+            tool_names = [getattr(s, "tool_name", "") for s in plan_steps if getattr(s, "tool_name", "")]
             if quality >= _PATTERN_CACHE_MIN_QUALITY:
                 self._cache_pattern(user_message, plan_steps, quality)
+                # Track the most recent successful chain for recency bias.
+                self.last_successful_tools = tool_names[:8]
+                self.last_successful_signature = _signature(user_message)
+            elif quality <= _ANTI_PATTERN_MAX_QUALITY and tool_names:
+                self._cache_anti_pattern(user_message, tool_names, quality)
             self.last_updated = time.time()
         except Exception:
             logger.exception("Episodic memory recording failed")
@@ -230,6 +297,152 @@ class EpisodicMemory:
         entry.last_used = time.time()
         return entry
 
+    def _cache_anti_pattern(
+        self,
+        user_message: str,
+        tool_names: List[str],
+        quality: int,
+    ) -> None:
+        """Record a failed tool chain so future similar requests can avoid it.
+
+        Lower quality wins (most negative signal); otherwise the existing
+        entry's hit count is bumped. Capped at ``_MAX_ANTI_PATTERNS``.
+        """
+        sig = _signature(user_message)
+        if not sig or not tool_names:
+            return
+        existing = self.anti_patterns.get(sig)
+        if existing is not None:
+            if quality < existing.quality:
+                existing.tool_names = list(tool_names)
+                existing.quality = quality
+            existing.hits += 1
+            existing.last_used = time.time()
+            return
+        if len(self.anti_patterns) >= _MAX_ANTI_PATTERNS:
+            oldest_sig = min(
+                self.anti_patterns, key=lambda k: self.anti_patterns[k].last_used
+            )
+            self.anti_patterns.pop(oldest_sig, None)
+        self.anti_patterns[sig] = PatternEntry(
+            signature=sig,
+            tool_names=list(tool_names),
+            sample_arguments=[],
+            quality=quality,
+            hits=1,
+            last_used=time.time(),
+        )
+
+    def lookup_anti_pattern(self, user_message: str) -> Optional[PatternEntry]:
+        """Return the cached anti-pattern for a message (exact signature)."""
+        sig = _signature(user_message)
+        return self.anti_patterns.get(sig)
+
+    def lookup_similar_pattern(self, user_message: str, min_overlap: int = 2) -> Optional[PatternEntry]:
+        """Fuzzy pattern recall: find the most similar cached positive pattern.
+
+        Used when an exact-signature lookup misses. Tokenizes the request
+        and finds the cached pattern with the highest token overlap. Returns
+        None when no pattern shares at least ``min_overlap`` tokens.
+
+        Keeps the recall path cheap (no embeddings, no LLM call) — purely
+        set-intersection scoring. Hit count is bumped on a successful match
+        so frequently-recalled patterns surface higher in future rankings.
+        """
+        sig = _signature(user_message)
+        if not sig:
+            return None
+        query_tokens = set(sig.split())
+        if not query_tokens:
+            return None
+        best: Optional[PatternEntry] = None
+        best_overlap = 0
+        for entry in self.patterns.values():
+            entry_tokens = set(entry.signature.split())
+            if not entry_tokens:
+                continue
+            overlap = len(query_tokens & entry_tokens)
+            # Tie-break: prefer higher quality, then higher hit count.
+            if overlap > best_overlap or (
+                overlap == best_overlap and best is not None
+                and (entry.quality > best.quality
+                     or (entry.quality == best.quality and entry.hits > best.hits))
+            ):
+                if overlap >= min_overlap:
+                    best = entry
+                    best_overlap = overlap
+        if best is not None:
+            best.hits += 1
+            best.last_used = time.time()
+        return best
+
+    # ------------------------------------------------------------------
+    # Pinned facts — explicit Agent memory
+    # ------------------------------------------------------------------
+
+    _MAX_PINNED_FACTS = 50
+
+    def add_fact(self, text: str, category: str = "general") -> PinnedFact:
+        """Pin an explicit fact the Agent wants to remember.
+
+        Deduplicates on text (case-insensitive) so the same fact is never
+        pinned twice. Trims to the most-recent ``_MAX_PINNED_FACTS`` so the
+        note injected into the LLM stays bounded.
+        """
+        text = (text or "").strip()
+        if not text:
+            return PinnedFact(text="", category=category, pinned_at=time.time())
+        category = (category or "general").strip().lower() or "general"
+        normalized = text.lower()
+        # Replace an existing fact with the same text (refresh category/timestamp).
+        self.pinned_facts = [
+            f for f in self.pinned_facts if f.text.lower() != normalized
+        ]
+        fact = PinnedFact(text=text, category=category, pinned_at=time.time())
+        self.pinned_facts.append(fact)
+        # Trim to the most-recent N.
+        if len(self.pinned_facts) > self._MAX_PINNED_FACTS:
+            self.pinned_facts = self.pinned_facts[-self._MAX_PINNED_FACTS:]
+        self.last_updated = time.time()
+        return fact
+
+    def list_facts(self, category: Optional[str] = None) -> List[PinnedFact]:
+        """Return pinned facts, newest first, optionally filtered by category."""
+        facts = list(self.pinned_facts)
+        if category:
+            cat = category.strip().lower()
+            facts = [f for f in facts if f.category == cat]
+        facts.sort(key=lambda f: f.pinned_at, reverse=True)
+        return facts
+
+    def clear_facts(self, category: Optional[str] = None) -> int:
+        """Remove pinned facts. If ``category`` is given, only that category
+        is cleared. Returns the number of facts removed."""
+        before = len(self.pinned_facts)
+        if category is None:
+            self.pinned_facts = []
+        else:
+            cat = category.strip().lower()
+            self.pinned_facts = [f for f in self.pinned_facts if f.category != cat]
+        removed = before - len(self.pinned_facts)
+        if removed:
+            self.last_updated = time.time()
+        return removed
+
+    def remove_fact(self, text: str) -> bool:
+        """Remove a single pinned fact by exact (case-insensitive) text match."""
+        normalized = (text or "").strip().lower()
+        if not normalized:
+            return False
+        before = len(self.pinned_facts)
+        self.pinned_facts = [
+            f for f in self.pinned_facts if f.text.lower() != normalized
+        ]
+        if len(self.pinned_facts) != before:
+            self.last_updated = time.time()
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------
@@ -259,6 +472,14 @@ class EpisodicMemory:
         rq = self._top("render_quality")
         if rq:
             lines.append(f"Preferred render quality: {rq}.")
+        # Pinned facts — explicit Agent memory, surfaced verbatim.
+        if self.pinned_facts:
+            facts_sorted = sorted(
+                self.pinned_facts, key=lambda f: f.pinned_at, reverse=True
+            )
+            # Cap at the most-recent 8 to keep the note compact.
+            for f in facts_sorted[:8]:
+                lines.append(f"Pinned fact [{f.category}]: {f.text}")
         if not lines:
             return ""
         return (
@@ -277,6 +498,10 @@ class EpisodicMemory:
         return {
             "preferences": {k: dict(v) for k, v in self.preferences.items()},
             "patterns": {k: v.to_dict() for k, v in self.patterns.items()},
+            "anti_patterns": {k: v.to_dict() for k, v in self.anti_patterns.items()},
+            "pinned_facts": [f.to_dict() for f in self.pinned_facts],
+            "last_successful_tools": list(self.last_successful_tools),
+            "last_successful_signature": self.last_successful_signature,
             "last_updated": self.last_updated,
         }
 
@@ -290,8 +515,38 @@ class EpisodicMemory:
                 mem.patterns[sig] = PatternEntry.from_dict(pdata)
             except Exception:
                 continue
+        for sig, pdata in (data.get("anti_patterns") or {}).items():
+            try:
+                mem.anti_patterns[sig] = PatternEntry.from_dict(pdata)
+            except Exception:
+                continue
+        for fdata in (data.get("pinned_facts") or []):
+            try:
+                mem.pinned_facts.append(PinnedFact.from_dict(fdata))
+            except Exception:
+                continue
+        mem.last_successful_tools = list(data.get("last_successful_tools") or [])
+        mem.last_successful_signature = str(data.get("last_successful_signature") or "")
         mem.last_updated = float(data.get("last_updated", 0.0))
         return mem
+
+    def anti_pattern_warning(self, user_message: str) -> Optional[str]:
+        """Return a warning note when the request matches a cached anti-pattern.
+
+        Returns None when no anti-pattern matches, so the orchestrator can
+        skip injecting an empty note. The warning is advisory: it tells the
+        LLM which tool chain previously underperformed for a similar request
+        without blocking the turn.
+        """
+        entry = self.lookup_anti_pattern(user_message)
+        if entry is None:
+            return None
+        return (
+            f"Episodic caution: a similar past request underperformed "
+            f"(quality={entry.quality}, hits={entry.hits}) with tools "
+            f"[{', '.join(entry.tool_names)}]. Consider a different path "
+            f"unless the scene state clearly warrants retrying it."
+        )
 
 
 def _signature(user_message: str) -> str:
