@@ -345,6 +345,54 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
     meshObj.scale.set(solved.scale[0], solved.scale[1], solved.scale[2])
   })
 
+  // Rigid-body physics simulation: when an object carries a physics
+  // descriptor, a per-object velocity ref drives gravity, floor collision,
+  // and bouncing each frame. The simulation is purely additive on top of
+  // the authored pose (base transform + physics offset), so clearing physics
+  // returns the object to its authored position.
+  const physVelRef = useRef(0)
+  const physLastYRef = useRef<number | null>(null)
+  useFrame((_, delta) => {
+    if (!meshObj || !object.physics || !object.physics.enabled) {
+      physLastYRef.current = null
+      return
+    }
+    const dt = Math.min(0.05, delta)
+    const gravity = object.physics.gravity ?? 9.8
+    const bounciness = object.physics.bounciness ?? 0.3
+    const floor = object.physics.floor ?? 0
+    const baseY = object.transform.position[1]
+
+    // Initialise velocity from the authored pose on the first frame so the
+    // object drops from wherever it was placed.
+    if (physLastYRef.current === null) {
+      physLastYRef.current = baseY
+      physVelRef.current = 0
+    }
+
+    physVelRef.current -= gravity * dt
+    const nextY = physLastYRef.current + physVelRef.current * dt
+
+    if (nextY <= floor) {
+      physLastYRef.current = floor
+      // Rebound only if the impact is energetic enough to be visible;
+      // otherwise settle to rest to avoid infinite tiny bounces.
+      if (-physVelRef.current > 0.4) {
+        physVelRef.current = -physVelRef.current * bounciness
+      } else {
+        physVelRef.current = 0
+      }
+    } else {
+      physLastYRef.current = nextY
+    }
+
+    meshObj.position.set(
+      object.transform.position[0],
+      physLastYRef.current,
+      object.transform.position[2],
+    )
+  })
+
   const isSelected = selectedIds.includes(object.id)
   // Gizmo attaches to the primary (last-clicked) selection only, so multi-select
   // stays inspectable without stacking multiple transform handles.
@@ -387,7 +435,7 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
 
   // Disable the gizmo for animated objects: the playback loop owns their
   // transform, so manual dragging would immediately be overwritten.
-  const showGizmo = isPrimary && isSelected && editMode && meshObj !== null && !object.animation
+  const showGizmo = isPrimary && isSelected && editMode && meshObj !== null && !object.animation && !object.physics?.enabled
   // Secondary selections render in a warmer accent so the user can tell the
   // primary gizmo target apart from the rest of the multi-selection.
   const edgeColor = isPrimary ? '#00F0FF' : '#FFB800'
