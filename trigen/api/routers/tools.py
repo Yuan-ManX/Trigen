@@ -90,8 +90,39 @@ SCENE_TEMPLATES = [
 
 @router.get("/presets/templates")
 async def list_scene_templates() -> dict:
-    """List available smart compose scene templates."""
-    return {"templates": SCENE_TEMPLATES, "count": len(SCENE_TEMPLATES)}
+    """List available smart compose scene templates.
+
+    Response includes both the static ``smart_compose`` presets and the
+    skill-aligned templates that can be materialized via the
+    ``invoke_skill`` tool. Each entry carries the target invocation so
+    the frontend can turn a template click into the right Agent call.
+    """
+    try:
+        agent = AgentService.get()
+        # Pull the detailed template catalog from the list_scene_templates
+        # tool rather than duplicating the data here. If the tool is
+        # unavailable (e.g. during early startup) we fall back to the
+        # static presets defined below.
+        registry = agent.orchestrator.registry
+        tool = registry.get("list_scene_templates")
+        if tool is not None:
+            result = await tool.execute(agent.get_scene("default"), {})
+            if result.success:
+                data = getattr(result, "data", None) or {}
+                templates = data.get("templates") or data.get("items") or []
+                return {
+                    "templates": templates,
+                    "count": len(templates),
+                    "source": "agent_tool",
+                }
+    except Exception:
+        logger.exception("list_scene_templates: falling back to static presets")
+
+    return {
+        "templates": SCENE_TEMPLATES,
+        "count": len(SCENE_TEMPLATES),
+        "source": "static",
+    }
 
 
 class ExecuteToolRequest(BaseModel):
@@ -401,20 +432,41 @@ async def invoke_skill(req: InvokeSkillRequest) -> Dict[str, Any]:
 
 
 @router.get("/suggestions")
-async def get_suggestions(session_id: str = "default") -> Dict[str, Any]:
+async def get_suggestions(
+    session_id: str = "default",
+    count: int = 4,
+    direction: str = "any",
+) -> Dict[str, Any]:
     """Generate proactive creative suggestions for the current scene.
 
-    Returns 2-3 next-step suggestions tailored to the scene's content,
+    Returns 2-5 next-step suggestions tailored to the scene's content,
     lighting, and palette so the frontend can surface a "You might try…"
-    strip in the editor.
+    strip in the editor. Accepts an optional creative-direction hint
+    (lighting / motion / material / composition / population) to bias
+    the returned suggestions toward the user's current focus.
     """
     from trigen.suggestions import generate_suggestions
 
     agent = AgentService.get()
     orch = agent.orchestrator
     scene = orch.get_scene(session_id)
+    tool = orch.registry.get("suggest_next_actions")
+    if tool is not None:
+        result = await tool.execute(
+            scene, {"count": count, "direction": direction}
+        )
+        data = getattr(result, "data", None) or {}
+        suggestions = data.get("suggestions") or []
+        return {
+            "suggestions": suggestions,
+            "count": len(suggestions),
+            "direction": data.get("direction", direction),
+            "source": "suggest_next_actions",
+        }
+    # Fall back to the plain suggestions engine if the tool is not
+    # registered (e.g. older workspace state).
     suggestions = generate_suggestions(scene.to_dict())
-    return {"suggestions": suggestions, "count": len(suggestions)}
+    return {"suggestions": suggestions, "count": len(suggestions), "source": "fallback"}
 
 
 # ---------------------------------------------------------------------------
