@@ -5,11 +5,14 @@ import {
   Box,
   Camera,
   CheckCircle2,
+  CircleDot,
+  CopyPlus,
   Download,
   Eraser,
   Eye,
   Film,
   Globe,
+  Grid3x3,
   Image as ImageIcon,
   Info,
   Layers,
@@ -26,6 +29,7 @@ import {
   Sun,
   Terminal,
   Trash2,
+  Type,
   Video,
   Wand2,
   XCircle,
@@ -86,6 +90,36 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   clear_constraints: Eraser,
   solve_constraints: Wand2,
   refine_scene: Sparkles,
+  // Generative geometry — radial symmetry rings + jittered clones
+  radial_symmetry: CircleDot,
+  clone_with_jitter: CopyPlus,
+  // Mesh detail editing — in-place type conversion + segment subdivision
+  convert_geometry: Box,
+  subdivide_mesh: Grid3x3,
+  // Lighting rigs + scene presets + exposure
+  create_lighting_rig: Sun,
+  set_ambient_level: Lightbulb,
+  set_exposure: Sun,
+  apply_scene_preset: Layers,
+  // Keyframing + camera framing
+  set_keyframe: Film,
+  create_animation_clip: Film,
+  fit_camera_to_selection: Camera,
+  // Layer management + vertex paint
+  create_layer: Layers,
+  delete_layer: Trash2,
+  set_layer_color: Palette,
+  paint_vertex_colors: Palette,
+  // Node graph authoring
+  configure_node_graph: Link2,
+  execute_node_graph: Loader2,
+  list_node_graphs: List,
+  delete_node_graph: Trash2,
+  // Rigid-body physics + text authoring
+  apply_physics: Move,
+  clear_physics: Eraser,
+  list_physics: List,
+  create_text: Type,
 }
 
 /** Resolve the icon for a tool, falling back to Terminal */
