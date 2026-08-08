@@ -3,7 +3,7 @@
 // scene checkpoints. Uses compact icon-only tabs (with tooltips) so the panels
 // fit within the 280px sidebar; the tab strip scrolls horizontally when needed.
 // Collapsible.
-import { Activity, Brain, Clapperboard, ClipboardCheck, Film, GitCommitVertical, Globe, Layers, Link2, ListTree, PanelRightClose, Settings2, Wand2, Wrench } from 'lucide-react'
+import { Activity, Brain, Clapperboard, ClipboardCheck, Film, GitCommitVertical, Globe, Layers, Link2, ListTree, Network, PanelRightClose, Settings2, Users, Wand2, Wrench } from 'lucide-react'
 import { useEditor, type PanelTab } from '../../store/useEditor'
 import { useScene } from '../../store/useScene'
 import { useChat } from '../../store/useChat'
@@ -11,8 +11,10 @@ import { ActivityTimeline } from '../chat/ActivityTimeline'
 import { CheckpointsPanel } from './CheckpointsPanel'
 import { ConstraintPanel } from './ConstraintPanel'
 import { CritiquePanel } from './CritiquePanel'
+import { LayerPanel } from './LayerPanel'
 import { LayersTab } from './LayersTab'
 import { MemoryPanel } from './MemoryPanel'
+import { NodeGraphView } from './NodeGraphView'
 import { Outliner } from './Outliner'
 import { PropertiesTab } from './PropertiesTab'
 import { SceneSettingsTab } from './SceneSettingsTab'
@@ -37,10 +39,12 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
 
   const tabs: Array<{ id: PanelTab; icon: typeof Layers; label: string }> = [
     { id: 'layers', icon: Layers, label: 'Layers' },
+    { id: 'layerPanel', icon: Users, label: 'Layer Manager' },
     { id: 'outliner', icon: ListTree, label: 'Outliner' },
     { id: 'timeline', icon: Clapperboard, label: 'Timeline' },
     { id: 'properties', icon: Settings2, label: 'Properties' },
     { id: 'scene', icon: Globe, label: 'Scene' },
+    { id: 'nodegraph', icon: Network, label: 'Node Graph' },
     { id: 'skills', icon: Wand2, label: 'Skills' },
     { id: 'tools', icon: Wrench, label: 'Tools' },
     { id: 'memory', icon: Brain, label: 'Memory' },
@@ -88,10 +92,12 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
         {effectiveTab === 'layers' && <LayersTab />}
+        {effectiveTab === 'layerPanel' && <LayerPanel />}
         {effectiveTab === 'outliner' && <Outliner />}
         {effectiveTab === 'timeline' && <Timeline />}
         {effectiveTab === 'properties' && <PropertiesTab />}
         {effectiveTab === 'scene' && <SceneSettingsTab />}
+        {effectiveTab === 'nodegraph' && <NodeGraphView />}
         {effectiveTab === 'skills' && <SkillsTab />}
         {effectiveTab === 'tools' && <ToolBrowser sessionId={sessionId} />}
         {effectiveTab === 'memory' && <MemoryPanel />}
