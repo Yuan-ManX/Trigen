@@ -6,6 +6,7 @@ import {
   Box,
   Camera as CameraIcon,
   Lightbulb,
+  Move3d,
   Palette,
   Sliders,
   Sparkles,
@@ -23,6 +24,7 @@ import type {
   LightType,
   Material,
   ObjectAnimation,
+  PhysicsDescriptor,
   Vec3,
 } from '../../types'
 
@@ -504,6 +506,70 @@ function ObjectAnimationEditor({ object }: { object: { id: string; animation?: O
   )
 }
 
+/* ---------- Object physics editor ---------- */
+
+function PhysicsEditor({ object }: { object: { id: string; physics?: PhysicsDescriptor | null } }) {
+  const updatePhysics = useScene((s) => s.updatePhysics)
+  const phys = object.physics
+  const enabled = !!phys?.enabled
+
+  return (
+    <div className="px-3 py-3 border-t border-border-subtle space-y-3">
+      <SectionHeader icon={Move3d} title="Physics" color="text-emerald-300" />
+      <ToggleField
+        label="Rigid-body physics"
+        value={enabled}
+        onChange={(v) =>
+          updatePhysics(
+            object.id,
+            v ? { enabled: true, gravity: 9.8, bounciness: 0.3, friction: 0.2, floor: 0 } : null,
+          )
+        }
+      />
+      {enabled && (
+        <>
+          <NumberSlider
+            label="Gravity"
+            value={phys?.gravity ?? 9.8}
+            min={0}
+            max={30}
+            step={0.1}
+            onChange={(v) => updatePhysics(object.id, { ...phys, enabled: true, gravity: v })}
+          />
+          <NumberSlider
+            label="Bounciness"
+            value={phys?.bounciness ?? 0.3}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => updatePhysics(object.id, { ...phys, enabled: true, bounciness: v })}
+          />
+          <NumberSlider
+            label="Friction"
+            value={phys?.friction ?? 0.2}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => updatePhysics(object.id, { ...phys, enabled: true, friction: v })}
+          />
+          <NumberSlider
+            label="Floor Y"
+            value={phys?.floor ?? 0}
+            min={-2}
+            max={4}
+            step={0.1}
+            onChange={(v) => updatePhysics(object.id, { ...phys, enabled: true, floor: v })}
+          />
+          <p className="text-[9.5px] leading-relaxed text-fg-muted">
+            Drop the object onto the floor and bounce it in Run mode. The Agent can
+            configure this from chat too (apply_physics / clear_physics).
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 /* ---------- Material editor ---------- */
 
 function MaterialEditor({ object }: { object: { id: string; material: Material } }) {
@@ -968,6 +1034,7 @@ export function PropertiesTab() {
 
       <GeometryEditor object={object} />
       <ObjectAnimationEditor object={object} />
+      <PhysicsEditor object={object} />
       <MaterialEditor object={object} />
     </div>
   )
