@@ -34,6 +34,8 @@ from trigen.tools.editor_tools import (
 )
 from trigen.tools.editor_control_tools import (
     CaptureViewportTool,
+    ClearMeasurementTool,
+    ControlRadialMenuTool,
     FocusPanelTool,
     PauseAnimationTool,
     PlayAnimationTool,
@@ -43,6 +45,7 @@ from trigen.tools.editor_control_tools import (
     SetRenderQualityTool,
     SetSelectionTool,
     SetViewportCameraTool,
+    StopCameraFlythroughTool,
     ToggleGridSnappingTool,
     UndoSceneTool,
 )
@@ -93,6 +96,24 @@ from trigen.tools.material_tools import (
     RandomizePaletteTool,
 )
 from trigen.tools.skill_tool import InvokeSkillTool
+from trigen.tools.macro_tools import (
+    DefineMacroTool,
+    DeleteMacroTool,
+    InvokeMacroTool,
+    ListMacrosTool,
+)
+from trigen.tools.workflow_tools import (
+    DeleteWorkflowTool,
+    InvokeWorkflowTool,
+    ListWorkflowsTool,
+    SaveWorkflowTool,
+)
+from trigen.tools.variant_tools import (
+    ListVariantsTool,
+    LoadVariantTool,
+    RandomizeVariantTool,
+    SaveVariantTool,
+)
 from trigen.tools.scene_management_tools import (
     AssignToGroupTool,
     DeleteCameraTool,
@@ -120,6 +141,94 @@ from trigen.tools.advanced_editor_tools import (
     SetShadowsTool,
     SetViewportProjectionTool,
 )
+from trigen.tools.scene_workflow_tools import (
+    BatchTransformTool,
+    CameraFlythroughTool,
+    ListAnnotationsTool,
+    QuerySceneTool,
+    SceneStatisticsTool,
+    StyleSceneTool,
+)
+from trigen.tools.pipeline_tools import (
+    ComposePipelineTool,
+    ListPipelineTemplatesTool,
+)
+from trigen.tools.scene_intelligence_tools import (
+    DescribeSceneTool,
+    SuggestNextActionsTool,
+)
+from trigen.tools.reflection_tools import ReflectOnSessionTool
+from trigen.tools.scene_critique import SceneCritiqueTool
+from trigen.tools.auto_fix import AutoFixSceneTool
+from trigen.tools.memory_tools import (
+    ForgetFactTool,
+    PinFactTool,
+    RecallFactsTool,
+)
+from trigen.tools.asset_library_tools import (
+    AssetLibraryTool,
+    ScatterPaintTool,
+    SnapToSurfaceTool,
+)
+from trigen.tools.storyboard_tools import (
+    AddShotTool,
+    ClearStoryTool,
+    ComposeStoryTool,
+    ListStoryTool,
+    PlayStoryTool,
+    RemoveShotTool,
+    UpdateShotTool,
+)
+from trigen.tools.editor_gap_tools import (
+    ListSceneTemplatesTool,
+    ListSkillsTool,
+    OrbitViewportTool,
+    SetLayerVisibilityTool,
+)
+from trigen.tools.constraint_tools import (
+    AddConstraintTool,
+    ClearConstraintsTool,
+    ListConstraintsTool,
+    SolveConstraintsTool,
+)
+from trigen.tools.refine_tool import RefineSceneTool
+from trigen.tools.generative_geometry_tools import (
+    CloneWithJitterTool,
+    RadialSymmetryTool,
+)
+from trigen.tools.mesh_detail_tools import (
+    ConvertGeometryTool,
+    SubdivideMeshTool,
+)
+from trigen.tools.rigging_tools import (
+    ApplyScenePresetTool,
+    CreateLightingRigTool,
+    SetAmbientLevelTool,
+    SetExposureTool,
+)
+from trigen.tools.keyframe_tools import (
+    CreateAnimationClipTool,
+    FitCameraToSelectionTool,
+    SetKeyframeTool,
+)
+from trigen.tools.layer_tools import (
+    CreateLayerTool,
+    DeleteLayerTool,
+    PaintVertexColorsTool,
+    SetLayerColorTool,
+)
+from trigen.tools.node_graph_tools import (
+    ConfigureNodeGraphTool,
+    DeleteNodeGraphTool,
+    ExecuteNodeGraphTool,
+    ListNodeGraphsTool,
+)
+from trigen.tools.physics_tools import (
+    ApplyPhysicsTool,
+    ClearPhysicsTool,
+    ListPhysicsTool,
+)
+from trigen.tools.text_tools import CreateTextTool
 
 __all__ = [
     "ToolBase",
@@ -208,6 +317,9 @@ __all__ = [
     "UndoSceneTool",
     "RedoSceneTool",
     "SetRenderQualityTool",
+    "ControlRadialMenuTool",
+    "ClearMeasurementTool",
+    "StopCameraFlythroughTool",
     # Export
     "ExportSceneTool",
     # Multimodal generation
@@ -222,6 +334,21 @@ __all__ = [
     "DispatchSubagentTool",
     # Creative skills
     "InvokeSkillTool",
+    # Macros — reusable user-defined tool-call recipes
+    "DefineMacroTool",
+    "InvokeMacroTool",
+    "ListMacrosTool",
+    "DeleteMacroTool",
+    # Agentic Workflow Templates — saveable named tool-graph recipes
+    "SaveWorkflowTool",
+    "InvokeWorkflowTool",
+    "ListWorkflowsTool",
+    "DeleteWorkflowTool",
+    # Scene variants — named snapshots + jittered alternatives
+    "SaveVariantTool",
+    "LoadVariantTool",
+    "ListVariantsTool",
+    "RandomizeVariantTool",
     # Advanced editor control (solo, presets, clipping, pivot, batch, layers)
     "IsolateObjectTool",
     "ResetTransformTool",
@@ -244,4 +371,84 @@ __all__ = [
     "AddAnnotationTool",
     "RemoveAnnotationTool",
     "ConfigureShortcutsTool",
+    # Scene workflow intelligence (query, style, batch transform, stats,
+    # annotation listing, cinematic camera flythrough)
+    "QuerySceneTool",
+    "StyleSceneTool",
+    "BatchTransformTool",
+    "SceneStatisticsTool",
+    "ListAnnotationsTool",
+    "CameraFlythroughTool",
+    # Pipeline authoring — compose / inspect multimodal node-graphs
+    "ComposePipelineTool",
+    "ListPipelineTemplatesTool",
+    # Agent scene intelligence — semantic description + creative suggestions
+    "DescribeSceneTool",
+    "SuggestNextActionsTool",
+    "ReflectOnSessionTool",
+    # Prescriptive design review — ranked findings with concrete fix proposals
+    "SceneCritiqueTool",
+    # Self-healing orchestration — review + auto-apply fixes in one call
+    "AutoFixSceneTool",
+    # Agent explicit memory — pin / recall / forget durable user facts
+    "PinFactTool",
+    "RecallFactsTool",
+    "ForgetFactTool",
+    # Asset library — place pre-built assets, scatter-paint clusters,
+    # snap to surface (creation category)
+    "AssetLibraryTool",
+    "ScatterPaintTool",
+    "SnapToSurfaceTool",
+    # Cinematic storyboard — sequence-level camera direction
+    "ComposeStoryTool",
+    "AddShotTool",
+    "UpdateShotTool",
+    "RemoveShotTool",
+    "ListStoryTool",
+    "ClearStoryTool",
+    "PlayStoryTool",
+    # Frontend-editor coverage gap tools — template catalog, viewport orbit,
+    # per-layer visibility, skill catalog
+    "ListSceneTemplatesTool",
+    "OrbitViewportTool",
+    "SetLayerVisibilityTool",
+    "ListSkillsTool",
+    # Constraint-authoring — declarative spatial relationships + greedy solver
+    "AddConstraintTool",
+    "ListConstraintsTool",
+    "ClearConstraintsTool",
+    "SolveConstraintsTool",
+    # Goal-driven refinement — multi-iteration critique+autofix loop
+    "RefineSceneTool",
+    # Generative geometry — radial symmetry + jittered clones
+    "RadialSymmetryTool",
+    "CloneWithJitterTool",
+    # Mesh detail editing — geometry-type conversion + segment subdivision
+    "ConvertGeometryTool",
+    "SubdivideMeshTool",
+    # Lighting rigs + scene presets + exposure
+    "CreateLightingRigTool",
+    "SetAmbientLevelTool",
+    "SetExposureTool",
+    "ApplyScenePresetTool",
+    # Per-property keyframing + camera framing + named clips
+    "SetKeyframeTool",
+    "CreateAnimationClipTool",
+    "FitCameraToSelectionTool",
+    # Layer management + vertex paint
+    "CreateLayerTool",
+    "DeleteLayerTool",
+    "SetLayerColorTool",
+    "PaintVertexColorsTool",
+    # Procedural node-graph authoring + execution
+    "ConfigureNodeGraphTool",
+    "ExecuteNodeGraphTool",
+    "ListNodeGraphsTool",
+    "DeleteNodeGraphTool",
+    # Rigid-body physics — gravity, bouncing, friction, resting floor
+    "ApplyPhysicsTool",
+    "ClearPhysicsTool",
+    "ListPhysicsTool",
+    # Text / sprite authoring — 3D labels and captions
+    "CreateTextTool",
 ]
