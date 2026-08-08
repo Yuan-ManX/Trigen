@@ -4,8 +4,13 @@
 // and refine it before the Agent runs. Grouped by creative intent so the
 // right starting point is easy to find: full scenes, materials & lighting,
 // animation & motion, cinematic storyboards, and procedural generation.
+//
+// The gallery is paired with a SceneContextPanel above it, which suggests
+// next-best actions based on the current live scene and exposes a template
+// quick-start strip driven by the Agent's creative skill catalog.
 import { Clapperboard, Layers, Lightbulb, Sparkles, Wind } from 'lucide-react'
 import { useState } from 'react'
+import { SceneContextPanel } from './SceneContextPanel'
 
 interface GalleryPrompt {
   id: string
@@ -155,7 +160,8 @@ interface PromptGalleryProps {
   disabled: boolean
 }
 
-/** Renders a compact, expandable gallery of categorized example prompts. */
+/** Renders a compact, expandable gallery of categorized example prompts
+ *  along with the scene-aware suggestion panel above it. */
 export function PromptGallery({ onInsert, disabled }: PromptGalleryProps) {
   const [open, setOpen] = useState(false)
   const [activeCat, setActiveCat] = useState<string>(CATEGORIES[0].id)
@@ -166,6 +172,11 @@ export function PromptGallery({ onInsert, disabled }: PromptGalleryProps) {
 
   return (
     <div className="mb-2">
+      {/* Scene-aware suggestion panel — reacts to the live scene and
+          recommends the next best action. Shown above the prompt gallery
+          so it is the first thing the user sees before browsing templates. */}
+      <SceneContextPanel onInsert={onInsert} disabled={disabled} />
+
       {/* Toggle header */}
       <div className="flex items-center gap-2 mb-1.5">
         <button
