@@ -232,6 +232,38 @@ from trigen.tools.mesh_detail_tools import (
     ConvertGeometryTool,
     SubdivideMeshTool,
 )
+from trigen.tools.rigging_tools import (
+    ApplyScenePresetTool,
+    CreateLightingRigTool,
+    SetAmbientLevelTool,
+    SetExposureTool,
+)
+from trigen.tools.keyframe_tools import (
+    CreateAnimationClipTool,
+    FitCameraToSelectionTool,
+    SetKeyframeTool,
+)
+from trigen.tools.layer_tools import (
+    CreateLayerTool,
+    DeleteLayerTool,
+    PaintVertexColorsTool,
+    RenameLayerTool,
+    SetLayerColorTool,
+    SetLayerLockedTool,
+    SetLayerVisibleTool,
+)
+from trigen.tools.node_graph_tools import (
+    ConfigureNodeGraphTool,
+    DeleteNodeGraphTool,
+    ExecuteNodeGraphTool,
+    ListNodeGraphsTool,
+)
+from trigen.tools.physics_tools import (
+    ApplyPhysicsTool,
+    ClearPhysicsTool,
+    ListPhysicsTool,
+)
+from trigen.tools.text_tools import CreateTextTool
 
 logger = logging.getLogger("trigen.orchestrator")
 
@@ -432,6 +464,31 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     # Mesh detail editing — type conversion + segment subdivision
     "convert_geometry": "creation",
     "subdivide_mesh": "creation",
+    # Lighting rigs + scene presets + exposure
+    "create_lighting_rig": "lighting",
+    "set_ambient_level": "lighting",
+    "set_exposure": "lighting",
+    "apply_scene_preset": "scene",
+    # Per-property keyframing + camera framing
+    "set_keyframe": "animation",
+    "create_animation_clip": "animation",
+    "fit_camera_to_selection": "camera",
+    # Layer management + vertex paint
+    "create_layer": "scene",
+    "delete_layer": "scene",
+    "set_layer_color": "scene",
+    "paint_vertex_colors": "material",
+    # Procedural node-graph authoring + execution
+    "configure_node_graph": "multimodal",
+    "execute_node_graph": "multimodal",
+    "list_node_graphs": "multimodal",
+    "delete_node_graph": "multimodal",
+    # Rigid-body physics
+    "apply_physics": "transform",
+    "clear_physics": "transform",
+    "list_physics": "inspection",
+    # Text / sprite authoring
+    "create_text": "creation",
 }
 
 
@@ -915,6 +972,42 @@ class AgentOrchestrator:
         # for smoother or lower-poly surfaces.
         registry.register(ConvertGeometryTool())
         registry.register(SubdivideMeshTool())
+        # Lighting rigs + scene presets + exposure — one-call studio
+        # setups (3-point, product, outdoor, portrait), ambient/ exposure
+        # controls, and complete scene environment presets.
+        registry.register(CreateLightingRigTool())
+        registry.register(SetAmbientLevelTool())
+        registry.register(SetExposureTool())
+        registry.register(ApplyScenePresetTool())
+        # Per-property keyframing + animation clips + camera framing —
+        # fine-grained keyframe insertion, named animation clip management,
+        # and auto-framed camera targeting for composition review.
+        registry.register(SetKeyframeTool())
+        registry.register(CreateAnimationClipTool())
+        registry.register(FitCameraToSelectionTool())
+        # Layer management + vertex paint — create/delete/color/rename/lock/visibility
+        # layers and apply per-vertex color palettes for hand-painted looks.
+        registry.register(CreateLayerTool())
+        registry.register(DeleteLayerTool())
+        registry.register(SetLayerColorTool())
+        registry.register(RenameLayerTool())
+        registry.register(SetLayerVisibleTool())
+        registry.register(SetLayerLockedTool())
+        registry.register(PaintVertexColorsTool())
+        # Procedural node-graph authoring + execution — ComfyUI-style
+        # DAG of create/modify/material/light/export nodes with topological
+        # ordering and cycle validation. ExecuteNodeGraphTool receives the
+        # registry so it can dispatch each node's tool in topological order.
+        registry.register(ConfigureNodeGraphTool())
+        registry.register(ExecuteNodeGraphTool(registry=registry))
+        registry.register(ListNodeGraphsTool())
+        registry.register(DeleteNodeGraphTool())
+        # Rigid-body physics — gravity, bouncing, friction, resting floor
+        registry.register(ApplyPhysicsTool())
+        registry.register(ClearPhysicsTool())
+        registry.register(ListPhysicsTool())
+        # Text / sprite authoring — 3D labels and captions
+        registry.register(CreateTextTool())
 
         # Apply the central category taxonomy to every registered tool so
         # the canonical mapping lives in one place (_TOOL_CATEGORIES above).
