@@ -71,6 +71,10 @@ class Material:
     # transmissive materials (tinted glass, colored liquids).
     attenuation_color: str = "#ffffff"
     attenuation_distance: float = 0.0  # 0 = no attenuation
+    # Vertex color painting metadata — stored as a plain dict so the
+    # field survives dataclass serialization and round-trips through
+    # to_dict / from_dict without schema migration.
+    vertex_colors: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -102,6 +106,11 @@ class SceneObject:
     group_id: Optional[str] = None  # parent group id
     tags: List[str] = field(default_factory=list)
     animation: Optional[Dict[str, Any]] = None  # keyframe/orbit/wave/bounce descriptor
+    # Rigid-body physics descriptor: {enabled, gravity, bounciness,
+    # friction, shape, floor}. When enabled the viewport simulation applies
+    # gravity so the object falls to the floor and bounces. Stored as a
+    # plain dict for forward compatibility.
+    physics: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -116,6 +125,7 @@ class SceneObject:
             "group_id": self.group_id,
             "tags": list(self.tags),
             "animation": self.animation,
+            "physics": self.physics,
         }
 
     @classmethod
@@ -135,6 +145,7 @@ class SceneObject:
             group_id=data.get("group_id"),
             tags=list(data.get("tags", [])),
             animation=data.get("animation"),
+            physics=data.get("physics"),
         )
 
 
@@ -247,6 +258,12 @@ class Scene:
     # state) so the shape can evolve without dataclass churn. Mirrors the
     # annotations field's forward-compatibility approach.
     storyboard: Optional[Dict[str, Any]] = None
+    # Named layers for organizing scene objects. Maps layer name ->
+    # {name, color, parent, locked, visible, object_count}.
+    layers: Dict[str, Any] = field(default_factory=dict)
+    # Procedural node-graph pipeline (ComfyUI-style DAG). Stored as a
+    # plain dict for forward compatibility.
+    node_graph: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -261,6 +278,8 @@ class Scene:
             "grid_size": self.grid_size,
             "annotations": list(self.annotations),
             "storyboard": self.storyboard,
+            "layers": dict(self.layers),
+            "node_graph": self.node_graph,
         }
 
     @classmethod
@@ -277,6 +296,8 @@ class Scene:
             grid_size=data.get("grid_size", 40.0),
             annotations=list(data.get("annotations", [])),
             storyboard=data.get("storyboard"),
+            layers=dict(data.get("layers", {})),
+            node_graph=data.get("node_graph"),
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
