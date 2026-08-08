@@ -8,7 +8,7 @@ import {
   type SocketStatus,
   type TokenUsage,
 } from '../api/client'
-import type { PlanGraphPayload, PlanStep, SceneData, ServerEvent, Vec3 } from '../types'
+import type { PlanGoalBreakdown, PlanGraphPayload, PlanStep, SceneData, ServerEvent, Vec3 } from '../types'
 import { useEditor, type PanelTab, type RenderQuality, type TransformMode } from './useEditor'
 import { usePlayback } from './usePlayback'
 import { useScene } from './useScene'
@@ -59,6 +59,12 @@ export interface ChatMessage {
    *  only present when the orchestrator derived at least one edge. The
    *  chat UI may surface a "view graph" affordance when this is set. */
   planGraph?: PlanGraphPayload
+  /** Structured sub-goal chain derived from multi-intent plans: each
+   *  entry groups the plan steps of one category (create, material,
+   *  light, etc.) so the PlanTrace component can render a compact
+   *  "create → material → light" objective sequence above the linear
+   *  step checklist. Empty or undefined for single-intent turns. */
+  planBreakdown?: PlanGoalBreakdown[]
   /** Proactive next-action suggestions attached to this assistant message
    *  by the `done` event. Rendered as a compact "Quick Actions" chip strip
    *  below the message body so the user can re-send a suggestion as a new
@@ -464,11 +470,23 @@ export const useChat = create<ChatState>((set, get) => {
           status: (s.status as PlanStep['status']) ?? 'pending',
         }))
         const goal = typeof ev.data.goal === 'string' ? ev.data.goal : ''
+        const breakdown: PlanGoalBreakdown[] | undefined = Array.isArray(
+          ev.data.goal_breakdown
+        )
+          ? (ev.data.goal_breakdown as PlanGoalBreakdown[]).filter(
+              (b) => b && typeof b.category === 'string' && Array.isArray(b.step_ids)
+            )
+          : undefined
         set((state) => {
           const msgs = [...state.messages]
           for (let i = msgs.length - 1; i >= 0; i--) {
             if (msgs[i].role === 'assistant' && msgs[i].streaming) {
-              msgs[i] = { ...msgs[i], planSteps: steps, planGoal: goal }
+              msgs[i] = {
+                ...msgs[i],
+                planSteps: steps,
+                planGoal: goal,
+                planBreakdown: breakdown,
+              }
               return { messages: msgs }
             }
           }
@@ -479,6 +497,7 @@ export const useChat = create<ChatState>((set, get) => {
             streaming: true,
             planSteps: steps,
             planGoal: goal,
+            planBreakdown: breakdown,
           })
           return { messages: msgs }
         })
