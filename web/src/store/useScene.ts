@@ -10,6 +10,7 @@ import {
   type LightObject,
   type Material,
   type ObjectAnimation,
+  type PhysicsDescriptor,
   type SceneData,
   type SceneObject,
   type Transform,
@@ -84,6 +85,8 @@ interface SceneState {
   setGeometry: (id: string, geometry: Geometry) => void
   /** Set / clear object animation descriptor (records history) */
   updateAnimation: (id: string, animation: ObjectAnimation | null) => void
+  /** Set / clear object physics descriptor (records history) */
+  updatePhysics: (id: string, physics: PhysicsDescriptor | null) => void
   /** Rename (records history) */
   renameObject: (id: string, name: string) => void
   /** Move an object to a new index in scene.objects (records history) */
@@ -443,6 +446,16 @@ export const useScene = create<SceneState>((set, get) => ({
       scene: {
         ...state.scene,
         objects: mapObject(state.scene.objects, id, (o) => ({ ...o, animation })),
+      },
+    })),
+
+  updatePhysics: (id, physics) =>
+    set((state) => ({
+      past: [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY),
+      future: [],
+      scene: {
+        ...state.scene,
+        objects: mapObject(state.scene.objects, id, (o) => ({ ...o, physics })),
       },
     })),
 
