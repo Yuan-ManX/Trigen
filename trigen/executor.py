@@ -1,20 +1,28 @@
 """Task executor.
 
 Executes tool calls in planned order, collecting results and scene mutations,
-supporting parallel batch execution and exception isolation.
+supporting parallel batch execution, exception isolation, and per-step
+streaming progress callbacks so the orchestrator can surface plan_update
+events to the frontend as each step starts and finishes.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from trigen.planner import TaskPlan, TaskStep
 from trigen.scene import Scene
 from trigen.tools.base import ToolRegistry, ToolResult, SceneDelta
 
 logger = logging.getLogger("trigen.executor")
+
+
+# Progress callback signature: (step_index, total_steps, step, phase, result?)
+# ``phase`` is one of "started" | "completed" | "failed" | "skipped".
+# ``result`` is the ToolResult when phase is "completed" or "failed", else None.
+ProgressCallback = Callable[[int, int, TaskStep, str, Optional[ToolResult]], Awaitable[None]]
 
 
 class TaskExecutor:
@@ -24,28 +32,76 @@ class TaskExecutor:
         self.registry = registry
         self.parallel = parallel
 
-    async def execute_plan(self, scene: Scene, plan: TaskPlan) -> List[ToolResult]:
+    async def execute_plan(
+        self,
+        scene: Scene,
+        plan: TaskPlan,
+        progress: Optional[ProgressCallback] = None,
+    ) -> List[ToolResult]:
+        total = len(plan.steps)
         if not self.parallel:
-            return await self._execute_sequential(scene, plan)
+            return await self._execute_sequential(scene, plan, progress)
 
         # Group steps into parallel-safe batches
         batches = self._group_batches(plan.steps)
         results: List[ToolResult] = []
+        step_idx = 0
         for batch in batches:
             if len(batch) == 1:
-                results.append(await self._execute_step(scene, batch[0]))
+                if progress is not None:
+                    await progress(step_idx, total, batch[0], "started", None)
+                res = await self._execute_step(scene, batch[0])
+                results.append(res)
+                if progress is not None:
+                    phase = "completed" if res.success else "failed"
+                    await progress(step_idx, total, batch[0], phase, res)
+                step_idx += 1
             else:
+                # Announce all parallel steps as started concurrently.
+                if progress is not None:
+                    await asyncio.gather(
+                        *(
+                            progress(step_idx + i, total, s, "started", None)
+                            for i, s in enumerate(batch)
+                        )
+                    )
                 batch_results = await asyncio.gather(
                     *(self._execute_step(scene, step) for step in batch),
                     return_exceptions=False,
                 )
                 results.extend(batch_results)
+                if progress is not None:
+                    await asyncio.gather(
+                        *(
+                            progress(
+                                step_idx + i,
+                                total,
+                                batch[i],
+                                "completed" if batch_results[i].success else "failed",
+                                batch_results[i],
+                            )
+                            for i in range(len(batch))
+                        )
+                    )
+                step_idx += len(batch)
         return results
 
-    async def _execute_sequential(self, scene: Scene, plan: TaskPlan) -> List[ToolResult]:
+    async def _execute_sequential(
+        self,
+        scene: Scene,
+        plan: TaskPlan,
+        progress: Optional[ProgressCallback] = None,
+    ) -> List[ToolResult]:
+        total = len(plan.steps)
         results: List[ToolResult] = []
-        for step in plan.steps:
-            results.append(await self._execute_step(scene, step))
+        for i, step in enumerate(plan.steps):
+            if progress is not None:
+                await progress(i, total, step, "started", None)
+            res = await self._execute_step(scene, step)
+            results.append(res)
+            if progress is not None:
+                phase = "completed" if res.success else "failed"
+                await progress(i, total, step, phase, res)
         return results
 
     async def _execute_step(self, scene: Scene, step: TaskStep) -> ToolResult:
@@ -270,4 +326,15 @@ _PARALLEL_SAFE_TOOLS = {
     "undo_scene",
     "redo_scene",
     "set_render_quality",
+    # Editor gap tools — delta-only (no scene mutation), safe to parallelize.
+    "control_radial_menu",
+    "clear_measurement",
+    "stop_camera_flythrough",
+    # Read-only macro / variant listing — no side effects.
+    "list_macros",
+    "list_variants",
+    # invoke_macro / define_macro / delete_macro / save_variant / load_variant
+    # / randomize_variant are intentionally excluded for the same reasons as
+    # in trigen.planner._PARALLEL_SAFE_TOOLS (multi-step replay or full-scene
+    # replacement would race under parallel execution).
 }
