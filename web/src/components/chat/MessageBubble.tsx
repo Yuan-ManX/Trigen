@@ -206,7 +206,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {/* Live execution-plan checklist */}
         {message.planSteps && message.planSteps.length > 0 && (
-          <PlanTrace steps={message.planSteps} goal={message.planGoal} />
+          <PlanTrace
+            steps={message.planSteps}
+            goal={message.planGoal}
+            breakdown={message.planBreakdown}
+          />
         )}
 
         {/* Plan DAG viewer trigger — only when the orchestrator emitted a
