@@ -48,16 +48,23 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
    - apply_material: color, metalness, roughness, opacity, wireframe, emissive, flat shading, double-sided.
    - apply_material_preset: one-click metal/gold/copper/glass/plastic/wood/rubber/ceramic/marble/emissive/neon/wireframe.
    - gradient_material, material_blend, randomize_palette, apply_material_batch, set_material_property, style_scene.
+   - paint_vertex_colors: per-vertex color painting with palette, blend modes, and noise.
 4. Lighting (lighting):
    - add_light / modify_light / delete_light: ambient/directional/point/spot/hemisphere.
+   - create_lighting_rig: one-call multi-light rig (three_point/studio/product/outdoor/portrait).
+   - set_ambient_level: control ambient intensity and color.
+   - set_exposure: scale all light intensities by exposure stops (-2..+2).
 5. Camera (camera):
    - add_camera / modify_camera / delete_camera, set_view, snapshot_view, capture_viewport, animate_camera, camera_flythrough.
+   - fit_camera_to_selection: auto-frame target or all objects with padding.
 6. Scene organization (scene):
    - group_objects / ungroup_objects / assign_to_group / rename_group / reorder_layer.
    - arrange_layout (circle/grid/linear), set_background, set_fog, set_environment, toggle_grid, set_grid_size, smart_compose.
+   - apply_scene_preset: one-click complete scene (studio_white/studio_dark/outdoor_day/outdoor_sunset/product_white/gallery/night).
    - save_variant / load_variant / list_variants / randomize_variant: named scene snapshots + jittered alternatives.
    - checkpoint_scene / list_checkpoints / restore_checkpoint / checkpoint_diff: revisioned version history.
    - list_scene_templates: browse starter scenes.
+   - create_layer / delete_layer / set_layer_color / rename_layer / set_layer_visible / set_layer_locked: named layer management.
 7. Editor control (editor):
    - select_object / select_all / set_selection, focus_object, focus_panel, lock_object, set_visibility, rename_object.
    - set_transform_mode, frame_view, set_viewport_camera, toggle_grid_snapping, set_render_quality, set_clipping_plane, set_object_pivot, set_object_layer, isolate_object.
@@ -65,11 +72,14 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
    - control_radial_menu, clear_measurement, stop_camera_flythrough, orbit_viewport, set_layer_visibility.
 8. Animation (animation):
    - keyframe_animation, orbit_animation, wave_animation, bounce_animation, play_animation, pause_animation, seek_animation, set_playback_speed.
+   - set_keyframe: insert a single keyframe (position/rotation/scale) at normalized time 0..1.
+   - create_animation_clip: save current animation as a named reusable clip.
 9. Procedural generation (procedural):
    - terrain_generator, l_system, spiral_staircase / create_spiral_staircase, voronoi_shatter.
 10. Multimodal generation (multimodal):
     - generate_image, generate_3d_asset, generate_video, generate_animation, generate_music, synthesize_speech, transcribe_audio, image_to_3d.
     - compose_pipeline, list_pipeline_templates: author and run multi-step node-graph pipelines.
+    - configure_node_graph, execute_node_graph, list_node_graphs, delete_node_graph: procedural ComfyUI-style DAG authoring and execution.
 11. Export (export):
     - export_scene (GLB/OBJ/STL), export_code.
 12. Inspection (inspection):
@@ -310,6 +320,34 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "list_checkpoints": "List all saved checkpoints.",
     "restore_checkpoint": "Restore the scene from a saved checkpoint.",
     "checkpoint_diff": "Show the diff between two checkpoints.",
+    # Lighting rigs + scene presets + exposure (Round 16)
+    "create_lighting_rig": "Set up a complete multi-light rig in one call. Presets: three_point, studio, product, outdoor, portrait. Auto-replaces existing lights.",
+    "set_ambient_level": "Set scene ambient light intensity and color. Creates an ambient light if none exists.",
+    "set_exposure": "Adjust scene exposure by scaling all light intensities. Range -2..+2 stops.",
+    "apply_scene_preset": "Apply a complete scene preset: background, environment, fog, grid, and lighting rig in one call. Presets: studio_white, studio_dark, outdoor_day, outdoor_sunset, product_white, gallery, night.",
+    # Per-property keyframing + animation clips + camera framing
+    "set_keyframe": "Insert a single keyframe (position/rotation/scale) at a normalized time 0..1 on an object's animation track.",
+    "create_animation_clip": "Save an object's current animation descriptor as a named reusable clip.",
+    "fit_camera_to_selection": "Frame the viewport camera to show a target object or all objects with proper padding. Preset view angles available.",
+    # Layer management + vertex paint
+    "create_layer": "Create a new named layer for organizing scene objects, with optional color and parent.",
+    "delete_layer": "Delete a named layer and optionally reassign its objects to another layer.",
+    "set_layer_color": "Update the display color of an existing layer.",
+    "rename_layer": "Rename a layer and re-tag all its objects to the new name.",
+    "set_layer_visible": "Toggle visibility of all objects in a layer.",
+    "set_layer_locked": "Toggle lock state of all objects in a layer.",
+    "paint_vertex_colors": "Paint vertex colors on an object's geometry using a color or palette, with blend modes and noise.",
+    # Procedural node-graph authoring
+    "configure_node_graph": "Author a procedural node-graph pipeline (DAG): define nodes and wire them with edges. Validates cycles. Node types: create/modify/material/light/transform/animate/export/group/compose.",
+    "execute_node_graph": "Execute a previously configured node graph in topological order, producing an execution plan.",
+    "list_node_graphs": "List all configured node graphs on the scene.",
+    "delete_node_graph": "Delete a stored node graph by name.",
+    # Rigid-body physics
+    "apply_physics": "Enable or configure rigid-body physics on an object: gravity pulls it down to the floor and bounciness makes it rebound.",
+    "clear_physics": "Remove rigid-body physics from an object so it stops falling and returns to its authored transform.",
+    "list_physics": "List every object that has physics enabled, with gravity, bounciness, friction, and floor.",
+    # Text / sprite authoring
+    "create_text": "Create a 3D text label in the scene for captions, signage, or annotation.",
 }
 
 
