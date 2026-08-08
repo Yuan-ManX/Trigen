@@ -2,20 +2,30 @@
 // In development, proxied to backend http://localhost:7100 via Vite proxy
 
 import type {
+  AddConstraintData,
+  AgentRunResponse,
   AgentStatusResponse,
+  AutoFixData,
   CheckpointDiff,
   CheckpointEntry,
   CheckpointListResponse,
+  ClearConstraintsData,
   ClientMessage,
+  ConstraintKind,
+  CritiqueData,
   HealthResponse,
   InvokeSkillResponse,
+  ListConstraintsData,
   PipelineNodeTypesResponse,
   PresetsResponse,
+  RefineData,
   SceneData,
   ServerEvent,
+  SolveConstraintsData,
   StoryboardResponse,
   ToolCategoriesResponse,
   ToolsResponse,
+  WorkspaceResponse,
 } from '../types'
 
 /* ============ REST API ============ */
@@ -71,6 +81,21 @@ export async function fetchAgentStatus(): Promise<AgentStatusResponse> {
   const res = await fetch('/api/agent/status')
   if (!res.ok) throw new Error(`Failed to fetch agent status: ${res.status}`)
   return res.json() as Promise<AgentStatusResponse>
+}
+
+/** Fetch the unified workspace bootstrap bundle in one call. Returns the
+ *  live scene, agent status, tool catalog grouped by category, creative
+ *  skill list, recent per-turn reflections, and saved Agentic Workflow
+ *  Templates so the frontend can render every right-panel tab from a
+ *  single payload on initial load. */
+export async function fetchWorkspace(
+  sessionId: string = 'default',
+  reflectionLimit: number = 10,
+): Promise<WorkspaceResponse> {
+  const qs = `?session_id=${encodeURIComponent(sessionId)}&reflection_limit=${reflectionLimit}`
+  const res = await fetch(`/api/agent/workspace${qs}`)
+  if (!res.ok) throw new Error(`Failed to fetch workspace: ${res.status}`)
+  return res.json() as Promise<WorkspaceResponse>
 }
 
 /** Invoke a creative skill directly (bypasses the LLM chat flow). Returns
@@ -808,6 +833,162 @@ export async function controlStoryboard(
   })
   if (!res.ok) throw new Error(`Failed to control storyboard: ${res.status}`)
   return res.json() as Promise<StoryboardResponse>
+}
+
+/* ============ Scene critique + auto-fix (direct execution) ============ */
+
+/** Run the prescriptive design review (critique_scene) directly against the
+ *  session's scene via POST /api/agent/run. Read-only: never mutates the
+ *  scene. Returns the verdict + ranked findings, each carrying a concrete
+ *  proposed corrective tool call. */
+export async function critiqueScene(
+  sessionId: string = 'default',
+  opts: { maxFindings?: number; focus?: string[] } = {},
+): Promise<AgentRunResponse<CritiqueData>> {
+  const args: Record<string, unknown> = {}
+  if (opts.maxFindings !== undefined) args.max_findings = opts.maxFindings
+  if (opts.focus !== undefined) args.focus = opts.focus
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'critique_scene', session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Critique failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<CritiqueData>>
+}
+
+/** Run the self-healing auto-fix (auto_fix_scene) directly against the
+ *  session's scene via POST /api/agent/run. Mutates the scene by applying
+ *  the highest-severity proposed fixes in severity order, then returns a
+ *  before/after report (applied / skipped / remaining). The updated scene
+ *  snapshot is in the response so the caller can swap it in. */
+export async function autoFixScene(
+  sessionId: string = 'default',
+  opts: { maxFixes?: number; focus?: string[] } = {},
+): Promise<AgentRunResponse<AutoFixData>> {
+  const args: Record<string, unknown> = {}
+  if (opts.maxFixes !== undefined) args.max_fixes = opts.maxFixes
+  if (opts.focus !== undefined) args.focus = opts.focus
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'auto_fix_scene', session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Auto-fix failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<AutoFixData>>
+}
+
+/** Apply a single proposed corrective tool call (e.g. one finding's
+ *  `proposed_fix.tool` + `proposed_fix.arguments`) directly against the
+ *  session's scene via POST /api/agent/run. Used by the CritiquePanel's
+ *  per-finding "Apply fix" button. */
+export async function applyProposedFix(
+  tool: string,
+  args: Record<string, unknown>,
+  sessionId: string = 'default',
+): Promise<AgentRunResponse> {
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: tool, session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Apply fix (${tool}) failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse>
+}
+
+/* ============ Constraint authoring + goal-driven refinement ============ */
+
+/** Arguments for add_constraint. Only `kind` and `subject` are required;
+ *  the rest are kind-dependent. */
+export interface AddConstraintArgs {
+  kind: ConstraintKind
+  subject: string
+  anchor?: string
+  target_point?: number[]
+  axis?: 'x' | 'y' | 'z'
+  distance?: number
+  offset?: number
+  tolerance?: number
+  description?: string
+}
+
+/** Register a single spatial constraint on the current scene. Does not move
+ *  objects — call solveConstraints to enforce. Returns the new constraint. */
+export async function addConstraint(
+  args: AddConstraintArgs,
+  sessionId: string = 'default',
+): Promise<AgentRunResponse<AddConstraintData>> {
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'add_constraint', session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Add constraint failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<AddConstraintData>>
+}
+
+/** List every constraint attached to the scene with current pass/fail.
+ *  Read-only. */
+export async function listConstraints(
+  sessionId: string = 'default',
+): Promise<AgentRunResponse<ListConstraintsData>> {
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'list_constraints', session_id: sessionId, arguments: {} }),
+  })
+  if (!res.ok) throw new Error(`List constraints failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<ListConstraintsData>>
+}
+
+/** Remove every constraint from the scene. Does not revert transforms. */
+export async function clearConstraints(
+  sessionId: string = 'default',
+): Promise<AgentRunResponse<ClearConstraintsData>> {
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'clear_constraints', session_id: sessionId, arguments: {} }),
+  })
+  if (!res.ok) throw new Error(`Clear constraints failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<ClearConstraintsData>>
+}
+
+/** Run the greedy iterative solver: mutates object transforms to satisfy
+ *  the registered constraints, emits update deltas, and returns a report
+ *  of what moved and what is still violated. */
+export async function solveConstraints(
+  sessionId: string = 'default',
+  opts: { maxPasses?: number } = {},
+): Promise<AgentRunResponse<SolveConstraintsData>> {
+  const args: Record<string, unknown> = {}
+  if (opts.maxPasses !== undefined) args.max_passes = opts.maxPasses
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'solve_constraints', session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Solve constraints failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<SolveConstraintsData>>
+}
+
+/** Iteratively refine the scene toward a stated goal via a bounded
+ *  critique + auto-fix loop. Returns a per-iteration trace. */
+export async function refineScene(
+  sessionId: string = 'default',
+  opts: { goal?: string; maxIterations?: number; maxFixesPerIter?: number } = {},
+): Promise<AgentRunResponse<RefineData>> {
+  const args: Record<string, unknown> = {}
+  if (opts.goal !== undefined) args.goal = opts.goal
+  if (opts.maxIterations !== undefined) args.max_iterations = opts.maxIterations
+  if (opts.maxFixesPerIter !== undefined) args.max_fixes_per_iter = opts.maxFixesPerIter
+  const res = await fetch('/api/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'refine_scene', session_id: sessionId, arguments: args }),
+  })
+  if (!res.ok) throw new Error(`Refine scene failed: ${res.status}`)
+  return res.json() as Promise<AgentRunResponse<RefineData>>
 }
 
 /* ============ WebSocket client ============ */
