@@ -9,7 +9,7 @@ import type { Vec3 } from '../types'
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 export type RenderQuality = 'low' | 'medium' | 'high'
-export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools' | 'memory' | 'activity' | 'checkpoints' | 'storyboard' | 'critique' | 'constraints'
+export type PanelTab = 'layers' | 'outliner' | 'timeline' | 'properties' | 'scene' | 'skills' | 'tools' | 'memory' | 'activity' | 'checkpoints' | 'storyboard' | 'critique' | 'constraints' | 'layerPanel' | 'nodegraph'
 
 export interface ViewportCameraState {
   position: Vec3
