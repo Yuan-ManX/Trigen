@@ -62,6 +62,8 @@ export interface Material {
   specular_color?: string
   attenuation_color?: string
   attenuation_distance?: number
+  /** Vertex color painting metadata (set by paint_vertex_colors). */
+  vertex_colors?: Record<string, unknown> | null
 }
 
 /** Object-space transform */
@@ -84,6 +86,19 @@ export interface SceneObject {
   group_id?: string | null
   tags?: string[]
   animation?: ObjectAnimation | null
+  /** Rigid-body physics descriptor (enabled/gravity/bounciness/friction/floor) */
+  physics?: PhysicsDescriptor | null
+}
+
+/** Rigid-body physics descriptor read by the viewport simulation. */
+export interface PhysicsDescriptor {
+  enabled: boolean
+  gravity?: number
+  bounciness?: number
+  friction?: number
+  shape?: 'auto' | 'sphere' | 'box'
+  floor?: number
+  mass?: number
 }
 
 /** Object animation descriptor (keyframe/orbit/wave/bounce) */
@@ -236,6 +251,42 @@ export interface SceneData {
   /** Cinematic storyboard (sequence of camera shots). Optional — absent for
    *  scenes that have never composed one. */
   storyboard?: Storyboard | null
+  /** Named layers for organizing scene objects. */
+  layers?: Record<string, LayerInfo>
+  /** Procedural node-graph pipeline configuration. */
+  nodeGraph?: NodeGraphData | null
+}
+
+/** Layer metadata entry for the layer panel. */
+export interface LayerInfo {
+  name: string
+  color: string
+  parent: string | null
+  locked: boolean
+  visible: boolean
+  object_count: number
+}
+
+/** Procedural node-graph data (ComfyUI-style DAG). */
+export interface NodeGraphData {
+  name: string
+  nodes: NodeGraphNode[]
+  edges: NodeGraphEdge[]
+  topological_order: string[]
+  categories_used: string[]
+}
+
+export interface NodeGraphNode {
+  id: string
+  type: string
+  category: string
+  tool_name?: string
+  params: Record<string, unknown>
+}
+
+export interface NodeGraphEdge {
+  from: string
+  to: string
 }
 
 /** Empty scene default value */
@@ -251,6 +302,8 @@ export const EMPTY_SCENE: SceneData = {
   grid_size: 40,
   annotations: [],
   storyboard: null,
+  layers: {},
+  nodeGraph: null,
 }
 
 /* ============ WebSocket event types ============ */
@@ -365,6 +418,18 @@ export interface PlanStep {
   message?: string
 }
 
+/** A single sub-goal in the plan's goal breakdown. Derived by grouping
+ *  plan steps by tool category in first-occurrence order. Empty for
+ *  single-intent turns. The frontend renders the breakdown as a
+ *  compact "create → material → light" objective sequence above the
+ *  linear step checklist inside PlanTrace. */
+export interface PlanGoalBreakdown {
+  category: string
+  label: string
+  step_ids: string[]
+  tool_count: number
+}
+
 /** Plan roadmap event — emitted at the planning phase with the full step list. */
 export interface PlanEvent {
   type: 'plan'
@@ -380,6 +445,7 @@ export interface PlanEvent {
       arguments?: Record<string, unknown>
       status: string
     }>
+    goal_breakdown?: PlanGoalBreakdown[]
   }
 }
 
