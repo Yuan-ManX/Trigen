@@ -134,7 +134,7 @@ function EnvironmentLayer({ env }: { env: string | null }) {
   const parsed = useMemo(() => parseEnvironment(env), [env])
 
   useEffect(() => {
-    // three.js r0.163+ exposes scene.environmentIntensity for fine-grained
+    // The scene exposes environmentIntensity for fine-grained
     // control over image-based lighting strength.
     ;(scene as any).environmentIntensity = parsed?.intensity ?? 1
   }, [scene, parsed?.intensity])
