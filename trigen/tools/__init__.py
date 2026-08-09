@@ -88,6 +88,9 @@ from trigen.tools.animation_tools import (
     BounceAnimationTool,
     KeyframeAnimationTool,
     OrbitAnimationTool,
+    PulseAnimationTool,
+    SpinAnimationTool,
+    SwayAnimationTool,
     WaveAnimationTool,
 )
 from trigen.tools.material_tools import (
@@ -229,6 +232,12 @@ from trigen.tools.physics_tools import (
     ListPhysicsTool,
 )
 from trigen.tools.text_tools import CreateTextTool
+from trigen.tools.transition_tools import (
+    CreateSceneTransitionTool,
+    ListSceneTransitionsTool,
+    PlaySceneTransitionTool,
+    RemoveSceneTransitionTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -289,6 +298,9 @@ __all__ = [
     "OrbitAnimationTool",
     "WaveAnimationTool",
     "BounceAnimationTool",
+    "PulseAnimationTool",
+    "SwayAnimationTool",
+    "SpinAnimationTool",
     # Scene inspection
     "SceneInfoTool",
     # Grid control
@@ -451,4 +463,9 @@ __all__ = [
     "ListPhysicsTool",
     # Text / sprite authoring — 3D labels and captions
     "CreateTextTool",
+    # Scene transitions — AI-native motion choreography between states
+    "CreateSceneTransitionTool",
+    "PlaySceneTransitionTool",
+    "ListSceneTransitionsTool",
+    "RemoveSceneTransitionTool",
 ]
