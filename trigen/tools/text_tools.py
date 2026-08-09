@@ -1,6 +1,6 @@
 """Text and sprite authoring tools.
 
-These tools create text geometry objects and sprite-style markers so a
+These tools create text geometry objects and sprite markers so a
 user can label, caption, and annotate a scene conversationally — "add a
 label that reads 'Hero' above the platform". Text objects use the shared
 ``text`` geometry type that the scene renderer already understands, so
