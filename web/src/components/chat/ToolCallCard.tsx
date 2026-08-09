@@ -1,6 +1,7 @@
 // Tool call card: inline display of tool name, parameters and execution result
 import { motion } from 'framer-motion'
 import {
+  Activity,
   AlignHorizontalDistributeCenter,
   Box,
   Camera,
@@ -13,6 +14,7 @@ import {
   Film,
   Globe,
   Grid3x3,
+  HeartPulse,
   Image as ImageIcon,
   Info,
   Layers,
@@ -24,6 +26,8 @@ import {
   Move,
   Orbit,
   Palette,
+  Play,
+  RotateCw,
   Ruler,
   Sparkles,
   Sun,
@@ -32,6 +36,7 @@ import {
   Type,
   Video,
   Wand2,
+  Waves,
   XCircle,
 } from 'lucide-react'
 import type { ToolCallRecord } from '../../store/useChat'
@@ -105,6 +110,14 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   set_keyframe: Film,
   create_animation_clip: Film,
   fit_camera_to_selection: Camera,
+  // Object motion primitives — keyframe / orbit / wave / bounce + pulse / sway / spin
+  keyframe_animation: Film,
+  orbit_animation: Orbit,
+  wave_animation: Waves,
+  bounce_animation: Activity,
+  pulse_animation: HeartPulse,
+  sway_animation: Waves,
+  spin_animation: RotateCw,
   // Layer management + vertex paint
   create_layer: Layers,
   delete_layer: Trash2,
@@ -120,6 +133,11 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   clear_physics: Eraser,
   list_physics: List,
   create_text: Type,
+  // Scene transitions — AI-native motion choreography
+  create_scene_transition: Move,
+  play_scene_transition: Play,
+  list_scene_transitions: List,
+  remove_scene_transition: Trash2,
 }
 
 /** Resolve the icon for a tool, falling back to Terminal */
