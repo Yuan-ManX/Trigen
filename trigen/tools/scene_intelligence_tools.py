@@ -376,9 +376,7 @@ def _build_description_paragraph(
     return " ".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# 1. DescribeSceneTool — semantic scene description
-# ---------------------------------------------------------------------------
+# --- DescribeSceneTool — semantic scene description ---
 
 
 _DESCRIBE_SCENE_PARAMS = {
@@ -470,9 +468,7 @@ class DescribeSceneTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 2. SuggestNextActionsTool — actionable creative next-step proposals
-# ---------------------------------------------------------------------------
+# --- SuggestNextActionsTool — actionable creative next-step proposals ---
 
 
 _SUGGEST_NEXT_ACTIONS_PARAMS = {
