@@ -181,7 +181,8 @@ class TaskExecutor:
             "snap_to_grid", "array_pattern", "mirror_object",
             # Advanced material & animation — all keyed by their target object
             "gradient_material", "keyframe_animation", "orbit_animation",
-            "wave_animation", "bounce_animation",
+            "wave_animation", "bounce_animation", "pulse_animation",
+            "sway_animation", "spin_animation",
             # Advanced editor control — per-target mutations
             "reset_transform", "set_object_pivot", "set_object_layer",
         }:
@@ -304,6 +305,9 @@ _PARALLEL_SAFE_TOOLS = {
     "orbit_animation",
     "wave_animation",
     "bounce_animation",
+    "pulse_animation",
+    "sway_animation",
+    "spin_animation",
     # Procedural generation
     "terrain_generator",
     "l_system",
