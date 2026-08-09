@@ -2,12 +2,12 @@
 
 A Workflow captures a named, ordered sequence of (tool, arguments) steps
 that the Agent can save and replay later. Distinct from macros (which
-record ad-hoc user-defined recipes), Workflows are intended to be the
-curated, shareable unit of an Agentic Workflow Template: a ComfyUI-style
-saveable tool-graph fused with the Hermes-style tool loop. Each step is a
-single Agent tool call, and invoking a Workflow replays the steps
-sequentially through the same executor pipeline used for normal tool
-calls, emitting the merged SceneDelta stream.
+record ad-hoc user-defined recipes), Workflows are the curated, shareable
+unit of an Agentic Workflow Template: a saveable tool-graph paired with
+the Agent's own tool loop. Each step is a single Agent tool call, and
+invoking a Workflow replays the steps sequentially through the same
+executor pipeline used for normal tool calls, emitting the merged
+SceneDelta stream.
 
 Persistence is a single JSON file under the workspace so it works without
 a database and is easy to inspect. The store mirrors the macro_store /
