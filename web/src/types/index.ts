@@ -103,7 +103,7 @@ export interface PhysicsDescriptor {
 
 /** Object animation descriptor (keyframe/orbit/wave/bounce) */
 export interface ObjectAnimation {
-  type: 'keyframe' | 'orbit' | 'wave' | 'bounce'
+  type: 'keyframe' | 'orbit' | 'wave' | 'bounce' | 'pulse' | 'sway' | 'spin'
   duration: number
   loop: boolean
   // keyframe
@@ -118,7 +118,7 @@ export interface ObjectAnimation {
   center?: Vec3
   radius?: number
   height?: number
-  axis?: 'x' | 'y' | 'z'
+  axis?: 'x' | 'y' | 'z' | 'all'
   face_center?: boolean
   // wave
   amplitude?: number
@@ -126,6 +126,11 @@ export interface ObjectAnimation {
   // bounce
   bounces?: number
   squash?: boolean
+  // pulse
+  amount?: number
+  // sway
+  // spin
+  speed?: number
   // internal captured state
   start_position?: Vec3
   start_scale?: Vec3
@@ -255,6 +260,28 @@ export interface SceneData {
   layers?: Record<string, LayerInfo>
   /** Procedural node-graph pipeline configuration. */
   nodeGraph?: NodeGraphData | null
+  /** Scene transitions — AI-native motion choreography between states. */
+  transitions?: SceneTransition[]
+  /** Id of the transition the viewport is currently playing. */
+  activeTransition?: string | null
+}
+
+/** A single target state within a scene transition. */
+export interface TransitionTarget {
+  target: string
+  position?: [number, number, number]
+  rotation?: [number, number, number]
+  scale?: [number, number, number]
+}
+
+/** Scene transition descriptor (smooth animated morph between states). */
+export interface SceneTransition {
+  id: string
+  name: string
+  duration: number
+  easing: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+  loop?: boolean
+  targets: TransitionTarget[]
 }
 
 /** Layer metadata entry for the layer panel. */
@@ -304,6 +331,8 @@ export const EMPTY_SCENE: SceneData = {
   storyboard: null,
   layers: {},
   nodeGraph: null,
+  transitions: [],
+  activeTransition: null,
 }
 
 /* ============ WebSocket event types ============ */
