@@ -144,9 +144,7 @@ def _object_summary(obj: SceneObject) -> Dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# 1. QuerySceneTool — read-only attribute filter over scene objects
-# ---------------------------------------------------------------------------
+# --- QuerySceneTool — read-only attribute filter over scene objects ---
 
 _QUERY_SCENE_PARAMS = {
     "type": "object",
@@ -262,9 +260,7 @@ class QuerySceneTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 2. StyleSceneTool — apply a named thematic style preset to the scene
-# ---------------------------------------------------------------------------
+# --- StyleSceneTool — apply a named thematic style preset to the scene ---
 
 # Each preset defines: background hex, optional fog descriptor, ambient
 # light color + intensity, and a material override applied to every
@@ -473,9 +469,7 @@ class StyleSceneTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 3. BatchTransformTool — apply same transform op to many targets at once
-# ---------------------------------------------------------------------------
+# --- BatchTransformTool — apply same transform op to many targets at once ---
 
 _BATCH_TRANSFORM_PARAMS = {
     "type": "object",
@@ -573,9 +567,7 @@ class BatchTransformTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 4. SceneStatisticsTool — read-only detailed scene stats
-# ---------------------------------------------------------------------------
+# --- SceneStatisticsTool — read-only detailed scene stats ---
 
 
 def _scene_bbox(scene: Scene) -> Dict[str, Any]:
@@ -733,9 +725,7 @@ class SceneStatisticsTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 5. ListAnnotationsTool — read-only listing of all annotations
-# ---------------------------------------------------------------------------
+# --- ListAnnotationsTool — read-only listing of all annotations ---
 
 
 class ListAnnotationsTool(ToolBase):
@@ -783,9 +773,7 @@ class ListAnnotationsTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 6. CameraFlythroughTool — animate a camera along a waypoint path
-# ---------------------------------------------------------------------------
+# --- CameraFlythroughTool — animate a camera along a waypoint path ---
 
 _CAMERA_FLYTHROUGH_PARAMS = {
     "type": "object",
