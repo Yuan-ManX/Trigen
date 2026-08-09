@@ -13,6 +13,20 @@ import type { Geometry, GeometryParams, ObjectAnimation, SceneObject, Vec3 } fro
 
 export type TransformMode = 'translate' | 'rotate' | 'scale'
 
+/** Apply an easing curve to a normalized progress value [0,1]. */
+function easeTransition(t: number, easing: string): number {
+  switch (easing) {
+    case 'easeIn':
+      return t * t
+    case 'easeOut':
+      return t * (2 - t)
+    case 'easeInOut':
+      return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+    default:
+      return t
+  }
+}
+
 /** Build the corresponding R3F geometry component based on geometry type and parameters */
 function GeometryRenderer({ geometry }: { geometry: Geometry }) {
   const p = geometry.params
@@ -275,6 +289,61 @@ function solveAnimation(
         scale,
       }
     }
+    case 'pulse': {
+      // Breathing scale oscillation — a smooth rhythmic swell on one axis
+      // or uniformly. phase drives a [0,1] loop so the object inflates and
+      // deflates continuously.
+      const freq = anim.frequency ?? 1.0
+      const amount = anim.amount ?? 0.25
+      const k = 1 + Math.sin(phase * Math.PI * 2 * freq) * amount
+      const axis = anim.axis ?? 'all'
+      const scale: [number, number, number] =
+        axis === 'all'
+          ? [baseScale[0] * k, baseScale[1] * k, baseScale[2] * k]
+          : axis === 'x'
+            ? [baseScale[0] * k, baseScale[1], baseScale[2]]
+            : axis === 'y'
+              ? [baseScale[0], baseScale[1] * k, baseScale[2]]
+              : [baseScale[0], baseScale[1], baseScale[2] * k]
+      return {
+        position: [basePos[0], basePos[1], basePos[2]],
+        rotation: [baseRot[0], baseRot[1], baseRot[2]],
+        scale,
+      }
+    }
+    case 'sway': {
+      // Rocking sway — sinusoidal rotation about a chosen axis. Uses the
+      // [0,1] loop phase so the tilt swings back and forth rhythmically.
+      const freq = anim.frequency ?? 0.8
+      const amount = anim.amount ?? 0.4
+      const axis = anim.axis ?? 'z'
+      const tilt = Math.sin(phase * Math.PI * 2 * freq) * amount
+      const rotation: [number, number, number] = [baseRot[0], baseRot[1], baseRot[2]]
+      if (axis === 'x') rotation[0] = baseRot[0] + tilt
+      else if (axis === 'y') rotation[1] = baseRot[1] + tilt
+      else rotation[2] = baseRot[2] + tilt
+      return {
+        position: [basePos[0], basePos[1], basePos[2]],
+        rotation,
+        scale: [baseScale[0], baseScale[1], baseScale[2]],
+      }
+    }
+    case 'spin': {
+      // Continuous rotation about a fixed axis. Uses absolute time so the
+      // object keeps turning across loops rather than snapping back.
+      const speed = anim.speed ?? 1.0
+      const axis = anim.axis ?? 'y'
+      const angle = time * Math.PI * 2 * speed
+      const rotation: [number, number, number] = [baseRot[0], baseRot[1], baseRot[2]]
+      if (axis === 'x') rotation[0] = baseRot[0] + angle
+      else if (axis === 'y') rotation[1] = baseRot[1] + angle
+      else rotation[2] = baseRot[2] + angle
+      return {
+        position: [basePos[0], basePos[1], basePos[2]],
+        rotation,
+        scale: [baseScale[0], baseScale[1], baseScale[2]],
+      }
+    }
     case 'keyframe': {
       const kfs = anim.keyframes ?? []
       if (kfs.length === 0) return { position: basePos, rotation: baseRot, scale: baseScale }
@@ -390,6 +459,51 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
       object.transform.position[0],
       physLastYRef.current,
       object.transform.position[2],
+    )
+  })
+
+  // Scene transition playback: when a scene-level transition targets this
+  // object, interpolate its transform from the authored state to the target
+  // state over the transition duration, honoring the easing curve. Each mesh
+  // tracks its own elapsed time keyed by the active transition id so a fresh
+  // transition restarts the morph cleanly and switching transitions resets it.
+  const activeTransitionId = useScene((s) => s.scene.activeTransition)
+  const transitions = useScene((s) => s.scene.transitions)
+  const transElapsedRef = useRef(0)
+  const transActiveRef = useRef<string | null>(null)
+  useFrame((_, delta) => {
+    if (!meshObj) return
+    const active = activeTransitionId ?? null
+    const transition = active ? (transitions ?? []).find((t) => t.id === active) : undefined
+    const target = transition?.targets.find((tg) => tg.target === object.id)
+    if (!transition || !target) {
+      transActiveRef.current = null
+      transElapsedRef.current = 0
+      return
+    }
+    if (transActiveRef.current !== active) {
+      transActiveRef.current = active
+      transElapsedRef.current = 0
+    }
+    transElapsedRef.current += Math.min(0.05, delta)
+    const duration = Math.max(0.01, transition.duration || 2)
+    const eased = easeTransition(Math.min(1, transElapsedRef.current / duration), transition.easing)
+    const from = object.transform
+    const lerp = (a: number, b: number) => a + (b - a) * eased
+    meshObj.position.set(
+      lerp(from.position[0], target.position?.[0] ?? from.position[0]),
+      lerp(from.position[1], target.position?.[1] ?? from.position[1]),
+      lerp(from.position[2], target.position?.[2] ?? from.position[2]),
+    )
+    meshObj.rotation.set(
+      lerp(from.rotation[0], target.rotation?.[0] ?? from.rotation[0]),
+      lerp(from.rotation[1], target.rotation?.[1] ?? from.rotation[1]),
+      lerp(from.rotation[2], target.rotation?.[2] ?? from.rotation[2]),
+    )
+    meshObj.scale.set(
+      lerp(from.scale[0], target.scale?.[0] ?? from.scale[0]),
+      lerp(from.scale[1], target.scale?.[1] ?? from.scale[1]),
+      lerp(from.scale[2], target.scale?.[2] ?? from.scale[2]),
     )
   })
 
