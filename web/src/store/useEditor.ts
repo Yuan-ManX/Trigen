@@ -45,7 +45,7 @@ export interface ClippingPlaneState {
 }
 
 /** Viewport projection mode — perspective (depth-foreshortened) or
- *  orthographic (parallel, CAD-style). Driven by the editor_set_projection
+ *  orthographic (parallel, no distortion). Driven by the editor_set_projection
  *  delta from set_viewport_projection tool execution. */
 export type ViewportProjection = 'perspective' | 'orthographic'
 
