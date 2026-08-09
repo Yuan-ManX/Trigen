@@ -493,7 +493,7 @@ def parse_message(
             matched_any = True
             break
 
-    # 0b. Procedural generation tools (terrain / l_system / shatter / palette)
+    # Procedural generation tools (terrain / l_system / shatter / palette)
     if not matched_any:
         for phrase, tool_name in PROCEDURAL_TRIGGERS:
             if phrase in msg_lower:
@@ -601,7 +601,7 @@ def parse_message(
                 matched_any = True
                 break
 
-    # 0c. Object animation tools — require a target object to exist
+    # Object animation tools — require a target object to exist
     if not matched_any and scene_objects:
         for phrase, tool_name, kind in ANIMATION_TRIGGERS:
             if phrase in msg_lower:
@@ -628,7 +628,7 @@ def parse_message(
                     matched_any = True
                     break
 
-    # 0d. Editor-overlay gap tools + macro/variant listing — single-shot
+    # Editor-overlay gap tools + macro/variant listing — single-shot
     # tools with no required arguments. Matched before smart_compose so a
     # phrase like "list variants" doesn't get hijacked by another rule.
     if not matched_any:
@@ -727,7 +727,7 @@ def parse_message(
                 ))
                 matched_any = True
 
-    # 0e. Variant save / load / randomize — extract variant name from the
+    # Variant save / load / randomize — extract variant name from the
     # message via the "named/called <name>" or "<verb> <name>" patterns.
     if not matched_any:
         variant_save_match = re.search(
@@ -1109,7 +1109,7 @@ def parse_message(
             ))
             matched_any = True
 
-    # 17b. Viewport & editor-state control — minimap, shadows, projection,
+    # Viewport & editor-state control — minimap, shadows, projection,
     # edit/run mode, scene save/load slots. Each rule mirrors a tool in
     # advanced_editor_tools.py.
     if any(k in msg_lower for k in ["minimap", "小地图"]):
@@ -1291,15 +1291,10 @@ def parse_message(
             ))
             matched_any = True
 
-    # 17c. Extended editor & spatial control — playback, undo/redo,
-    # visibility, lock, rename, transform mode, frame, capture, render
-    # quality, grid snapping, panel focus, selection, measurement,
-    # environment, snapshot, camera animation, align/distribute, array,
-    # mirror, boolean, snap, gradient/blend/batch material, layer ops,
-    # group ops, camera ops, light modify, geometry modify, subagent,
-    # export code, music, transcribe. Each rule maps CN+EN phrases to a
-    # registered tool so the offline rule engine can drive every editor
-    # capability without an LLM round-trip.
+    # Extended editor & spatial control — playback, transform, selection,
+    # snapping, camera, layers/groups, material, geometry, subagent, and
+    # more. Each rule maps CN+EN phrases to a registered tool so the offline
+    # rule engine can drive every editor capability without an LLM round-trip.
     #
     # Undo / redo — checked before generic "select"/"delete" so the
     # short keywords are not swallowed by later sections.
@@ -1788,11 +1783,8 @@ def parse_message(
         ))
         matched_any = True
 
-    # 17d. Extended per-field editor tools — set_material_property,
-    # set_geometry_params, set_object_parent, add_annotation,
-    # remove_annotation, configure_shortcuts. These give the offline rule
-    # engine direct access to the per-field material/geometry/hierarchy/
-    # annotation capabilities added alongside the basic editor tools.
+    # Extended per-field editor tools — material/geometry/hierarchy/
+    # annotation capabilities alongside the basic editor tools.
     _EXT_MATERIAL_PROPS = {
         "clearcoat": "clearcoat", "clearcoat_roughness": "clearcoat_roughness",
         "transmission": "transmission", "thickness": "thickness", "ior": "ior",
@@ -1894,11 +1886,10 @@ def parse_message(
         ))
         matched_any = True
 
-    # 17e. Scene workflow intelligence tools — query_scene, style_scene,
+    # Scene workflow intelligence tools — query_scene, style_scene,
     # batch_transform, scene_statistics, list_annotations,
     # camera_flythrough. These give the offline rule engine direct access
-    # to the bulk / query / stylization / cinematic capabilities added in
-    # Phase 3.
+    # to the bulk / query / stylization / cinematic capabilities.
     _STYLE_PRESET_TRIGGERS: List[Tuple[str, str]] = [
         ("cyberpunk", "cyberpunk"), ("赛博朋克", "cyberpunk"),
         ("minimalist", "minimalist"), ("极简", "minimalist"), ("minimal style", "minimalist"),
@@ -2087,8 +2078,8 @@ def parse_message(
         ))
         matched_any = True
 
-    # 19b. Scene critique — prescriptive design review with fix proposals.
-    # Triggered by review-style phrasing that calls for a critical/editorial
+    # Scene critique — prescriptive design review with fix proposals.
+    # Triggered by critical-review phrasing that calls for an editorial
     # assessment rather than a neutral inventory.
     if any(k in msg_lower for k in [
         "critique", "review the scene", "review scene", "design review",
@@ -2106,7 +2097,7 @@ def parse_message(
         ))
         matched_any = True
 
-    # 19c. Scene auto-fix — review the scene and apply the top corrective
+    # Scene auto-fix — review the scene and apply the top corrective
     # fixes automatically. Triggered by fix/cleanup phrasing.
     if any(k in msg_lower for k in [
         "auto fix", "auto-fix", "fix the scene", "fix my scene",
@@ -2166,7 +2157,7 @@ def parse_message(
             intents.append(mm_intent)
             matched_any = True
 
-    # 22b. Cinematic storyboard — compose / play / clear camera sequences.
+    # Cinematic storyboard — compose / play / clear camera sequences.
     # Maps natural language to the storyboard tools so the offline engine
     # can drive a scripted camera tour without an LLM round-trip.
     story_match = re.search(
