@@ -824,7 +824,7 @@ class AgentOrchestrator:
         registry.register(ExportSceneTool(workspace_dir=self.config.workspace_dir))
         registry.register(CodeExporterTool(workspace_dir=self.config.workspace_dir))
         # Multimodal reconstruction — receives the registry so the optional
-        # refine step can invoke generate_3d_asset (Meshy/Tripo) internally.
+        # refine step can invoke the 3D-asset generation tool internally.
         registry.register(ImageToSceneTool(self.config.llm, registry=registry))
         # Scene analysis
         registry.register(SceneAnalyzerTool())
@@ -1014,8 +1014,8 @@ class AgentOrchestrator:
         registry.register(SetLayerVisibleTool())
         registry.register(SetLayerLockedTool())
         registry.register(PaintVertexColorsTool())
-        # Procedural node-graph authoring + execution — ComfyUI-style
-        # DAG of create/modify/material/light/export nodes with topological
+        # Procedural node-graph authoring + execution — a DAG of
+        # create/modify/material/light/export nodes with topological
         # ordering and cycle validation. ExecuteNodeGraphTool receives the
         # registry so it can dispatch each node's tool in topological order.
         registry.register(ConfigureNodeGraphTool())
