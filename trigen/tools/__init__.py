@@ -71,7 +71,7 @@ from trigen.tools.spatial_tools import (
     SetEnvironmentTool,
     SnapshotViewTool,
 )
-from trigen.tools.subagent_tool import DispatchSubagentTool
+from trigen.tools.subagent_tool import DispatchSubagentTool, EnsembleBrainstormTool
 from trigen.tools.composite_tools import (
     ArrayPatternTool,
     BooleanOperationTool,
@@ -344,6 +344,7 @@ __all__ = [
     "TranscribeAudioTool",
     # Sub-agent
     "DispatchSubagentTool",
+    "EnsembleBrainstormTool",
     # Creative skills
     "InvokeSkillTool",
     # Macros — reusable user-defined tool-call recipes
