@@ -364,6 +364,9 @@ _PARALLEL_SAFE_TOOLS = {
     "orbit_animation",
     "wave_animation",
     "bounce_animation",
+    "pulse_animation",
+    "sway_animation",
+    "spin_animation",
     # Procedural generation (independent appends; per-call target key handles conflicts)
     "terrain_generator",
     "l_system",
@@ -606,6 +609,8 @@ class TaskPlanner:
         "focus_object": "editor", "focus_panel": "editor",
         "keyframe_animation": "animation", "orbit_animation": "animation",
         "wave_animation": "animation", "bounce_animation": "animation",
+        "pulse_animation": "animation", "sway_animation": "animation",
+        "spin_animation": "animation",
         "play_animation": "animation", "pause_animation": "animation",
         "seek_animation": "animation", "set_playback_speed": "animation",
         "terrain_generator": "procedural", "l_system": "procedural",
