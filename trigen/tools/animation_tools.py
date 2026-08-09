@@ -108,6 +108,56 @@ _BOUNCE_PARAMS = {
     "required": ["target"],
 }
 
+_PULSE_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "amount": {"type": "number", "description": "Scale oscillation magnitude around 1.0 (default 0.25)"},
+        "frequency": {"type": "number", "description": "Breathing frequency in Hz (default 1.0)"},
+        "axis": {
+            "type": "string",
+            "enum": ["all", "x", "y", "z"],
+            "description": "Axis to scale; 'all' breathes uniformly (default all)",
+        },
+        "duration": {"type": "number", "description": "Animation duration in seconds (default 2)"},
+        "loop": {"type": "boolean", "description": "Loop the pulse (default true)"},
+    },
+    "required": ["target"],
+}
+
+_SWAY_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "amount": {"type": "number", "description": "Peak rocking rotation in radians (default 0.4)"},
+        "frequency": {"type": "number", "description": "Sway frequency in Hz (default 0.8)"},
+        "axis": {
+            "type": "string",
+            "enum": ["x", "y", "z"],
+            "description": "Rocking rotation axis (default z — gentle side-to-side tilt)",
+        },
+        "duration": {"type": "number", "description": "Animation duration in seconds (default 2.5)"},
+        "loop": {"type": "boolean", "description": "Loop the sway (default true)"},
+    },
+    "required": ["target"],
+}
+
+_SPIN_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "axis": {
+            "type": "string",
+            "enum": ["x", "y", "z"],
+            "description": "Rotation axis (default y — spinning like a top)",
+        },
+        "speed": {"type": "number", "description": "Rotations per second (default 1.0)"},
+        "duration": {"type": "number", "description": "Animation duration in seconds (default 6)"},
+        "loop": {"type": "boolean", "description": "Loop the spin (default true)"},
+    },
+    "required": ["target"],
+}
+
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -294,6 +344,128 @@ class BounceAnimationTool(ToolBase):
         return ToolResult(
             success=True,
             message=f"Attached bounce animation to {obj.name} ({descriptor['bounces']} bounces)",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
+            data={"object": obj.to_dict(), "animation": descriptor},
+        )
+
+
+class PulseAnimationTool(ToolBase):
+    """Attach a breathing scale oscillation to an object."""
+
+    name = "pulse_animation"
+    description = (
+        "Attach a breathing pulse to an object — a smooth, rhythmic scale "
+        "oscillation on one axis or uniformly. Use for living / energetic "
+        "objects like heartbeats, lanterns, or glowing cores."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _PULSE_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = arguments.get("target", "")
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+
+        axis = str(arguments.get("axis", "all")).lower()
+        if axis not in ("all", "x", "y", "z"):
+            axis = "all"
+
+        descriptor = {
+            "type": "pulse",
+            "axis": axis,
+            "amount": float(arguments.get("amount", 0.25)),
+            "frequency": float(arguments.get("frequency", 1.0)),
+            "duration": float(arguments.get("duration", 2.0)),
+            "loop": bool(arguments.get("loop", True)),
+            "start_scale": list(obj.transform.scale),
+        }
+        obj.animation = descriptor
+        return ToolResult(
+            success=True,
+            message=f"Attached pulse animation to {obj.name} (axis {axis}, amount {descriptor['amount']:.2f})",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
+            data={"object": obj.to_dict(), "animation": descriptor},
+        )
+
+
+class SwayAnimationTool(ToolBase):
+    """Attach a rocking rotation oscillation to an object."""
+
+    name = "sway_animation"
+    description = (
+        "Attach a gentle rocking sway to an object — a sinusoidal rotation "
+        "about a chosen axis. Use for leaves, flags, pendulums, or any "
+        "object that should tilt rhythmically."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SWAY_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = arguments.get("target", "")
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+
+        axis = str(arguments.get("axis", "z")).lower()
+        if axis not in ("x", "y", "z"):
+            axis = "z"
+
+        descriptor = {
+            "type": "sway",
+            "axis": axis,
+            "amount": float(arguments.get("amount", 0.4)),
+            "frequency": float(arguments.get("frequency", 0.8)),
+            "duration": float(arguments.get("duration", 2.5)),
+            "loop": bool(arguments.get("loop", True)),
+            "start_rotation": list(obj.transform.rotation),
+        }
+        obj.animation = descriptor
+        return ToolResult(
+            success=True,
+            message=f"Attached sway animation to {obj.name} (axis {axis}, amount {descriptor['amount']:.2f} rad)",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
+            data={"object": obj.to_dict(), "animation": descriptor},
+        )
+
+
+class SpinAnimationTool(ToolBase):
+    """Attach a continuous rotation about a fixed axis."""
+
+    name = "spin_animation"
+    description = (
+        "Attach a continuous spin to an object — an endless rotation about "
+        "a fixed axis at a chosen speed. Use for gears, propellers, "
+        "windmills, or any object that should rotate steadily."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SPIN_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = arguments.get("target", "")
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+
+        axis = str(arguments.get("axis", "y")).lower()
+        if axis not in ("x", "y", "z"):
+            axis = "y"
+
+        descriptor = {
+            "type": "spin",
+            "axis": axis,
+            "speed": float(arguments.get("speed", 1.0)),
+            "duration": float(arguments.get("duration", 6.0)),
+            "loop": bool(arguments.get("loop", True)),
+            "start_rotation": list(obj.transform.rotation),
+        }
+        obj.animation = descriptor
+        return ToolResult(
+            success=True,
+            message=f"Attached spin animation to {obj.name} (axis {axis}, speed {descriptor['speed']:.2f} rev/s)",
             deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
             data={"object": obj.to_dict(), "animation": descriptor},
         )
