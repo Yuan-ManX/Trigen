@@ -27,9 +27,7 @@ from trigen.scene import Scene
 from trigen.tools.base import SceneDelta, ToolBase, ToolResult
 
 
-# ---------------------------------------------------------------------------
-# 1. list_scene_templates
-# ---------------------------------------------------------------------------
+# --- list_scene_templates ---
 
 _LIST_SCENE_TEMPLATES_PARAMS = {
     "type": "object",
@@ -223,9 +221,7 @@ class ListSceneTemplatesTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 2. orbit_viewport
-# ---------------------------------------------------------------------------
+# --- orbit_viewport ---
 
 _ORBIT_VIEWPORT_PARAMS = {
     "type": "object",
@@ -344,9 +340,7 @@ class OrbitViewportTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 3. set_layer_visibility
-# ---------------------------------------------------------------------------
+# --- set_layer_visibility ---
 
 _SET_LAYER_VISIBILITY_PARAMS = {
     "type": "object",
@@ -426,9 +420,7 @@ class SetLayerVisibilityTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 4. list_skills
-# ---------------------------------------------------------------------------
+# --- list_skills ---
 
 _LIST_SKILLS_PARAMS = {
     "type": "object",
