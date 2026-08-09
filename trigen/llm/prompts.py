@@ -79,7 +79,7 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
 10. Multimodal generation (multimodal):
     - generate_image, generate_3d_asset, generate_video, generate_animation, generate_music, synthesize_speech, transcribe_audio, image_to_3d.
     - compose_pipeline, list_pipeline_templates: author and run multi-step node-graph pipelines.
-    - configure_node_graph, execute_node_graph, list_node_graphs, delete_node_graph: procedural ComfyUI-style DAG authoring and execution.
+    - configure_node_graph, execute_node_graph, list_node_graphs, delete_node_graph: procedural directed-acyclic DAG authoring and execution.
 11. Export (export):
     - export_scene (GLB/OBJ/STL), export_code.
 12. Inspection (inspection):
