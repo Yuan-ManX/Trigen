@@ -79,7 +79,7 @@ def _guess_modalities(model_id: str, labels: List[str] = None) -> List[Modality]
     if any(kw in text for kw in video_keywords):
         modalities.append(Modality.VIDEO)
 
-    # 3D generation: Meshy / Tripo / text-to-3d.
+    # 3D generation: common 3D-model provider / capability keywords.
     threed_keywords = ["meshy", "tripo", "text-to-3d", "text23d", "image-to-3d",
                        "3d-gen", "point-e", "shap-e", "instant-3d"]
     if any(kw in text for kw in threed_keywords):
