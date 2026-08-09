@@ -219,6 +219,164 @@ ANIMATION_TRIGGERS: List[Tuple[str, str, str]] = [
 ]
 
 
+# Editor-overlay gap tools — dismiss the radial menu, measurement overlay,
+# or camera flythrough. Single-phrase → tool_name mappings with no args.
+OVERLAY_TRIGGERS: List[Tuple[str, str]] = [
+    ("clear measurement", "clear_measurement"),
+    ("remove measurement", "clear_measurement"),
+    ("hide measurement", "clear_measurement"),
+    ("清除测量", "clear_measurement"),
+    ("清除标尺", "clear_measurement"),
+    ("取消测量", "clear_measurement"),
+    ("stop flythrough", "stop_camera_flythrough"),
+    ("stop camera flythrough", "stop_camera_flythrough"),
+    ("end flythrough", "stop_camera_flythrough"),
+    ("停止飞越", "stop_camera_flythrough"),
+    ("停止飞行", "stop_camera_flythrough"),
+    ("结束飞越", "stop_camera_flythrough"),
+    ("show radial menu", "control_radial_menu"),
+    ("open radial menu", "control_radial_menu"),
+    ("显示环形菜单", "control_radial_menu"),
+    ("打开环形菜单", "control_radial_menu"),
+    ("hide radial menu", "control_radial_menu"),
+    ("close radial menu", "control_radial_menu"),
+    ("关闭环形菜单", "control_radial_menu"),
+    ("隐藏环形菜单", "control_radial_menu"),
+]
+
+
+# Macro and variant tool triggers — single-shot tool calls that don't need
+# the LLM to compose arguments. Phrases that imply listing map to
+# list_macros / list_variants (no args). Phrases that imply saving a
+# variant extract the name from the message.
+MACRO_TRIGGERS: List[Tuple[str, str]] = [
+    ("list macros", "list_macros"),
+    ("show macros", "list_macros"),
+    ("列出宏", "list_macros"),
+    ("显示宏", "list_macros"),
+    ("宏列表", "list_macros"),
+]
+
+WORKFLOW_TRIGGERS: List[Tuple[str, str]] = [
+    ("list workflows", "list_workflows"),
+    ("show workflows", "list_workflows"),
+    ("列出工作流", "list_workflows"),
+    ("显示工作流", "list_workflows"),
+    ("工作流列表", "list_workflows"),
+]
+
+# Generative geometry triggers — radial symmetry rings + jittered clones.
+# These tools need a target so the handler block below defaults target to
+# the most recently created object when the user does not name one, and
+# parses count / radius / jitter from the message.
+GENERATIVE_GEOMETRY_TRIGGERS: List[Tuple[str, str]] = [
+    ("radial symmetry", "radial_symmetry"),
+    ("radially symmetric", "radial_symmetry"),
+    ("petal ring", "radial_symmetry"),
+    ("propeller", "radial_symmetry"),
+    ("around the ring", "radial_symmetry"),
+    ("radial array", "radial_symmetry"),
+    ("环形阵列", "radial_symmetry"),
+    ("径向对称", "radial_symmetry"),
+    ("花瓣环", "radial_symmetry"),
+    ("环形分布", "radial_symmetry"),
+    ("clone with jitter", "clone_with_jitter"),
+    ("with jitter", "clone_with_jitter"),
+    ("jittered clones", "clone_with_jitter"),
+    ("scatter clones", "clone_with_jitter"),
+    ("jittered copies", "clone_with_jitter"),
+    ("jittered duplicates", "clone_with_jitter"),
+    ("jittered", "clone_with_jitter"),
+    ("抖动克隆", "clone_with_jitter"),
+    ("随机散布", "clone_with_jitter"),
+    ("抖动复制", "clone_with_jitter"),
+    ("抖动", "clone_with_jitter"),
+]
+
+VARIANT_TRIGGERS: List[Tuple[str, str]] = [
+    ("list variants", "list_variants"),
+    ("show variants", "list_variants"),
+    ("列出变体", "list_variants"),
+    ("显示变体", "list_variants"),
+    ("变体列表", "list_variants"),
+]
+
+
+# Scene-template and skill catalog listing — single-shot read-only tools
+# that return their full catalog without arguments. Triggered by phrases
+# like "list templates", "which templates are available", "list skills".
+TEMPLATE_TRIGGERS: List[Tuple[str, str]] = [
+    ("list templates", "list_scene_templates"),
+    ("list scene templates", "list_scene_templates"),
+    ("show templates", "list_scene_templates"),
+    ("show scene templates", "list_scene_templates"),
+    ("which templates", "list_scene_templates"),
+    ("what templates", "list_scene_templates"),
+    ("available templates", "list_scene_templates"),
+    ("列出模板", "list_scene_templates"),
+    ("列出场景模板", "list_scene_templates"),
+    ("显示模板", "list_scene_templates"),
+    ("可用模板", "list_scene_templates"),
+    ("模板列表", "list_scene_templates"),
+]
+
+SKILL_CATALOG_TRIGGERS: List[Tuple[str, str]] = [
+    ("list skills", "list_skills"),
+    ("show skills", "list_skills"),
+    ("which skills", "list_skills"),
+    ("what skills", "list_skills"),
+    ("available skills", "list_skills"),
+    ("列出技能", "list_skills"),
+    ("显示技能", "list_skills"),
+    ("可用技能", "list_skills"),
+    ("技能列表", "list_skills"),
+]
+
+
+# Constraint-authoring + goal-driven refinement triggers. These map
+# natural-language requests to the constraint tools (add/list/clear/solve)
+# and the refine_scene multi-iteration loop. Single-phrase → tool_name
+# mappings; richer argument composition is left to the LLM path.
+CONSTRAINT_TRIGGERS: List[Tuple[str, str]] = [
+    ("list constraints", "list_constraints"),
+    ("show constraints", "list_constraints"),
+    ("which constraints", "list_constraints"),
+    ("what constraints", "list_constraints"),
+    ("列出约束", "list_constraints"),
+    ("显示约束", "list_constraints"),
+    ("约束列表", "list_constraints"),
+    ("clear constraints", "clear_constraints"),
+    ("remove constraints", "clear_constraints"),
+    ("reset constraints", "clear_constraints"),
+    ("清除约束", "clear_constraints"),
+    ("清空约束", "clear_constraints"),
+    ("删除约束", "clear_constraints"),
+    ("solve constraints", "solve_constraints"),
+    ("enforce constraints", "solve_constraints"),
+    ("apply constraints", "solve_constraints"),
+    ("求解约束", "solve_constraints"),
+    ("执行约束", "solve_constraints"),
+    ("应用约束", "solve_constraints"),
+    ("约束求解", "solve_constraints"),
+]
+
+REFINE_TRIGGERS: List[Tuple[str, str]] = [
+    ("refine scene", "refine_scene"),
+    ("refine the scene", "refine_scene"),
+    ("iteratively refine", "refine_scene"),
+    ("polish the scene", "refine_scene"),
+    ("presentation ready", "refine_scene"),
+    ("presentation-ready", "refine_scene"),
+    ("hero shot", "refine_scene"),
+    ("make it presentable", "refine_scene"),
+    ("迭代优化", "refine_scene"),
+    ("迭代精修", "refine_scene"),
+    ("精修场景", "refine_scene"),
+    ("演示级", "refine_scene"),
+    ("打磨场景", "refine_scene"),
+]
+
+
 # ---------------------------------------------------------------------------
 # Parsing helpers
 # ---------------------------------------------------------------------------
@@ -384,6 +542,65 @@ def parse_message(
                 matched_any = True
                 break
 
+    # 0b-bis. Generative geometry tools (radial_symmetry / clone_with_jitter)
+    # — require a target object. Defaults target to the most recently
+    # created object when the user does not name one, and parses count /
+    # radius / jitter magnitudes from the message.
+    if not matched_any and scene_objects:
+        for phrase, tool_name in GENERATIVE_GEOMETRY_TRIGGERS:
+            if phrase in msg_lower:
+                target_name = _find_target_name(msg_lower, scene_objects) or scene_objects[-1].get("name", "")
+                args: Dict[str, Any] = {"target": target_name}
+                nums = _parse_number_list(msg_lower) or []
+                if tool_name == "radial_symmetry":
+                    # Default count=6, radius=3.0. If user mentioned a number
+                    # >=2 it is treated as count; a second distinct number
+                    # (or a float) is treated as radius.
+                    count = 6
+                    radius = 3.0
+                    int_nums = [n for n in nums if isinstance(n, (int, float)) and n == int(n) and n >= 2]
+                    float_nums = [n for n in nums if isinstance(n, (int, float))]
+                    if int_nums:
+                        count = max(2, min(100, int(int_nums[0])))
+                        remaining = [n for n in float_nums if n != int_nums[0]]
+                        if remaining:
+                            radius = max(0.0, float(remaining[0]))
+                    elif float_nums:
+                        # Single float -> treat as radius
+                        radius = max(0.0, float(float_nums[0]))
+                    args["count"] = count
+                    args["radius"] = radius
+                    args["axis"] = "y"
+                    args["face_outward"] = True
+                elif tool_name == "clone_with_jitter":
+                    # Default count=5, plus small jitter magnitudes.
+                    count = 5
+                    pos_jitter = 0.5
+                    rot_jitter = 0.0
+                    scale_jitter = 0.0
+                    hue_jitter = 0.0
+                    int_nums = [n for n in nums if isinstance(n, (int, float)) and n == int(n) and n >= 1]
+                    if int_nums:
+                        count = max(1, min(100, int(int_nums[0])))
+                    if "color" in msg_lower or "颜色" in msg_lower or "hue" in msg_lower:
+                        hue_jitter = 30.0
+                    if "scale" in msg_lower or "缩放" in msg_lower or "大小" in msg_lower:
+                        scale_jitter = 0.2
+                    if "rotation" in msg_lower or "旋转" in msg_lower:
+                        rot_jitter = 0.3
+                    args["count"] = count
+                    args["pos_jitter"] = pos_jitter
+                    args["rot_jitter"] = rot_jitter
+                    args["scale_jitter"] = scale_jitter
+                    args["hue_jitter"] = hue_jitter
+                intents.append(ParsedIntent(
+                    tool_name=tool_name,
+                    arguments=args,
+                    description=f"Run {tool_name}",
+                ))
+                matched_any = True
+                break
+
     # 0c. Object animation tools — require a target object to exist
     if not matched_any and scene_objects:
         for phrase, tool_name, kind in ANIMATION_TRIGGERS:
@@ -410,6 +627,149 @@ def parse_message(
                     ))
                     matched_any = True
                     break
+
+    # 0d. Editor-overlay gap tools + macro/variant listing — single-shot
+    # tools with no required arguments. Matched before smart_compose so a
+    # phrase like "list variants" doesn't get hijacked by another rule.
+    if not matched_any:
+        for phrase, tool_name in OVERLAY_TRIGGERS:
+            if phrase in msg_lower:
+                args: Dict[str, Any] = {}
+                # control_radial_menu needs an explicit show flag; "hide" /
+                # "close" / "关闭" / "隐藏" map to show=False, otherwise show=True.
+                if tool_name == "control_radial_menu":
+                    show = not any(
+                        p in msg_lower for p in (
+                            "hide", "close", "关闭", "隐藏", "dismiss",
+                        )
+                    )
+                    args["show"] = show
+                intents.append(ParsedIntent(
+                    tool_name=tool_name,
+                    arguments=args,
+                    description=f"Run {tool_name}",
+                ))
+                matched_any = True
+                break
+
+    if not matched_any:
+        for phrase, tool_name in MACRO_TRIGGERS + WORKFLOW_TRIGGERS + VARIANT_TRIGGERS + TEMPLATE_TRIGGERS + SKILL_CATALOG_TRIGGERS + CONSTRAINT_TRIGGERS + REFINE_TRIGGERS:
+            if phrase in msg_lower:
+                intents.append(ParsedIntent(
+                    tool_name=tool_name,
+                    arguments={},
+                    description=f"Run {tool_name}",
+                ))
+                matched_any = True
+                break
+
+    # 0e-bis. add_constraint — "add a constraint: <subject> <kind> <anchor>",
+    # "约束 <subject> <kind> <anchor>". Parses the kind keyword (above /
+    # below / faces / centered / min_distance / aligned / above_floor) and
+    # the subject/anchor object names from the message. Falls back to a
+    # bare add_constraint call (no args) when the phrase is detected but
+    # the structure can't be parsed, so the LLM can compose arguments.
+    if not matched_any:
+        _cn_constraint_verb = any(k in msg_lower for k in [
+            "add constraint", "add a constraint", "add an constraint",
+            "constrain", "约束",
+        ])
+        if _cn_constraint_verb and scene_objects:
+            _kind_map = {
+                "above": "above", "above_floor": "above_floor",
+                "above floor": "above_floor", "above the floor": "above_floor",
+                "above ground": "above_floor",
+                "落地": "above_floor", "在地面": "above_floor",
+                "below": "below",
+                "faces": "faces", "face": "faces", "facing": "faces",
+                "朝向": "faces", "面向": "faces", "对着": "faces",
+                "centered on": "centered", "centered": "centered",
+                "centre on": "centered", "centre": "centered",
+                "居中于": "centered", "居中": "centered", "在...中心": "centered",
+                "min_distance": "min_distance", "min distance": "min_distance",
+                "minimum distance": "min_distance", "at least": "min_distance",
+                "最小距离": "min_distance", "至少": "min_distance",
+                "aligned": "aligned", "align": "aligned",
+                "对齐": "aligned", "对齐于": "aligned",
+                "在...之上": "above", "在...下方": "below",
+            }
+            _detected_kind: Optional[str] = None
+            for _trig, _kind in _kind_map.items():
+                if _trig in msg_lower:
+                    _detected_kind = _kind
+                    break
+            # Try to extract subject/anchor: prefer explicit "subject <kind> anchor"
+            # pattern by walking scene object names. Simpler heuristic: pick
+            # the last two distinct object names mentioned in the message.
+            _mentioned: List[str] = []
+            for _obj in scene_objects:
+                _n = _obj.get("name", "")
+                if _n and _n.lower() in msg_lower and _n not in _mentioned:
+                    _mentioned.append(_n)
+            if _detected_kind and len(_mentioned) >= 2:
+                _args: Dict[str, Any] = {
+                    "kind": _detected_kind,
+                    "subject": _mentioned[0],
+                    "anchor": _mentioned[1],
+                }
+                intents.append(ParsedIntent(
+                    tool_name="add_constraint",
+                    arguments=_args,
+                    description=f"Add {_detected_kind} constraint: {_mentioned[0]} -> {_mentioned[1]}",
+                ))
+                matched_any = True
+            elif _detected_kind and len(_mentioned) == 1 and _detected_kind == "above_floor":
+                # above_floor only needs a subject
+                intents.append(ParsedIntent(
+                    tool_name="add_constraint",
+                    arguments={"kind": "above_floor", "subject": _mentioned[0]},
+                    description=f"Add above_floor constraint on {_mentioned[0]}",
+                ))
+                matched_any = True
+
+    # 0e. Variant save / load / randomize — extract variant name from the
+    # message via the "named/called <name>" or "<verb> <name>" patterns.
+    if not matched_any:
+        variant_save_match = re.search(
+            r'(?:save|snapshot)\s+(?:variant|scene)\s+(?:named|called)?\s*["\']?([\w\-]+)["\']?',
+            msg_lower,
+        )
+        variant_load_match = re.search(
+            r'(?:load|restore|recall)\s+(?:variant|scene)\s+(?:named|called)?\s*["\']?([\w\-]+)["\']?',
+            msg_lower,
+        )
+        variant_rand_match = re.search(
+            r'(?:randomize|jitter)\s+(?:variant|scene)\s+(?:named|called)?\s*["\']?([\w\-]+)["\']?',
+            msg_lower,
+        )
+        # Chinese variants
+        variant_save_zh = re.search(r'(?:保存|存储)\s*(?:变体|场景)\s*["\']?([\w\-]+)["\']?', msg)
+        variant_load_zh = re.search(r'(?:加载|载入|读取)\s*(?:变体|场景)\s*["\']?([\w\-]+)["\']?', msg)
+        variant_rand_zh = re.search(r'(?:随机|抖动)\s*(?:变体|场景)\s*["\']?([\w\-]+)["\']?', msg)
+        if variant_save_match or variant_save_zh:
+            name = (variant_save_match or variant_save_zh).group(1)  # type: ignore[union-attr]
+            intents.append(ParsedIntent(
+                tool_name="save_variant",
+                arguments={"name": name},
+                description=f"Save variant '{name}'",
+            ))
+            matched_any = True
+        elif variant_load_match or variant_load_zh:
+            name = (variant_load_match or variant_load_zh).group(1)  # type: ignore[union-attr]
+            intents.append(ParsedIntent(
+                tool_name="load_variant",
+                arguments={"name": name},
+                description=f"Load variant '{name}'",
+            ))
+            matched_any = True
+        elif variant_rand_match or variant_rand_zh:
+            name = (variant_rand_match or variant_rand_zh).group(1)  # type: ignore[union-attr]
+            intents.append(ParsedIntent(
+                tool_name="randomize_variant",
+                arguments={"name": name},
+                description=f"Randomize variant '{name}'",
+            ))
+            matched_any = True
 
     # 1. Smart compose (check first to allow scene replacement)
     if not matched_any:
@@ -854,6 +1214,83 @@ def parse_message(
             ))
             matched_any = True
 
+    # 17b-2. orbit_viewport — turntable orbit of the viewport camera
+    # around the origin or a named target. Triggered by phrases like
+    # "orbit viewport", "rotate camera around", "turntable". Set stop=true
+    # when the user says "stop orbit".
+    if any(k in msg_lower for k in [
+        "stop orbit", "stop the orbit", "end orbit", "stop turntable",
+        "停止环绕", "停止旋转视角",
+    ]):
+        intents.append(ParsedIntent(
+            tool_name="orbit_viewport",
+            arguments={"stop": True},
+            description="Stop the active viewport orbit",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    elif any(k in msg_lower for k in [
+        "orbit viewport", "orbit camera", "orbit around", "orbit scene",
+        "turntable", "turntable view", "rotate camera around",
+        "auto orbit", "auto-rotate camera", "auto rotate camera",
+        "环绕视角", "环绕摄像机", "环绕相机", "旋转视角", "自动旋转视角", "转盘视图",
+    ]):
+        _orbit_args: Dict[str, Any] = {}
+        # Pick up the radius / speed / duration / height from the message.
+        _orbit_radius = _parse_number_after(msg_lower, "radius")
+        if _orbit_radius is not None:
+            _orbit_args["radius"] = _orbit_radius
+        _orbit_speed = _parse_number_after(msg_lower, "speed")
+        if _orbit_speed is not None:
+            _orbit_args["speed"] = _orbit_speed
+        _orbit_duration = _parse_number_after(msg_lower, "duration")
+        if _orbit_duration is not None:
+            _orbit_args["duration"] = _orbit_duration
+        _orbit_height = _parse_number_after(msg_lower, "height")
+        if _orbit_height is not None:
+            _orbit_args["height"] = _orbit_height
+        # Optional target — "orbit around <name>" or "orbit <name>"
+        if scene_objects:
+            _orbit_target = _find_target_name(msg_lower, scene_objects)
+            if _orbit_target:
+                _orbit_args["target"] = _orbit_target
+        intents.append(ParsedIntent(
+            tool_name="orbit_viewport",
+            arguments=_orbit_args,
+            description=f"Start viewport orbit ({_orbit_args or 'defaults'})",
+        ))
+        matched_any = True
+
+    # 17b-3. set_layer_visibility — show/hide every object on a named
+    # layer in one call. Triggered by "hide layer X", "show layer X",
+    # "隐藏层 X", "显示层 X". Distinct from per-object set_visibility
+    # (single object) and set_object_layer (assigns a single object to a
+    # layer then optionally toggles).
+    _layer_vis_match = re.search(
+        r'(?:hide|show|toggle)\s+(?:the\s+)?(?:layer|层)\s+["\']?([A-Za-z0-9_\-一-龥]+)["\']?',
+        msg_lower,
+    )
+    if _layer_vis_match:
+        _lv_layer = _layer_vis_match.group(1)
+        _lv_visible = "show" in msg_lower or "显示" in msg
+        intents.append(ParsedIntent(
+            tool_name="set_layer_visibility",
+            arguments={"layer": _lv_layer, "visible": _lv_visible},
+            description=f"Set layer '{_lv_layer}' visibility to {_lv_visible}",
+        ))
+        matched_any = True
+    else:
+        _layer_vis_zh = re.search(r'(?:隐藏|显示|切换)\s*(?:层|图层)\s*["\']?([A-Za-z0-9_\-一-龥]+)["\']?', msg)
+        if _layer_vis_zh:
+            _lv_layer = _layer_vis_zh.group(1)
+            _lv_visible = "显示" in msg
+            intents.append(ParsedIntent(
+                tool_name="set_layer_visibility",
+                arguments={"layer": _lv_layer, "visible": _lv_visible},
+                description=f"Set layer '{_lv_layer}' visibility to {_lv_visible}",
+            ))
+            matched_any = True
+
     # 17c. Extended editor & spatial control — playback, undo/redo,
     # visibility, lock, rename, transform mode, frame, capture, render
     # quality, grid snapping, panel focus, selection, measurement,
@@ -991,10 +1428,14 @@ def parse_message(
         matched_any = True
 
     # Visibility / lock / rename (require a target object)
+    # Note: per-object visibility skips when "layer"/"层" is mentioned so
+    # the set_layer_visibility tool (section 17b-3) handles bulk layer
+    # commands without spawning a duplicate per-object set_visibility intent.
+    _layer_command_in_msg = "layer" in msg_lower or "层" in msg
     if scene_objects:
         tgt = _find_target_name(msg_lower, scene_objects)
         if tgt:
-            if any(k in msg_lower for k in ["hide", "隐藏"]):
+            if any(k in msg_lower for k in ["hide", "隐藏"]) and not _layer_command_in_msg:
                 intents.append(ParsedIntent(
                     tool_name="set_visibility",
                     arguments={"target": tgt, "visible": False},
@@ -1453,6 +1894,175 @@ def parse_message(
         ))
         matched_any = True
 
+    # 17e. Scene workflow intelligence tools — query_scene, style_scene,
+    # batch_transform, scene_statistics, list_annotations,
+    # camera_flythrough. These give the offline rule engine direct access
+    # to the bulk / query / stylization / cinematic capabilities added in
+    # Phase 3.
+    _STYLE_PRESET_TRIGGERS: List[Tuple[str, str]] = [
+        ("cyberpunk", "cyberpunk"), ("赛博朋克", "cyberpunk"),
+        ("minimalist", "minimalist"), ("极简", "minimalist"), ("minimal style", "minimalist"),
+        ("photoreal", "photoreal"), ("photorealistic", "photoreal"), ("写实", "photoreal"), ("照片级", "photoreal"),
+        ("noir", "noir"), ("黑色电影", "noir"),
+        ("sunset", "sunset"), ("日落", "sunset"),
+        ("oceanic", "oceanic"), ("海洋", "oceanic"),
+    ]
+    _STYLE_VERBS = [
+        "style scene", "apply style", "scene style", "theme scene", "stylize",
+        "apply", "use style", "make it", "theme", "restyle", "style",
+        "应用风格", "场景风格", "主题风格", "改成", "风格", "应用",
+    ]
+    _has_style_verb = any(k in msg_lower for k in _STYLE_VERBS)
+    _matched_style_preset: Optional[str] = None
+    for _trig, _preset in _STYLE_PRESET_TRIGGERS:
+        if _trig in msg_lower:
+            _matched_style_preset = _preset
+            break
+    if _matched_style_preset and _has_style_verb:
+        intents.append(ParsedIntent(
+            tool_name="style_scene",
+            arguments={"preset": _matched_style_preset},
+            description=f"Apply '{_matched_style_preset}' style preset to scene",
+        ))
+        matched_any = True
+    elif _has_style_verb and any(k in msg_lower for k in ["style scene", "apply style", "scene style", "theme scene", "stylize", "应用风格", "场景风格", "主题风格"]):
+        # Style verb with no recognized preset — emit a default cyberpunk
+        # fallback so the intent still triggers; the user can refine.
+        intents.append(ParsedIntent(
+            tool_name="style_scene",
+            arguments={"preset": "cyberpunk"},
+            description="Apply cyberpunk style preset (default fallback)",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # query_scene — "find all <geometry>", "find objects with color <hex>",
+    # "query scene", "filter objects", "搜索场景", "筛选物体"
+    _QUERY_SCENE_TRIGGERS = [
+        "query scene", "find all", "find objects", "filter objects", "search scene",
+        "show me all", "list all objects", "搜索场景", "筛选物体", "查找所有", "查找物体",
+    ]
+    if any(k in msg_lower for k in _QUERY_SCENE_TRIGGERS):
+        _args: Dict[str, Any] = {}
+        # Geometry-type filter: "find all spheres" -> geometry_type=sphere
+        for _phrase, _geo in GEO_MAP.items():
+            if _phrase in msg_lower:
+                _args["geometry_type"] = _geo
+                break
+        # Color filter: hex in message
+        _hex = re.search(r"#([0-9a-fA-F]{3,8})", msg)
+        if _hex:
+            _args["color"] = _hex.group(0).lower()
+        # Name regex: "named X" or "called X"
+        _name_match = re.search(r"(?:named|called)\s+([A-Za-z0-9_\-]+)", msg_lower)
+        if _name_match:
+            _args["name_regex"] = _name_match.group(1)
+        # Visibility filter
+        if "hidden" in msg_lower or "隐藏" in msg_lower:
+            _args["visible"] = False
+        elif "visible" in msg_lower or "可见" in msg_lower:
+            _args["visible"] = True
+        # Layer filter
+        _layer_match = re.search(r"(?:on layer|layer)\s+([A-Za-z0-9_\-]+)", msg_lower)
+        if _layer_match:
+            _args["layer"] = _layer_match.group(1)
+        intents.append(ParsedIntent(
+            tool_name="query_scene",
+            arguments=_args,
+            description=f"Query scene ({', '.join(_args.keys()) or 'no filters'})",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # batch_transform — "batch move/rotate/scale all <targets> by <vec>"
+    _BATCH_OP_KEYWORDS: List[Tuple[str, str, str]] = [
+        ("batch move", "translate", "移动"), ("batch translate", "translate", "平移"),
+        ("batch rotate", "rotate", "旋转"), ("batch scale", "scale", "缩放"),
+        ("move all", "translate", "移动"), ("translate all", "translate", "平移"),
+        ("rotate all", "rotate", "旋转"), ("scale all", "scale", "缩放"),
+        ("批量移动", "translate", "移动"), ("批量平移", "translate", "平移"),
+        ("批量旋转", "rotate", "旋转"), ("批量缩放", "scale", "缩放"),
+        ("批量变换", "translate", "移动"),
+    ]
+    for _trig, _op, _cn in _BATCH_OP_KEYWORDS:
+        if _trig in msg_lower:
+            _values = _parse_number_list(msg_lower)
+            if not _values or len(_values) < 3:
+                # Fall back to per-axis parsing for "move all up by 1"
+                _vals = [0.0, 0.0, 0.0]
+                for _axis_idx, _axis_name in enumerate(("x", "y", "z")):
+                    _v = _parse_axis_value(msg_lower, [_axis_name])
+                    if _v:
+                        _vals[_axis_idx] = _v[1]
+                if any(abs(v) > 1e-9 for v in _vals):
+                    _values = _vals
+            if not _values:
+                break
+            # Targets: every scene object if user said "all"; otherwise the
+            # most recently mentioned object name.
+            _targets: List[str] = []
+            if "all" in msg_lower or "所有" in msg_lower or "every" in msg_lower:
+                _targets = [o.get("name", "") for o in scene_objects if o.get("name")]
+            elif scene_objects:
+                _targets = [scene_objects[-1].get("name", "")]
+            if _targets and _values:
+                intents.append(ParsedIntent(
+                    tool_name="batch_transform",
+                    arguments={"targets": _targets, "operation": _op, "values": list(_values[:3])},
+                    description=f"Batch {_op} {len(_targets)} target(s) by {_values[:3]}",
+                ))
+                matched_any = True
+            break
+
+    # scene_statistics — "scene stats", "polygon count", "bounding box",
+    # "场景统计", "多边形数"
+    if any(k in msg_lower for k in ["scene stats", "scene statistics", "polygon count", "bounding box", "how many objects", "object count", "场景统计", "统计信息", "多边形数", "包围盒"]):
+        intents.append(ParsedIntent(
+            tool_name="scene_statistics",
+            arguments={},
+            description="Return detailed scene statistics",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # list_annotations — "list annotations", "show annotations",
+    # "列出标注", "显示标注"
+    if any(k in msg_lower for k in ["list annotations", "list annotation", "show annotations", "show annotation", "what annotations", "列出标注", "显示标注", "所有标注"]):
+        intents.append(ParsedIntent(
+            tool_name="list_annotations",
+            arguments={},
+            description="List all annotations in scene",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # camera_flythrough — "camera flythrough", "fly through scene",
+    # "cinematic camera path", "相机巡航", "相机飞越"
+    if any(k in msg_lower for k in ["camera flythrough", "camera fly through", "fly through scene", "flythrough", "cinematic camera", "camera path animation", "相机巡航", "相机飞越", "镜头飞越", "镜头巡航"]):
+        # Try to parse a list of waypoint positions from the message.
+        # Accept either [[x,y,z],[x,y,z],...] or a sequence of bracketed
+        # 3-vectors. Fall back to a default orbit around the origin.
+        _waypoints: List[Dict[str, Any]] = []
+        _all_vecs = re.findall(r'\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]', msg)
+        for _v in _all_vecs:
+            _waypoints.append({"position": [float(_v[0]), float(_v[1]), float(_v[2])]})
+        if len(_waypoints) < 2:
+            # Default demo path: orbit around the origin at radius 4.
+            _waypoints = [
+                {"position": [4.0, 2.0, 0.0]},
+                {"position": [0.0, 2.0, 4.0]},
+                {"position": [-4.0, 2.0, 0.0]},
+                {"position": [0.0, 2.0, -4.0]},
+                {"position": [4.0, 2.0, 0.0]},
+            ]
+        _loop = "loop" in msg_lower or "循环" in msg_lower
+        intents.append(ParsedIntent(
+            tool_name="camera_flythrough",
+            arguments={"waypoints": _waypoints, "loop": _loop, "speed": 2.0},
+            description=f"Animate camera along {len(_waypoints)}-waypoint flythrough",
+        ))
+        matched_any = True
+
     # 18. Reset / clear scene
     if any(k in msg_lower for k in ["clear scene", "reset scene", "清空", "重置"]):
         intents.append(ParsedIntent(
@@ -1473,6 +2083,43 @@ def parse_message(
             tool_name="analyze_scene",
             arguments={"detail_level": detail},
             description=f"Analyze scene ({detail})",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # 19b. Scene critique — prescriptive design review with fix proposals.
+    # Triggered by review-style phrasing that calls for a critical/editorial
+    # assessment rather than a neutral inventory.
+    if any(k in msg_lower for k in [
+        "critique", "review the scene", "review scene", "design review",
+        "what's wrong", "what is wrong", "how does it look", "how does this look",
+        "evaluate the scene", "evaluate my scene", "quality check", "check my scene",
+        "scene review", "fresh eyes", "review my work",
+        "评审", "审查", "检查场景问题", "场景有什么问题", "看看有没有问题",
+        "设计评审", "质量问题", "我的场景怎么样", "场景评价",
+    ]):
+        intents.append(ParsedIntent(
+            tool_name="critique_scene",
+            arguments={},
+            description="Run a prescriptive design review of the scene",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+
+    # 19c. Scene auto-fix — review the scene and apply the top corrective
+    # fixes automatically. Triggered by fix/cleanup phrasing.
+    if any(k in msg_lower for k in [
+        "auto fix", "auto-fix", "fix the scene", "fix my scene",
+        "fix this scene", "clean up my scene", "cleanup", "clean up the scene",
+        "make this look right", "make it look right", "fix the problems",
+        "fix the issues", "tidy up", "repair the scene", "fix everything",
+        "自动修复", "修复场景", "一键修复", "清理场景", "清理我的场景",
+        "整理场景", "自动修正", "修复问题",
+    ]):
+        intents.append(ParsedIntent(
+            tool_name="auto_fix_scene",
+            arguments={},
+            description="Review the scene and automatically apply the top fixes",
             emit_tool_call=False,
         ))
         matched_any = True
@@ -1518,6 +2165,60 @@ def parse_message(
         if mm_intent is not None:
             intents.append(mm_intent)
             matched_any = True
+
+    # 22b. Cinematic storyboard — compose / play / clear camera sequences.
+    # Maps natural language to the storyboard tools so the offline engine
+    # can drive a scripted camera tour without an LLM round-trip.
+    story_match = re.search(
+        r'(?:compose\s+(?:a\s+)?(?:cinematic\s+)?story\s*board|create\s+(?:a\s+)?(?:cinematic\s+)?story)\s*["\']?([\w\s\-]+)?["\']?',
+        msg_lower,
+    )
+    if story_match:
+        title = (story_match.group(1) or "").strip() or "Untitled scene"
+        intents.append(ParsedIntent(
+            tool_name="compose_story",
+            arguments={"title": title, "shots": []},
+            description=f"Compose cinematic storyboard '{title}'",
+        ))
+        matched_any = True
+    elif re.search(r'(?:create\s+.*\bstory\b|编个故事|故事板|分镜)', msg_lower):
+        intents.append(ParsedIntent(
+            tool_name="compose_story",
+            arguments={"title": "Untitled scene", "shots": []},
+            description="Compose cinematic storyboard",
+        ))
+        matched_any = True
+
+    if any(k in msg_lower for k in ["play story", "play the story", "play storyboard", "播放故事", "开始分镜"]):
+        intents.append(ParsedIntent(
+            tool_name="play_story",
+            arguments={"mode": "play"},
+            description="Play the cinematic storyboard",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["stop story", "stop the story", "stop storyboard", "停止故事", "停止分镜"]):
+        intents.append(ParsedIntent(
+            tool_name="play_story",
+            arguments={"mode": "stop"},
+            description="Stop the cinematic storyboard",
+            emit_tool_call=False,
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["clear story", "clear the story", "clear storyboard", "清除故事", "清除分镜"]):
+        intents.append(ParsedIntent(
+            tool_name="clear_story",
+            arguments={},
+            description="Clear the cinematic storyboard",
+        ))
+        matched_any = True
+    if any(k in msg_lower for k in ["list story", "list the story", "list storyboard", "查看故事", "分镜列表"]):
+        intents.append(ParsedIntent(
+            tool_name="list_story",
+            arguments={},
+            description="List the cinematic storyboard",
+        ))
+        matched_any = True
 
     if not matched_any:
         return [], ""
