@@ -294,7 +294,7 @@ export interface LayerInfo {
   object_count: number
 }
 
-/** Procedural node-graph data (ComfyUI-style DAG). */
+/** Procedural node-graph data (directed acyclic tool graph). */
 export interface NodeGraphData {
   name: string
   nodes: NodeGraphNode[]
