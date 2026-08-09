@@ -264,6 +264,14 @@ class Scene:
     # Procedural node-graph pipeline (ComfyUI-style DAG). Stored as a
     # plain dict for forward compatibility.
     node_graph: Optional[Dict[str, Any]] = None
+    # Scene transitions: smooth animated morphs between object states.
+    # Each entry is a plain dict:
+    #   {id, name, duration, easing, loop, targets: [{target, position,
+    #    rotation, scale}]}. When ``active_transition`` is set the viewport
+    # interpolates the named targets from their current state over
+    # ``duration`` seconds — an AI-native "motion choreography" layer.
+    transitions: List[Dict[str, Any]] = field(default_factory=list)
+    active_transition: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -280,6 +288,8 @@ class Scene:
             "storyboard": self.storyboard,
             "layers": dict(self.layers),
             "node_graph": self.node_graph,
+            "transitions": list(self.transitions),
+            "active_transition": self.active_transition,
         }
 
     @classmethod
@@ -298,6 +308,8 @@ class Scene:
             storyboard=data.get("storyboard"),
             layers=dict(data.get("layers", {})),
             node_graph=data.get("node_graph"),
+            transitions=list(data.get("transitions", [])),
+            active_transition=data.get("active_transition"),
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
