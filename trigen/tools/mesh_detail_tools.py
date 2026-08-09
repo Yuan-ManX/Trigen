@@ -21,9 +21,7 @@ from trigen.scene import GEOMETRY_DEFAULTS, Scene
 from trigen.tools.base import SceneDelta, ToolBase, ToolResult
 
 
-# ---------------------------------------------------------------------------
-# 1. convert_geometry — swap geometry type preserving transform/material
-# ---------------------------------------------------------------------------
+# --- convert_geometry — swap geometry type preserving transform/material ---
 
 _CONVERT_PARAMS = {
     "type": "object",
@@ -117,9 +115,7 @@ class ConvertGeometryTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 2. subdivide_mesh — raise / lower segment counts for smoother surfaces
-# ---------------------------------------------------------------------------
+# --- subdivide_mesh — raise / lower segment counts for smoother surfaces ---
 
 # Per-geometry segment keys and sane bounds. Geometries without segment
 # params (lathe/extrude/text/spline/tube) are handled with their own
