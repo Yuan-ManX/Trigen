@@ -1,9 +1,9 @@
 """Node-graph workflow tools — procedural node-graph authoring.
 
-Provides a ComfyUI-style node-graph authoring surface where the Agent
-can declaratively wire processing nodes (create / modify / materialize
-/ light / export) into a DAG and execute it in one pass. The graph
-is stored as a plain dict on the scene for forward compatibility.
+Provides a node-graph authoring surface where the Agent can declaratively
+wire processing nodes (create / modify / materialize / light / export)
+into a DAG and execute it in one pass. The graph is stored as a plain
+dict on the scene for forward compatibility.
 """
 
 from __future__ import annotations
