@@ -75,6 +75,9 @@ from trigen.tools import (
     GradientMaterialTool,
     GroupObjectsTool,
     InvokeSkillTool,
+    PulseAnimationTool,
+    SpinAnimationTool,
+    SwayAnimationTool,
     KeyframeAnimationTool,
     LSystemTool,
     ListObjectsTool,
@@ -264,6 +267,12 @@ from trigen.tools.physics_tools import (
     ListPhysicsTool,
 )
 from trigen.tools.text_tools import CreateTextTool
+from trigen.tools.transition_tools import (
+    CreateSceneTransitionTool,
+    ListSceneTransitionsTool,
+    PlaySceneTransitionTool,
+    RemoveSceneTransitionTool,
+)
 
 logger = logging.getLogger("trigen.orchestrator")
 
@@ -370,6 +379,9 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "orbit_animation": "animation",
     "wave_animation": "animation",
     "bounce_animation": "animation",
+    "pulse_animation": "animation",
+    "sway_animation": "animation",
+    "spin_animation": "animation",
     "play_animation": "animation",
     "pause_animation": "animation",
     "seek_animation": "animation",
@@ -489,6 +501,11 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "list_physics": "inspection",
     # Text / sprite authoring
     "create_text": "creation",
+    # Scene transitions — AI-native motion choreography
+    "create_scene_transition": "animation",
+    "play_scene_transition": "animation",
+    "list_scene_transitions": "inspection",
+    "remove_scene_transition": "animation",
 }
 
 
@@ -832,6 +849,9 @@ class AgentOrchestrator:
         registry.register(OrbitAnimationTool())
         registry.register(WaveAnimationTool())
         registry.register(BounceAnimationTool())
+        registry.register(PulseAnimationTool())
+        registry.register(SwayAnimationTool())
+        registry.register(SpinAnimationTool())
         # Advanced material
         registry.register(GradientMaterialTool())
         registry.register(MaterialBlendTool())
@@ -1008,6 +1028,11 @@ class AgentOrchestrator:
         registry.register(ListPhysicsTool())
         # Text / sprite authoring — 3D labels and captions
         registry.register(CreateTextTool())
+        # Scene transitions — AI-native motion choreography between states
+        registry.register(CreateSceneTransitionTool())
+        registry.register(PlaySceneTransitionTool())
+        registry.register(ListSceneTransitionsTool())
+        registry.register(RemoveSceneTransitionTool())
 
         # Apply the central category taxonomy to every registered tool so
         # the canonical mapping lives in one place (_TOOL_CATEGORIES above).
