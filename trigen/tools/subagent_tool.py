@@ -22,6 +22,7 @@ whitelist so a sub-agent cannot spawn further sub-agents.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -581,6 +582,221 @@ class DispatchSubagentTool(ToolBase):
                     seen.add(clean)
                     names.append(clean)
         return names
+
+    @staticmethod
+    def _scene_summary(scene: Scene) -> str:
+        scene_dict = scene.to_dict()
+        obj_lines: List[str] = []
+        for obj in scene_dict.get("objects", []):
+            geo = obj.get("geometry", {})
+            mat = obj.get("material", {})
+            pos = obj.get("transform", {}).get("position", [0, 0, 0])
+            obj_lines.append(
+                f"- {obj.get('name','?')} ({geo.get('type','?')}) "
+                f"color={mat.get('color','?')} pos={pos}"
+            )
+        light_lines: List[str] = []
+        for light in scene_dict.get("lights", []):
+            light_lines.append(
+                f"- {light.get('name','?')} ({light.get('type','?')}) "
+                f"intensity={light.get('intensity','?')}"
+            )
+        return (
+            f"Scene summary: {len(obj_lines)} objects, {len(light_lines)} lights, "
+            f"background={scene_dict.get('background','?')}\n"
+            f"Objects:\n" + ("\n".join(obj_lines) if obj_lines else "(empty)") + "\n"
+            f"Lights:\n" + ("\n".join(light_lines) if light_lines else "(empty)")
+        )
+
+
+# ----------------------------------------------------------------------
+# Ensemble brainstorm — parallel read-only specialists + director synthesis
+# ----------------------------------------------------------------------
+
+# Default complementary angles the ensemble explores when the caller does
+# not supply an explicit aspect list. Each entry pairs a discipline with a
+# one-line focus so the specialist prompt stays tight.
+_ENSEMBLE_ASPECTS_DEFAULT: List[Dict[str, str]] = [
+    {"aspect": "composition", "focus": "Spatial layout, framing, alignment, and visual rhythm"},
+    {"aspect": "material", "focus": "Surface appearance, color palette, and physical feel"},
+    {"aspect": "lighting", "focus": "Light rig, mood, shadow balance, and exposure"},
+    {"aspect": "motion", "focus": "Keyframe animation, timing, and playback pacing"},
+    {"aspect": "critique", "focus": "Editorial review: weak points and what to fix first"},
+]
+
+# Map a specialist profile name to an ensemble aspect + focus so callers
+# can restrict the ensemble to a subset of the available disciplines.
+_ENSEMBLE_PROFILE_TO_ASPECT: Dict[str, Dict[str, str]] = {
+    "composition_specialist": {"aspect": "composition", "focus": "Spatial layout, framing, alignment, and visual rhythm"},
+    "material_specialist": {"aspect": "material", "focus": "Surface appearance, color palette, and physical feel"},
+    "lighting_specialist": {"aspect": "lighting", "focus": "Light rig, mood, shadow balance, and exposure"},
+    "animation_specialist": {"aspect": "motion", "focus": "Keyframe animation, timing, and playback pacing"},
+    "critique_specialist": {"aspect": "critique", "focus": "Editorial review: weak points and what to fix first"},
+    "geometry_specialist": {"aspect": "geometry", "focus": "Mesh construction, structure, and procedural detail"},
+}
+
+_ENSEMBLE_PARAMS = {
+    "type": "object",
+    "properties": {
+        "goal": {
+            "type": "string",
+            "description": "The creative goal the ensemble should explore from multiple angles "
+            "(e.g. 'make this product showcase feel cinematic' or 'improve the island scene').",
+        },
+        "aspects": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "aspect": {"type": "string", "description": "Discipline name, e.g. 'lighting'."},
+                    "focus": {"type": "string", "description": "One-line description of what to evaluate."},
+                },
+                "required": ["aspect", "focus"],
+            },
+            "description": "Optional custom list of aspects to explore. When omitted, a default set "
+            "of complementary disciplines is used.",
+        },
+        "profiles": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional subset of specialist profiles to include "
+            "(e.g. ['lighting_specialist', 'material_specialist']). When omitted, the default aspect "
+            "set is used.",
+        },
+        "model": {
+            "type": "string",
+            "description": "Optional model id for all ensemble calls. Falls back to the default configured model.",
+        },
+    },
+    "required": ["goal"],
+}
+
+
+class EnsembleBrainstormTool(ToolBase):
+    """Run a set of read-only specialist sub-agents in parallel, then have a
+    creative-director role reconcile their recommendations into one cohesive,
+    prioritized set of actions.
+
+    The ensemble never mutates the scene directly — it is a design-review
+    surface that produces an actionable brief. The parent agent can then
+    execute the resulting plan through its normal tools.
+    """
+
+    name = "ensemble_brainstorm"
+    description = (
+        "Run several read-only specialist sub-agents in parallel — each explores the scene from a "
+        "different discipline (composition, material, lighting, motion, critique) — then synthesize "
+        "their recommendations into one cohesive, prioritized design brief. Use this when a request "
+        "is open-ended ('make this feel cinematic') or when you want diverse perspectives before "
+        "committing to changes. Does not modify the scene."
+    )
+
+    def __init__(
+        self,
+        config: Optional[LLMConfig] = None,
+    ) -> None:
+        self.llm_config = config or LLMConfig()
+
+    def schema(self) -> Dict[str, Any]:
+        return _ENSEMBLE_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        goal = str(arguments.get("goal", "")).strip()
+        if not goal:
+            return ToolResult(success=False, message="Missing 'goal' argument for the ensemble.")
+
+        model = arguments.get("model") or None
+
+        # Resolve the aspect list: explicit aspects first, then profiles,
+        # then the default set. De-duplicate by aspect name.
+        aspects: List[Dict[str, str]] = []
+        raw_aspects = arguments.get("aspects")
+        if isinstance(raw_aspects, list) and raw_aspects:
+            for item in raw_aspects:
+                if isinstance(item, dict):
+                    name = str(item.get("aspect", "")).strip()
+                    focus = str(item.get("focus", "")).strip()
+                    if name and focus:
+                        aspects.append({"aspect": name, "focus": focus})
+        if not aspects:
+            raw_profiles = arguments.get("profiles")
+            if isinstance(raw_profiles, list) and raw_profiles:
+                for p in raw_profiles:
+                    mapped = _ENSEMBLE_PROFILE_TO_ASPECT.get(str(p).strip())
+                    if mapped and mapped["aspect"] not in {a["aspect"] for a in aspects}:
+                        aspects.append(dict(mapped))
+        if not aspects:
+            aspects = [dict(a) for a in _ENSEMBLE_ASPECTS_DEFAULT]
+
+        summary = self._scene_summary(scene)
+        client = LLMClient(self.llm_config)
+
+        # Launch every specialist concurrently. Each is a bounded read-only
+        # call, so concurrent execution is safe — no scene mutation happens.
+        async def _probe(aspect: Dict[str, str]) -> Dict[str, Any]:
+            sys_prompt = (
+                f"You are Trigen's {aspect['aspect']} specialist. "
+                f"Focus: {aspect['focus']}. Evaluate the current scene for the goal below and return "
+                f"concise, concrete, prioritized recommendations (max ~120 words). Do not ask questions."
+            )
+            try:
+                resp = await client.complete(
+                    messages=[
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": f"{summary}\n\nGoal: {goal}"},
+                    ],
+                    system=sys_prompt,
+                    model=model,
+                )
+                text = resp.content or ""
+                if resp.finish_reason == "error":
+                    text = f"(error) {text}"
+                return {"aspect": aspect["aspect"], "ok": True, "text": text}
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.exception("Ensemble probe %s failed", aspect["aspect"])
+                return {"aspect": aspect["aspect"], "ok": False, "text": f"(failed) {exc}"}
+
+        results = await asyncio.gather(*[_probe(a) for a in aspects])
+
+        # Director pass: reconcile the per-discipline outputs into one brief.
+        director_prompt = (
+            "You are Trigen's creative director. Several specialist sub-agents independently reviewed "
+            "the scene for a shared goal. Reconcile their recommendations into ONE cohesive, prioritized "
+            "design brief (max ~200 words): merge overlapping ideas, resolve contradictions, and order "
+            "actions by impact. Output only the brief."
+        )
+        parts = "\n\n".join(
+            f"[{r['aspect']}]\n{r['text']}" for r in results
+        )
+        synth = ""
+        try:
+            resp = await client.complete(
+                messages=[
+                    {"role": "system", "content": director_prompt},
+                    {"role": "user", "content": f"Specialist input:\n{parts}\n\nGoal: {goal}"},
+                ],
+                system=director_prompt,
+                model=model,
+            )
+            synth = resp.content or ""
+            if resp.finish_reason == "error":
+                synth = f"(error) {synth}"
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Ensemble director pass failed")
+            synth = f"(failed to synthesize: {exc})"
+
+        data = {
+            "goal": goal,
+            "aspects": [a["aspect"] for a in aspects],
+            "probes": results,
+            "synthesis": synth,
+            "model": model or self.llm_config.model,
+        }
+        return ToolResult(
+            success=True,
+            message=synth or "Ensemble completed with no synthesis.",
+            data=data,
+        )
 
     @staticmethod
     def _scene_summary(scene: Scene) -> str:
