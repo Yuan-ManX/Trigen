@@ -71,7 +71,7 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
    - set_minimap, set_shadows, set_viewport_projection, set_editor_mode, save_scene_slot, load_scene_slot, undo_scene, redo_scene, set_object_parent, add_annotation, remove_annotation, configure_shortcuts.
    - control_radial_menu, clear_measurement, stop_camera_flythrough, orbit_viewport, set_layer_visibility.
 8. Animation (animation):
-   - keyframe_animation, orbit_animation, wave_animation, bounce_animation, play_animation, pause_animation, seek_animation, set_playback_speed.
+   - keyframe_animation, orbit_animation, wave_animation, bounce_animation, pulse_animation, sway_animation, spin_animation, play_animation, pause_animation, seek_animation, set_playback_speed.
    - set_keyframe: insert a single keyframe (position/rotation/scale) at normalized time 0..1.
    - create_animation_clip: save current animation as a named reusable clip.
 9. Procedural generation (procedural):
@@ -256,6 +256,9 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "orbit_animation": "Attach an orbit animation to an object.",
     "wave_animation": "Attach a wave deformation animation to an object.",
     "bounce_animation": "Attach a bounce animation to an object.",
+    "pulse_animation": "Attach a breathing scale pulse to an object (rhythmic scale oscillation).",
+    "sway_animation": "Attach a rocking sway to an object (sinusoidal rotation oscillation).",
+    "spin_animation": "Attach a continuous spin to an object (endless rotation about an axis).",
     "play_animation": "Play the active animation track.",
     "pause_animation": "Pause the active animation track.",
     "seek_animation": "Seek the active animation track to a time.",
@@ -348,6 +351,11 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "list_physics": "List every object that has physics enabled, with gravity, bounciness, friction, and floor.",
     # Text / sprite authoring
     "create_text": "Create a 3D text label in the scene for captions, signage, or annotation.",
+    # Scene transitions — AI-native motion choreography
+    "create_scene_transition": "Author a smooth animated transition that morphs one or more objects from their current state to a described target state (position/rotation/scale) over a duration with an easing curve. Use for coordinated scene moves.",
+    "play_scene_transition": "Play a previously authored scene transition so the viewport interpolates its objects to the target state.",
+    "list_scene_transitions": "List every authored scene transition with id, name, duration, easing, and target count.",
+    "remove_scene_transition": "Remove an authored scene transition; playback stops if it was active.",
 }
 
 
