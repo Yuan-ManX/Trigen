@@ -34,7 +34,7 @@ class Material:
 
     Beyond the base metalness/roughness model, supports the clearcoat,
     transmission, iridescence, and sheen layers used by modern PBR
-    shaders (three.js MeshPhysicalMaterial). All extended fields default
+    shaders (physically-based material). All extended fields default
     to physically-plausible zero values so existing scenes round-trip
     without changes — older payloads simply omit the new keys.
     """
@@ -261,8 +261,8 @@ class Scene:
     # Named layers for organizing scene objects. Maps layer name ->
     # {name, color, parent, locked, visible, object_count}.
     layers: Dict[str, Any] = field(default_factory=dict)
-    # Procedural node-graph pipeline (ComfyUI-style DAG). Stored as a
-    # plain dict for forward compatibility.
+    # Procedural node-graph pipeline (directed acyclic tool graph). Stored
+    # as a plain dict for forward compatibility.
     node_graph: Optional[Dict[str, Any]] = None
     # Scene transitions: smooth animated morphs between object states.
     # Each entry is a plain dict:
