@@ -8,9 +8,8 @@ for normal tool calls, emitting the merged SceneDelta stream;
 persists to ``workflows.json`` in the workspace so recipes survive
 restarts.
 
-This is the ComfyUI-style saveable tool-graph fused with the Hermes-style
-tool loop: each step is a single Agent tool call, and invoking the
-workflow runs the steps sequentially against the live scene.
+Each step is a single Agent tool call, and invoking the workflow runs the
+steps sequentially against the live scene.
 """
 
 from __future__ import annotations
