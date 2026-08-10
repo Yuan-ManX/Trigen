@@ -10,16 +10,18 @@ duplicating them.
 
 from __future__ import annotations
 
+import json
 import math
-from typing import Any, Dict, List
+import os
+import uuid
+from dataclasses import fields as _dc_fields
+from typing import Any, Dict, List, Optional, get_type_hints
 
-from trigen.scene import MATERIAL_PRESETS, Scene
+from trigen.scene import MATERIAL_PRESETS, Material, Scene
 from trigen.tools.base import SceneDelta, ToolBase, ToolResult
 
 
-# ---------------------------------------------------------------------------
-# 1. Isolate object — solo mode (hide everything except the target)
-# ---------------------------------------------------------------------------
+# --- Isolate object — solo mode (hide everything except the target) ---
 
 _ISOLATE_PARAMS = {
     "type": "object",
@@ -83,9 +85,7 @@ class IsolateObjectTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 2. Reset transform — presets (center / ground / reset rotation|scale)
-# ---------------------------------------------------------------------------
+# --- Reset transform — presets (center / ground / reset rotation|scale) ---
 
 _RESET_TRANSFORM_PARAMS = {
     "type": "object",
@@ -167,9 +167,7 @@ class ResetTransformTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 3. Set clipping plane — section cutaway view (editor-side state)
-# ---------------------------------------------------------------------------
+# --- Set clipping plane — section cutaway view (editor-side state) ---
 
 _SET_CLIPPING_PLANE_PARAMS = {
     "type": "object",
@@ -216,9 +214,7 @@ class SetClippingPlaneTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 4. Set object pivot — pivot-point offset for rotation/scaling
-# ---------------------------------------------------------------------------
+# --- Set object pivot — pivot-point offset for rotation/scaling ---
 
 _SET_PIVOT_PARAMS = {
     "type": "object",
@@ -275,9 +271,7 @@ class SetObjectPivotTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 5. Apply material batch — apply a preset/color to multiple targets at once
-# ---------------------------------------------------------------------------
+# --- Apply material batch — apply a preset/color to multiple targets at once ---
 
 _APPLY_MATERIAL_BATCH_PARAMS = {
     "type": "object",
@@ -369,9 +363,7 @@ class ApplyMaterialBatchTool(ToolBase):
         )
 
 
-# ---------------------------------------------------------------------------
-# 6. Set object layer — named-layer organization + per-layer visibility
-# ---------------------------------------------------------------------------
+# --- Set object layer — named-layer organization + per-layer visibility ---
 
 _SET_OBJECT_LAYER_PARAMS = {
     "type": "object",
@@ -450,4 +442,687 @@ class SetObjectLayerTool(ToolBase):
             message="; ".join(parts),
             deltas=deltas,
             data={"layer": layer, "toggle_layer": toggle_layer, "toggled_count": toggled},
+        )
+
+
+# --- Set minimap visibility — toggle the editor viewport minimap ---
+
+_SET_MINIMAP_PARAMS = {
+    "type": "object",
+    "properties": {
+        "enabled": {
+            "type": "boolean",
+            "description": "Whether the minimap overlay is visible in the viewport.",
+        },
+    },
+    "required": ["enabled"],
+}
+
+
+class SetMinimapTool(ToolBase):
+    """Toggle the editor viewport minimap overlay."""
+
+    name = "set_minimap"
+    description = (
+        "Show or hide the viewport minimap overlay. The minimap renders a "
+        "top-down schematic of the scene so users can navigate large scenes "
+        "without losing spatial context."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_MINIMAP_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        enabled = bool(arguments.get("enabled", False))
+        payload = {"enabled": enabled}
+        return ToolResult(
+            success=True,
+            message=f"Minimap {'enabled' if enabled else 'disabled'}.",
+            deltas=[SceneDelta(action="editor_set_minimap", payload=payload)],
+            data=payload,
+        )
+
+
+# --- Set shadows — toggle viewport shadow rendering ---
+
+_SET_SHADOWS_PARAMS = {
+    "type": "object",
+    "properties": {
+        "enabled": {
+            "type": "boolean",
+            "description": "Whether real-time shadows are rendered in the viewport.",
+        },
+    },
+    "required": ["enabled"],
+}
+
+
+class SetShadowsTool(ToolBase):
+    """Toggle real-time shadow rendering in the viewport."""
+
+    name = "set_shadows"
+    description = (
+        "Enable or disable real-time shadow rendering for the viewport. "
+        "Disabling shadows improves performance on integrated GPUs; enabling "
+        "them gives a more accurate preview of the final lit scene."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_SHADOWS_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        enabled = bool(arguments.get("enabled", False))
+        payload = {"enabled": enabled}
+        return ToolResult(
+            success=True,
+            message=f"Shadows {'enabled' if enabled else 'disabled'}.",
+            deltas=[SceneDelta(action="editor_set_shadows", payload=payload)],
+            data=payload,
+        )
+
+
+# --- Set viewport projection — perspective / orthographic ---
+
+_SET_PROJECTION_PARAMS = {
+    "type": "object",
+    "properties": {
+        "mode": {
+            "type": "string",
+            "enum": ["perspective", "orthographic"],
+            "description": "Viewport camera projection mode.",
+        },
+    },
+    "required": ["mode"],
+}
+
+
+class SetViewportProjectionTool(ToolBase):
+    """Switch the viewport camera between perspective and orthographic."""
+
+    name = "set_viewport_projection"
+    description = (
+        "Switch the viewport camera projection between perspective (depth-foreshortened) "
+        "and orthographic (parallel, no distortion). Orthographic is useful for "
+        "precise alignment, front/side/top views, and parametric modeling."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_PROJECTION_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        mode = str(arguments.get("mode", "")).lower()
+        if mode not in ("perspective", "orthographic"):
+            return ToolResult(success=False, message=f"mode must be perspective or orthographic, got {mode}")
+        payload = {"mode": mode}
+        return ToolResult(
+            success=True,
+            message=f"Viewport projection set to {mode}.",
+            deltas=[SceneDelta(action="editor_set_projection", payload=payload)],
+            data=payload,
+        )
+
+
+# --- Set editor mode — edit / run (preview) toggle ---
+
+_SET_EDITOR_MODE_PARAMS = {
+    "type": "object",
+    "properties": {
+        "mode": {
+            "type": "string",
+            "enum": ["edit", "run"],
+            "description": "Editor mode: edit (authoring) or run (playback/preview).",
+        },
+    },
+    "required": ["mode"],
+}
+
+
+class SetEditorModeTool(ToolBase):
+    """Toggle the editor between authoring (edit) and playback (run) modes."""
+
+    name = "set_editor_mode"
+    description = (
+        "Switch the editor between edit mode (authoring, gizmos, snapping) and "
+        "run mode (preview/playback with animations and physics running). Useful "
+        "for previewing an animation or interaction without leaving the editor."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_EDITOR_MODE_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        mode = str(arguments.get("mode", "")).lower()
+        if mode not in ("edit", "run"):
+            return ToolResult(success=False, message=f"mode must be edit or run, got {mode}")
+        payload = {"mode": mode}
+        return ToolResult(
+            success=True,
+            message=f"Editor mode set to {mode}.",
+            deltas=[SceneDelta(action="editor_set_mode", payload=payload)],
+            data=payload,
+        )
+
+
+# --- Save / load named scene slots — workspace-persisted snapshots ---
+
+_SET_SCENE_SLOT_PARAMS = {
+    "type": "object",
+    "properties": {
+        "slot": {
+            "type": "string",
+            "description": "Slot name (filename-safe). Overwrites an existing slot.",
+        },
+    },
+    "required": ["slot"],
+}
+
+_LOAD_SCENE_SLOT_PARAMS = {
+    "type": "object",
+    "properties": {
+        "slot": {"type": "string", "description": "Slot name to load."},
+        "clear_scene": {
+            "type": "boolean",
+            "description": "If true (default), replace the current scene. If false, merge objects.",
+        },
+    },
+    "required": ["slot"],
+}
+
+
+def _slot_dir() -> str:
+    """Return the workspace directory used for scene-slot snapshots."""
+    # Default to a workspace-relative path; orchestrator passes a configured
+    # workspace via the tool's _workspace_dir attribute when registered.
+    base = os.environ.get(
+        "TRIGEN_WORKSPACE",
+        os.path.join(os.getcwd(), ".trigen", "workspace"),
+    )
+    return os.path.join(base, "scene_slots")
+
+
+def _slot_path(name: str) -> str:
+    safe = "".join(c for c in name if c.isalnum() or c in ("-", "_")) or "default"
+    return os.path.join(_slot_dir(), f"{safe}.json")
+
+
+class SaveSceneSlotTool(ToolBase):
+    """Persist the current scene to a named slot for later recall."""
+
+    name = "save_scene_slot"
+    description = (
+        "Save the current scene to a named slot under the workspace so it can be "
+        "recalled later with load_scene_slot. Useful for snapshots, alternative "
+        "compositions, or saving progress before a destructive edit."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_SCENE_SLOT_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        slot = str(arguments.get("slot", "")).strip()
+        if not slot:
+            return ToolResult(success=False, message="slot name is required")
+        path = _slot_path(slot)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(scene.to_dict(), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return ToolResult(success=False, message=f"Failed to save slot '{slot}': {e}")
+        payload = {"slot": slot, "path": path, "object_count": len(scene.objects)}
+        return ToolResult(
+            success=True,
+            message=f"Saved scene to slot '{slot}' ({len(scene.objects)} object(s)).",
+            deltas=[SceneDelta(action="editor_save_scene_slot", payload=payload)],
+            data=payload,
+        )
+
+
+class LoadSceneSlotTool(ToolBase):
+    """Load a previously-saved scene slot, replacing or merging into the scene."""
+
+    name = "load_scene_slot"
+    description = (
+        "Load a named scene slot previously saved with save_scene_slot. By "
+        "default replaces the current scene; set clear_scene=false to merge "
+        "the slot's objects into the current scene instead."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _LOAD_SCENE_SLOT_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        slot = str(arguments.get("slot", "")).strip()
+        if not slot:
+            return ToolResult(success=False, message="slot name is required")
+        clear_scene = bool(arguments.get("clear_scene", True))
+        path = _slot_path(slot)
+        if not os.path.exists(path):
+            return ToolResult(success=False, message=f"Slot '{slot}' not found")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            loaded = Scene.from_dict(data)
+        except Exception as e:
+            return ToolResult(success=False, message=f"Failed to load slot '{slot}': {e}")
+
+        deltas: List[SceneDelta] = []
+        if clear_scene:
+            # Snapshot existing object ids so the frontend can remove them.
+            for o in scene.objects:
+                deltas.append(SceneDelta(action="delete", target_id=o.id))
+            scene.objects = list(loaded.objects)
+            scene.lights = list(loaded.lights)
+            scene.cameras = list(loaded.cameras)
+            scene.groups = list(loaded.groups)
+            scene.background = loaded.background
+            scene.environment = loaded.environment
+            scene.fog = loaded.fog
+            scene.grid_visible = loaded.grid_visible
+            scene.grid_size = loaded.grid_size
+            for o in scene.objects:
+                deltas.append(SceneDelta(action="create", target_id=o.id, payload=o.to_dict()))
+            action_summary = f"replaced scene with slot '{slot}'"
+        else:
+            for o in loaded.objects:
+                scene.objects.append(o)
+                deltas.append(SceneDelta(action="create", target_id=o.id, payload=o.to_dict()))
+            action_summary = f"merged {len(loaded.objects)} object(s) from slot '{slot}'"
+
+        payload = {"slot": slot, "clear_scene": clear_scene, "object_count": len(scene.objects)}
+        return ToolResult(
+            success=True,
+            message=f"Loaded slot '{slot}'; {action_summary}.",
+            deltas=deltas,
+            data=payload,
+        )
+
+
+# --- Set material property — set any extended PBR field by name + value ---
+
+# Material field name -> python type, resolved once from the Material
+# dataclass via get_type_hints (handles `from __future__ import annotations`
+# which stringifies dataclass field types). Used by
+# SetMaterialPropertyTool to coerce incoming JSON values to the right
+# type and reject unknown property names up front.
+_MATERIAL_FIELD_TYPES: Dict[str, Any] = get_type_hints(Material)
+
+
+def _coerce_material_value(name: str, raw: Any) -> Any:
+    """Coerce a raw JSON value to the type expected by Material.<name>."""
+    target = _MATERIAL_FIELD_TYPES.get(name)
+    if target is None:
+        raise ValueError(f"unknown material property: {name}")
+    if target is bool:
+        return bool(raw)
+    if target is float:
+        return float(raw)
+    if target is str:
+        return str(raw)
+    # Lists / dicts fall through — accept as-is.
+    return raw
+
+
+_SET_MATERIAL_PROPERTY_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "property": {
+            "type": "string",
+            "description": (
+                "Material field name to set. Covers the base PBR fields "
+                "(color, metalness, roughness, opacity, wireframe, emissive, "
+                "emissive_intensity, flat_shading, side) and the extended "
+                "physical fields (clearcoat, clearcoat_roughness, transmission, "
+                "thickness, ior, iridescence, iridescence_ior, "
+                "iridescence_thickness_min, iridescence_thickness_max, sheen, "
+                "sheen_color, sheen_roughness, specular_intensity, "
+                "specular_color, attenuation_color, attenuation_distance)."
+            ),
+        },
+        "value": {
+            "description": (
+                "Value for the property. Numbers/booleans/strings are "
+                "coerced to the field's type."
+            ),
+        },
+    },
+    "required": ["target", "property", "value"],
+}
+
+
+class SetMaterialPropertyTool(ToolBase):
+    """Set a single named material property on an object."""
+
+    name = "set_material_property"
+    description = (
+        "Set any single material property by name + value. Covers every "
+        "base PBR field plus the extended physical fields (clearcoat, "
+        "transmission, ior, iridescence, sheen, specular, attenuation). "
+        "Use apply_material for the common color/metalness/roughness combo; "
+        "use this tool for fine-grained control of a single extended field."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_MATERIAL_PROPERTY_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = str(arguments.get("target", ""))
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+        prop = str(arguments.get("property", "")).strip()
+        if not prop:
+            return ToolResult(success=False, message="property name is required")
+        if prop not in _MATERIAL_FIELD_TYPES:
+            return ToolResult(
+                success=False,
+                message=f"Unknown material property '{prop}'. Available: {', '.join(sorted(_MATERIAL_FIELD_TYPES))}",
+            )
+        try:
+            value = _coerce_material_value(prop, arguments.get("value"))
+        except (ValueError, TypeError) as e:
+            return ToolResult(success=False, message=f"Invalid value for '{prop}': {e}")
+
+        setattr(obj.material, prop, value)
+        return ToolResult(
+            success=True,
+            message=f"{obj.name} material.{prop} = {value!r}",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload={"material": obj.material.to_dict()})],
+            data={"property": prop, "value": value, "material": obj.material.to_dict()},
+        )
+
+
+# --- Set geometry params — modify the geometry.params dict in place ---
+
+_SET_GEOMETRY_PARAMS_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "params": {
+            "type": "object",
+            "description": (
+                "Key/value overrides merged into the geometry params dict. "
+                "e.g. {\"radius\": 0.8, \"widthSegments\": 64} for a sphere, "
+                "{\"depth\": 0.6, \"bevelEnabled\": false} for an extrude."
+            ),
+            "additionalProperties": True,
+        },
+        "replace": {
+            "type": "boolean",
+            "description": "If true, replace the params dict entirely instead of merging.",
+        },
+    },
+    "required": ["target", "params"],
+}
+
+
+class SetGeometryParamsTool(ToolBase):
+    """Merge or replace the geometry.params dict of an object."""
+
+    name = "set_geometry_params"
+    description = (
+        "Modify the parameters of an object's geometry (e.g. sphere radius, "
+        "cylinder height, torus tube, extrude depth, lathe segments) by "
+        "merging a partial params dict. Set replace=true to overwrite the "
+        "params dict entirely. Does not change the geometry type."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_GEOMETRY_PARAMS_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = str(arguments.get("target", ""))
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+        params = arguments.get("params")
+        if not isinstance(params, dict) or not params:
+            return ToolResult(success=False, message="params must be a non-empty object")
+        replace = bool(arguments.get("replace", False))
+        if replace:
+            obj.geometry.params = dict(params)
+        else:
+            obj.geometry.params = {**obj.geometry.params, **params}
+        return ToolResult(
+            success=True,
+            message=f"{obj.name} geometry params {'replaced' if replace else 'updated'}: {list(params.keys())}",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload={"geometry": obj.geometry.to_dict()})],
+            data={"geometry": obj.geometry.to_dict(), "replace": replace},
+        )
+
+
+# --- Set object parent — assign / clear an object's group_id (hierarchy) ---
+
+_SET_OBJECT_PARENT_PARAMS = {
+    "type": "object",
+    "properties": {
+        "target": {"type": "string", "description": "Target object id or name"},
+        "group_id": {
+            "type": "string",
+            "description": "Parent group id (or group name). Pass null/empty to detach from any group.",
+        },
+    },
+    "required": ["target"],
+}
+
+
+class SetObjectParentTool(ToolBase):
+    """Assign an object to a parent group (or detach it)."""
+
+    name = "set_object_parent"
+    description = (
+        "Parent an object to a group by setting its group_id and updating "
+        "the group's child_ids. Pass an empty group_id to detach. Accepts "
+        "either a group id or a group name."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_OBJECT_PARENT_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        target_id = str(arguments.get("target", ""))
+        obj = scene.find_object(target_id)
+        if not obj:
+            return ToolResult(success=False, message=f"Object not found: {target_id}")
+        group_id_raw = arguments.get("group_id")
+        group_id = str(group_id_raw).strip() if group_id_raw else ""
+
+        # Remove the object from its current group's child_ids first.
+        if obj.group_id:
+            for g in scene.groups:
+                if obj.id in g.child_ids:
+                    g.child_ids = [c for c in g.child_ids if c != obj.id]
+
+        if not group_id:
+            obj.group_id = None
+            return ToolResult(
+                success=True,
+                message=f"'{obj.name}' detached from any group.",
+                deltas=[SceneDelta(action="update", target_id=obj.id, payload={"group_id": None})],
+                data={"group_id": None},
+            )
+
+        # Resolve by id or name.
+        target_group = None
+        for g in scene.groups:
+            if g.id == group_id or g.name.lower() == group_id.lower():
+                target_group = g
+                break
+        if not target_group:
+            return ToolResult(success=False, message=f"Group not found: {group_id}")
+
+        obj.group_id = target_group.id
+        if obj.id not in target_group.child_ids:
+            target_group.child_ids.append(obj.id)
+        return ToolResult(
+            success=True,
+            message=f"'{obj.name}' parented to group '{target_group.name}'.",
+            deltas=[SceneDelta(action="update", target_id=obj.id, payload={"group_id": target_group.id})],
+            data={"group_id": target_group.id, "group_name": target_group.name},
+        )
+
+
+# --- Add annotation — create a new on-canvas annotation anchored to an
+# --- object id or a world-space position.
+
+_ADD_ANNOTATION_PARAMS = {
+    "type": "object",
+    "properties": {
+        "object_id": {
+            "type": "string",
+            "description": "(Optional) object id or name to anchor the annotation to. When set, the annotation follows the object's transform.",
+        },
+        "position": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "World-space anchor position [x, y, z]. Used directly when object_id is null.",
+        },
+        "text": {"type": "string", "description": "Annotation body text."},
+        "title": {"type": "string", "description": "(Optional) short title rendered as a header."},
+        "color": {"type": "string", "description": "(Optional) accent color, hex such as #22d3ee."},
+        "id": {"type": "string", "description": "(Optional) explicit id; auto-generated when omitted."},
+    },
+    "required": ["text"],
+}
+
+
+class AddAnnotationTool(ToolBase):
+    """Create a new on-canvas annotation in the scene."""
+
+    name = "add_annotation"
+    description = (
+        "Add an on-canvas annotation (a labeled pin) anchored to an object "
+        "or a world-space position. Annotations follow their object's "
+        "transform every frame and serialize with the scene."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _ADD_ANNOTATION_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        text = str(arguments.get("text", "")).strip()
+        if not text:
+            return ToolResult(success=False, message="text is required")
+        object_id_raw = arguments.get("object_id")
+        object_id: Optional[str] = None
+        if object_id_raw:
+            obj = scene.find_object(str(object_id_raw))
+            if obj:
+                object_id = obj.id
+            else:
+                # Allow caller to pass an explicit id even if not in scene.
+                object_id = str(object_id_raw)
+
+        position = arguments.get("position")
+        if isinstance(position, list) and len(position) >= 3:
+            pos = [float(position[0]), float(position[1]), float(position[2])]
+        elif object_id:
+            # Default to the anchored object's position.
+            obj = scene.find_object(object_id)
+            pos = list(obj.transform.position) if obj else [0.0, 1.0, 0.0]
+        else:
+            pos = [0.0, 1.0, 0.0]
+
+        ann_id = str(arguments.get("id") or f"ann_{uuid.uuid4().hex[:8]}")
+        annotation = {
+            "id": ann_id,
+            "object_id": object_id,
+            "position": pos,
+            "text": text,
+            "title": str(arguments.get("title") or "") or None,
+            "color": str(arguments.get("color") or "#22d3ee"),
+            "visible": True,
+        }
+        scene.annotations.append(annotation)
+        return ToolResult(
+            success=True,
+            message=f"Added annotation '{ann_id}'" + (f" on '{object_id}'" if object_id else ""),
+            deltas=[SceneDelta(action="add_annotation", target_id=ann_id, payload=annotation)],
+            data={"annotation": annotation, "count": len(scene.annotations)},
+        )
+
+
+# --- Remove annotation — delete an annotation by id ---
+
+_REMOVE_ANNOTATION_PARAMS = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Annotation id to remove."},
+    },
+    "required": ["id"],
+}
+
+
+class RemoveAnnotationTool(ToolBase):
+    """Remove an annotation by id."""
+
+    name = "remove_annotation"
+    description = (
+        "Remove an on-canvas annotation by id. Use list_objects or scene_info "
+        "first to discover annotation ids if you don't already have one."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _REMOVE_ANNOTATION_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        ann_id = str(arguments.get("id", "")).strip()
+        if not ann_id:
+            return ToolResult(success=False, message="id is required")
+        before = len(scene.annotations)
+        scene.annotations = [a for a in scene.annotations if a.get("id") != ann_id]
+        if len(scene.annotations) == before:
+            return ToolResult(success=False, message=f"Annotation not found: {ann_id}")
+        return ToolResult(
+            success=True,
+            message=f"Removed annotation '{ann_id}'.",
+            deltas=[SceneDelta(action="remove_annotation", target_id=ann_id, payload={"id": ann_id})],
+            data={"id": ann_id, "count": len(scene.annotations)},
+        )
+
+
+# --- Configure shortcuts — emit a no-op editor delta the frontend can ignore ---
+
+_CONFIGURE_SHORTCUTS_PARAMS = {
+    "type": "object",
+    "properties": {
+        "shortcuts": {
+            "type": "object",
+            "description": (
+                "Mapping of action name -> key binding (e.g. "
+                "{\"frame_all\": \"A\", \"toggle_grid\": \"G\"}). The frontend "
+                "currently ignores this delta; the binding is recorded for "
+                "future use."
+            ),
+            "additionalProperties": True,
+        },
+    },
+    "required": ["shortcuts"],
+}
+
+
+class ConfigureShortcutsTool(ToolBase):
+    """Emit an editor_configure_shortcuts delta (recorded, frontend-ignored)."""
+
+    name = "configure_shortcuts"
+    description = (
+        "Record a custom keyboard-shortcut mapping. The frontend currently "
+        "ignores this delta (bindings are not yet reassignable at runtime), "
+        "but the mapping is logged on the backend for future use."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _CONFIGURE_SHORTCUTS_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        shortcuts = arguments.get("shortcuts")
+        if not isinstance(shortcuts, dict) or not shortcuts:
+            return ToolResult(success=False, message="shortcuts must be a non-empty object")
+        payload = {"shortcuts": dict(shortcuts)}
+        return ToolResult(
+            success=True,
+            message=f"Recorded {len(shortcuts)} shortcut binding(s) (frontend may ignore).",
+            deltas=[SceneDelta(action="editor_configure_shortcuts", payload=payload)],
+            data=payload,
         )
