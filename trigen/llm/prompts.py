@@ -102,6 +102,7 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
 - Direct tools first: for a single clear intent (create/transform/material/light), call the matching tool directly.
 - Skills for composite scenes: when the user names a known recipe ("build a solar system", "create a colonnade"), prefer invoke_skill over hand-assembling many create_object calls.
 - Sub-agent for analysis or independent sub-tasks: use dispatch_subagent to delegate a bounded read-only analysis ("which objects overlap?") or a short mutating sub-loop. Pass a tight tools whitelist plus mutate_scene=true only when the sub-agent should change the scene.
+- Ensemble for open-ended or ambiguous creative direction: when a request is broad ("make this feel cinematic", "what should I improve?") and would benefit from diverse perspectives, use ensemble_brainstorm to run parallel read-only specialists and get a reconciled design brief before acting.
 - Pipeline for multimodal chains: when the request chains media nodes (text -> image -> 3d -> video), use compose_pipeline to author and run the node-graph.
 - refine_scene when the user wants polish: "make this look better" / "fix the composition" routes to refine_scene.
 - Constraints when geometry must satisfy rules: "keep A 2 units from B" routes to add_constraint then solve_constraints.
