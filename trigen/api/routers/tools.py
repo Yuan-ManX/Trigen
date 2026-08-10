@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from trigen.api.models.schemas import PresetsResponse, ToolsResponse, ToolSchema
 from trigen.api.services.agent_service import AgentService
+from trigen.scene_autosave import autosave_scene
 
 logger = logging.getLogger("trigen.api.tools")
 router = APIRouter(tags=["tools"])
@@ -189,6 +190,9 @@ async def execute_tool(req: ExecuteToolRequest) -> Dict[str, Any]:
         logger.exception("Direct tool execution failed: %s", req.tool_name)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    # Persist the live scene (best-effort) so direct edits survive restarts.
+    autosave_scene(req.session_id, scene)
+
     return {
         "tool": req.tool_name,
         "success": result.success,
@@ -285,6 +289,9 @@ async def batch_execute_tools(req: BatchToolRequest) -> Dict[str, Any]:
             "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
             "data": result.data,
         })
+
+    # Persist the live scene (best-effort) after the batch completes.
+    autosave_scene(req.session_id, scene)
 
     return {
         "session_id": req.session_id,
