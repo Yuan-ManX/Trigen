@@ -37,6 +37,11 @@ from trigen.executor import TaskExecutor
 from trigen.hooks import HookEvent, HookRegistry
 from trigen.memory import ConversationMemory
 from trigen.memory_persistence import persistence as memory_persistence
+from trigen.scene_autosave import (
+    autosave_scene,
+    clear_autosave,
+    load_autosaved_scene,
+)
 from trigen.planner import TaskPlanner, TaskPlan, TokenBudget, prevalidate_step
 from trigen.llm.client import LLMClient, LLMStreamChunk
 from trigen.llm.prompts import SYSTEM_PROMPT, build_scene_summary
@@ -63,6 +68,7 @@ from trigen.tools import (
     DispatchSubagentTool,
     DistributeObjectsTool,
     DuplicateObjectTool,
+    EnsembleBrainstormTool,
     ExportSceneTool,
     FocusObjectTool,
     FocusPanelTool,
@@ -412,6 +418,7 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     # skills — creative recipes & sub-agent dispatch
     "invoke_skill": "skills",
     "dispatch_subagent": "skills",
+    "ensemble_brainstorm": "skills",
     # macros — user-defined reusable tool-call recipes
     "define_macro": "skills",
     "invoke_macro": "skills",
@@ -831,6 +838,8 @@ class AgentOrchestrator:
         # Sub-agent dispatch — receives the registry so mutating mode can
         # resolve and execute whitelisted tools against the parent scene.
         registry.register(DispatchSubagentTool(self.config.llm, registry=registry))
+        # Ensemble brainstorm — parallel read-only specialists + director synthesis
+        registry.register(EnsembleBrainstormTool(self.config.llm))
         # Multimodal generation (image / 3D / video / animation / speech / transcription / music)
         registry.register(GenerateImageTool())
         registry.register(Generate3DAssetTool())
@@ -1066,6 +1075,13 @@ class AgentOrchestrator:
                 LightObject(name="Ambient", type="ambient", intensity=0.4, position=[0, 0, 0])
             )
             self._scenes[session_id] = scene
+            # Restore a persisted live scene so a restart does not lose work.
+            autosaved = load_autosaved_scene(session_id)
+            if autosaved is not None:
+                try:
+                    self._scenes[session_id] = Scene.from_dict(autosaved)
+                except Exception:
+                    logger.exception("Failed to restore autosaved scene for session %s", session_id)
         return self._scenes[session_id]
 
     def reset_session(self, session_id: str) -> None:
@@ -1075,6 +1091,7 @@ class AgentOrchestrator:
         self._scene_redo.pop(session_id, None)
         self._interrupts.pop(session_id, None)
         memory_persistence.delete(session_id)
+        clear_autosave(session_id)
 
     # ------------------------------------------------------------------
     # Scene history (undo / redo) — backend snapshot stack
@@ -3386,6 +3403,13 @@ class AgentOrchestrator:
             episodic_store.save()
         except Exception:
             logger.exception("Episodic memory record/save failed")
+
+        # Persist the live scene so a restart does not lose in-progress work.
+        # Best-effort: never let a persistence failure break the turn.
+        try:
+            autosave_scene(session_id, scene)
+        except Exception:
+            logger.exception("Scene autosave failed")
 
         # Learning signal: when the turn underperformed (quality ≤ 40),
         # emit a distinct thinking phase so the frontend can surface what
