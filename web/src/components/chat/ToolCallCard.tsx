@@ -34,6 +34,7 @@ import {
   Terminal,
   Trash2,
   Type,
+  Users,
   Video,
   Wand2,
   Waves,
@@ -138,6 +139,9 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   play_scene_transition: Play,
   list_scene_transitions: List,
   remove_scene_transition: Trash2,
+  // Multi-agent orchestration — sub-agent dispatch + parallel specialist ensemble
+  dispatch_subagent: Users,
+  ensemble_brainstorm: Users,
 }
 
 /** Resolve the icon for a tool, falling back to Terminal */
