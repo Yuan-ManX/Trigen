@@ -281,6 +281,7 @@ _PARALLEL_SAFE_TOOLS = {
     "select_object",
     "focus_object",
     "dispatch_subagent",
+    "ensemble_brainstorm",
     "generate_image",
     "generate_3d_asset",
     "generate_video",
