@@ -338,6 +338,7 @@ _PARALLEL_SAFE_TOOLS = {
     "focus_object",
     # Isolated LLM call
     "dispatch_subagent",
+    "ensemble_brainstorm",
     # Independent multimodal generation (external API calls)
     "generate_image",
     "generate_3d_asset",
