@@ -346,7 +346,7 @@ export function AppShell() {
         {/* Center 3D canvas */}
         <main className="relative flex-1 min-w-0 bg-bg-base">
           <EditorCanvas mode={mode} />
-          {/* Floating scene-state indicator (top-right) */}
+          {/* Floating scene-state indicator (bottom-right, collapsed by default) */}
           <SceneStateMachine mode={mode} />
           {/* Watermark at the bottom-left of the canvas */}
           <div className="pointer-events-none absolute bottom-3 left-3 text-[10px] font-mono text-fg-muted/60">
