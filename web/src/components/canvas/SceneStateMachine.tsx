@@ -1,6 +1,6 @@
 // Scene state machine overlay.
 //
-// A compact floating panel anchored to the top-right of the canvas that
+// A compact floating panel anchored to the bottom-right of the canvas that
 // surfaces the editor's current state at a glance: edit/run mode, transform
 // gizmo, grid snapping, and render quality. A short transition history
 // (last 5 state changes with timestamps) is preserved so the user can see
@@ -61,7 +61,9 @@ export function SceneStateMachine({ mode }: SceneStateMachineProps) {
   const renderQuality = useEditor((s) => s.renderQuality)
 
   const [history, setHistory] = useState<TransitionEntry[]>([])
-  const [collapsed, setCollapsed] = useState(false)
+  // Start collapsed so the indicator reads as a compact strip and never
+  // occludes the scene; expand on demand.
+  const [collapsed, setCollapsed] = useState(true)
   const seqRef = useRef(0)
 
   // Track state transitions across all watched fields. Each change pushes a
@@ -118,7 +120,7 @@ export function SceneStateMachine({ mode }: SceneStateMachineProps) {
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
-      className="pointer-events-auto absolute top-3 right-3 w-60 rounded-lg border border-border bg-bg-panel/85 backdrop-blur-md shadow-lg overflow-hidden z-20"
+      className="pointer-events-auto absolute bottom-3 right-3 w-60 rounded-lg border border-border bg-bg-panel/85 backdrop-blur-md shadow-lg overflow-hidden z-20"
     >
       {/* Header */}
       <button
