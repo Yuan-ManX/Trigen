@@ -13,7 +13,7 @@ import random
 import uuid
 from typing import Any, Dict, List, Optional
 
-from trigen.scene import Scene, SceneObject
+from trigen.scene import Geometry, Material, Scene, SceneObject, Transform
 from trigen.tools.base import SceneDelta, ToolBase, ToolResult
 
 
@@ -172,9 +172,13 @@ class TerrainGeneratorTool(ToolBase):
                 obj = SceneObject(
                     name=f"{base_name}_{i}_{j}",
                     type="mesh",
-                    geometry={"type": "box", "params": {"width": cell, "height": h, "depth": cell}},
-                    material={"color": color},
-                    transform={"position": [px, h / 2.0, pz], "rotation": [0, 0, 0], "scale": [1, 1, 1]},
+                    geometry=Geometry(type="box", params={"width": cell, "height": h, "depth": cell}),
+                    material=Material(color=color),
+                    transform=Transform(
+                        position=[px, h / 2.0, pz],
+                        rotation=[0.0, 0.0, 0.0],
+                        scale=[1.0, 1.0, 1.0],
+                    ),
                     tags=[f"terrain:{base_id}", f"row:{j}", f"col:{i}"],
                 )
                 scene.objects.append(obj)
@@ -260,9 +264,16 @@ class LSystemTool(ToolBase):
                 seg = SceneObject(
                     name=f"{name_prefix}_Branch_{seg_idx}",
                     type="mesh",
-                    geometry={"type": "cylinder", "params": {"radiusTop": max(0.01, radius * 0.7), "radiusBottom": max(0.01, radius), "height": branch_length, "radialSegments": 6}},
-                    material={"color": "#5a3a1a"},
-                    transform={"position": mid, "rotation": [pitch, yaw, 0], "scale": [1, 1, 1]},
+                    geometry=Geometry(
+                        type="cylinder",
+                        params={"radiusTop": max(0.01, radius * 0.7), "radiusBottom": max(0.01, radius), "height": branch_length, "radialSegments": 6},
+                    ),
+                    material=Material(color="#5a3a1a"),
+                    transform=Transform(
+                        position=mid,
+                        rotation=[pitch, yaw, 0.0],
+                        scale=[1.0, 1.0, 1.0],
+                    ),
                     tags=[f"plant:{name_prefix}", "branch"],
                 )
                 scene.objects.append(seg)
@@ -273,9 +284,16 @@ class LSystemTool(ToolBase):
                     foliage = SceneObject(
                         name=f"{name_prefix}_Leaf_{seg_idx}",
                         type="mesh",
-                        geometry={"type": "sphere", "params": {"radius": max(0.08, branch_length * 0.6), "widthSegments": 8, "heightSegments": 6}},
-                        material={"color": foliage_color},
-                        transform={"position": [ex, ey, ez], "rotation": [0, 0, 0], "scale": [1, 1, 1]},
+                        geometry=Geometry(
+                            type="sphere",
+                            params={"radius": max(0.08, branch_length * 0.6), "widthSegments": 8, "heightSegments": 6},
+                        ),
+                        material=Material(color=foliage_color),
+                        transform=Transform(
+                            position=[ex, ey, ez],
+                            rotation=[0.0, 0.0, 0.0],
+                            scale=[1.0, 1.0, 1.0],
+                        ),
                         tags=[f"plant:{name_prefix}", "foliage"],
                     )
                     scene.objects.append(foliage)
@@ -336,9 +354,16 @@ class SpiralStaircaseTool(ToolBase):
         pillar = SceneObject(
             name=f"Staircase_Pillar_{batch}",
             type="mesh",
-            geometry={"type": "cylinder", "params": {"radiusTop": 0.3, "radiusBottom": 0.3, "height": total_height, "radialSegments": 12}},
-            material={"color": "#e8e6e0", "metalness": 0.1, "roughness": 0.2},
-            transform={"position": [cx, cy + total_height / 2.0, cz], "rotation": [0, 0, 0], "scale": [1, 1, 1]},
+            geometry=Geometry(
+                type="cylinder",
+                params={"radiusTop": 0.3, "radiusBottom": 0.3, "height": total_height, "radialSegments": 12},
+            ),
+            material=Material(color="#e8e6e0", metalness=0.1, roughness=0.2),
+            transform=Transform(
+                position=[cx, cy + total_height / 2.0, cz],
+                rotation=[0.0, 0.0, 0.0],
+                scale=[1.0, 1.0, 1.0],
+            ),
             tags=[f"staircase:{batch}", "pillar"],
         )
         scene.objects.append(pillar)
@@ -353,9 +378,13 @@ class SpiralStaircaseTool(ToolBase):
             step = SceneObject(
                 name=f"Staircase_Step_{batch}_{i + 1}",
                 type="mesh",
-                geometry={"type": "box", "params": {"width": radius, "height": 0.08, "depth": step_depth}},
-                material={"color": "#9aa3ad", "metalness": 0.0, "roughness": 0.6},
-                transform={"position": [x, y, z], "rotation": [0, angle, 0], "scale": [1, 1, 1]},
+                geometry=Geometry(type="box", params={"width": radius, "height": 0.08, "depth": step_depth}),
+                material=Material(color="#9aa3ad", metalness=0.0, roughness=0.6),
+                transform=Transform(
+                    position=[x, y, z],
+                    rotation=[0.0, angle, 0.0],
+                    scale=[1.0, 1.0, 1.0],
+                ),
                 tags=[f"staircase:{batch}", "step"],
             )
             scene.objects.append(step)
@@ -452,12 +481,18 @@ class VoronoiShatterTool(ToolBase):
                 max(0.05, (ext[1] * 2) / math.sqrt(fragment_count) * rng.uniform(0.6, 1.0)),
                 max(0.05, (ext[2] * 2) / math.sqrt(fragment_count) * rng.uniform(0.6, 1.0)),
             ]
+            # Reuse the source material so fragments inherit its look.
+            _m = src.material.to_dict()
             frag = SceneObject(
                 name=f"{src.name}_Frag_{i + 1}",
                 type="mesh",
-                geometry={"type": "box", "params": {"width": frag_size[0], "height": frag_size[1], "depth": frag_size[2]}},
-                material=src.material.to_dict(),
-                transform={"position": [fx, fy, fz], "rotation": [rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4)], "scale": [1, 1, 1]},
+                geometry=Geometry(type="box", params={"width": frag_size[0], "height": frag_size[1], "depth": frag_size[2]}),
+                material=Material(**_m),
+                transform=Transform(
+                    position=[fx, fy, fz],
+                    rotation=[rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4)],
+                    scale=[1.0, 1.0, 1.0],
+                ),
                 tags=[f"shatter:{batch}", f"src:{src.id}", f"frag:{i + 1}"],
             )
             scene.objects.append(frag)
@@ -474,4 +509,517 @@ class VoronoiShatterTool(ToolBase):
             message=f"Shattered {src.name} into {len(created)} fragments",
             deltas=deltas,
             data={"count": len(created), "source": src.name, "source_deleted": delete_source},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Geodesic dome — icosahedron subdivision projected to a spherical lattice.
+# ---------------------------------------------------------------------------
+
+_DOME_PARAMS = {
+    "type": "object",
+    "properties": {
+        "radius": {"type": "number", "description": "Dome radius in world units (default 3.0)"},
+        "detail": {
+            "type": "integer",
+            "description": "Subdivision depth 0-2 (default 1). Higher depth produces a denser, smoother lattice.",
+            "minimum": 0,
+            "maximum": 2,
+        },
+        "joint_radius": {"type": "number", "description": "Radius of the joint spheres (default 0.09)"},
+        "strut_radius": {"type": "number", "description": "Radius of the connecting struts (default 0.03)"},
+        "dome": {
+            "type": "boolean",
+            "description": "Keep only the upper half-sphere as an open bowl (default false -> full sphere)",
+        },
+        "color": {"type": "string", "description": "Strut and joint color (default #dfe6ff)"},
+        "position": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "Base position [x, y, z] (default [0, 0, 0])",
+        },
+        "name": {"type": "string", "description": "Optional name prefix"},
+    },
+    "required": [],
+}
+
+
+# Unit icosahedron: 12 vertices + 20 triangular faces. Vertices are projected
+# to the unit sphere before any subdivision, giving a convex hull of roughly
+# equal spherical triangles from which the dome lattice is derived.
+_ICOSA_PHI = (1.0 + math.sqrt(5.0)) / 2.0
+_ICOSA_VERTICES = [
+    (-1.0, _ICOSA_PHI, 0.0),
+    (1.0, _ICOSA_PHI, 0.0),
+    (-1.0, -_ICOSA_PHI, 0.0),
+    (1.0, -_ICOSA_PHI, 0.0),
+    (0.0, -1.0, _ICOSA_PHI),
+    (0.0, 1.0, _ICOSA_PHI),
+    (0.0, -1.0, -_ICOSA_PHI),
+    (0.0, 1.0, -_ICOSA_PHI),
+    (_ICOSA_PHI, 0.0, -1.0),
+    (_ICOSA_PHI, 0.0, 1.0),
+    (-_ICOSA_PHI, 0.0, -1.0),
+    (-_ICOSA_PHI, 0.0, 1.0),
+]
+_ICOSA_FACES = [
+    (0, 11, 5),
+    (0, 5, 1),
+    (0, 1, 7),
+    (0, 7, 10),
+    (0, 10, 11),
+    (1, 5, 9),
+    (5, 11, 4),
+    (11, 10, 2),
+    (10, 7, 6),
+    (7, 1, 8),
+    (3, 9, 4),
+    (3, 4, 2),
+    (3, 2, 6),
+    (3, 6, 8),
+    (3, 8, 9),
+    (4, 9, 5),
+    (2, 4, 11),
+    (6, 2, 10),
+    (8, 6, 7),
+    (9, 8, 1),
+]
+
+
+def _normalize3(v: List[float]) -> List[float]:
+    """Return ``v`` scaled to unit length (identity when already near-zero)."""
+    length = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+    if length < 1e-9:
+        return [0.0, 0.0, 0.0]
+    return [v[0] / length, v[1] / length, v[2] / length]
+
+
+def _icosphere(detail: int) -> tuple:
+    """Return ``(verts, faces)`` of an icosphere at the given subdivision depth.
+
+    Edge-midpoint subdivision turns each face into four, sharing a cached
+    midpoint per edge so the mesh stays connected (watertight). Every vertex is
+    renormalized to the unit sphere after each level.
+    """
+    verts: List[List[float]] = [list(v) for v in _ICOSA_VERTICES]
+    faces: List[List[int]] = [list(f) for f in _ICOSA_FACES]
+    for _ in range(detail):
+        midpoint_cache: Dict[Any, int] = {}
+        new_faces: List[List[int]] = []
+        for (a, b, c) in faces:
+            ab = _subdiv_midpoint(a, b, verts, midpoint_cache)
+            bc = _subdiv_midpoint(b, c, verts, midpoint_cache)
+            ca = _subdiv_midpoint(c, a, verts, midpoint_cache)
+            new_faces.append([a, ab, ca])
+            new_faces.append([b, bc, ab])
+            new_faces.append([c, ca, bc])
+            new_faces.append([ab, bc, ca])
+        faces = new_faces
+    return verts, faces
+
+
+def _subdiv_midpoint(a: int, b: int, verts: List[List[float]], cache: Dict[Any, int]) -> int:
+    """Return the index of the (renormalized) midpoint of vertices ``a`` and ``b``.
+
+    A stable unordered key reuses the same vertex for every face sharing the
+    edge, keeping the subdivided mesh watertight.
+    """
+    key = (a, b) if a < b else (b, a)
+    if key in cache:
+        return cache[key]
+    va, vb = verts[a], verts[b]
+    mid = _normalize3([(va[0] + vb[0]) * 0.5, (va[1] + vb[1]) * 0.5, (va[2] + vb[2]) * 0.5])
+    idx = len(verts)
+    verts.append(mid)
+    cache[key] = idx
+    return idx
+
+
+def _euler_align_y(dx: float, dy: float, dz: float) -> List[float]:
+    """Return XYZ Euler angles (radians) rotating +Y onto the unit direction ``d``.
+
+    Derived for the renderer's default Euler order (XYZ). With ``ry = 0`` the
+    rotation column for +Y becomes ``(dx, dy, dz)`` exactly:
+      rz = asin(-dx), rx = atan2(dz, dy), guarded for axis-aligned directions.
+    """
+    if abs(dx) < 1e-9 and abs(dz) < 1e-9:
+        # Pure vertical direction: rx 0 or pi flips the strut in place.
+        return [0.0 if dy > 0 else math.pi, 0.0, 0.0]
+    rz = math.asin(max(-1.0, min(1.0, -dx)))
+    c3 = math.cos(rz)
+    if abs(c3) < 1e-9:
+        rx = 0.0
+    else:
+        rx = math.atan2(dz, dy)
+    return [rx, 0.0, rz]
+
+
+class GeodesicDomeTool(ToolBase):
+    """Generate a geodesic dome: a spherical lattice of joint spheres and struts.
+
+    Builds the structure from an icosahedron subdivided to the requested depth,
+    projects every vertex onto a sphere of the given radius, then places a
+    joint sphere at each vertex and an oriented strut cylinder along every edge.
+    All members share a generation tag so they can be selected, animated, and
+    exported as a unit.
+    """
+
+    name = "create_geodesic_dome"
+    description = (
+        "Create a geodesic dome: a spherical lattice of joint spheres connected "
+        "by strut cylinders, built from an icosahedron subdivided to the chosen "
+        "depth. Great for architectural frames, planetarium shells, and sci-fi "
+        "structure studies."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _DOME_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        radius = max(0.5, float(arguments.get("radius", 3.0)))
+        detail = max(0, min(2, int(arguments.get("detail", 1))))
+        joint_radius = max(0.01, float(arguments.get("joint_radius", 0.09)))
+        strut_radius = max(0.005, float(arguments.get("strut_radius", 0.03)))
+        dome_only = bool(arguments.get("dome", False))
+        color = str(arguments.get("color", "#dfe6ff"))
+        position = arguments.get("position", [0, 0, 0])
+        if not isinstance(position, list) or len(position) != 3:
+            position = [0.0, 0.0, 0.0]
+        px, py, pz = float(position[0]), float(position[1]), float(position[2])
+        prefix = str(arguments.get("name", "")).strip() or "GeodesicDome"
+
+        local_verts, faces = _icosphere(detail)
+
+        edge_set: Dict[Any, List[int]] = {}
+        for (a, b, c) in faces:
+            for (u, v) in ((a, b), (b, c), (c, a)):
+                key = (u, v) if u < v else (v, u)
+                if key not in edge_set:
+                    edge_set[key] = [key[0], key[1]]
+
+        # Scale unit-sphere vertices to the requested radius and apply the
+        # optional upper-hemisphere filter for an open dome bowl.
+        scaled: List[List[float]] = []
+        kept: List[bool] = []
+        for v in local_verts:
+            s = [v[0] * radius, v[1] * radius, v[2] * radius]
+            if dome_only and s[1] < 0.0:
+                kept.append(False)
+            else:
+                kept.append(True)
+            scaled.append(s)
+
+        batch = uuid.uuid4().hex[:6]
+        deltas: List[SceneDelta] = []
+        created = 0
+
+        def _place(pos_world: List[float], geometry: Dict[str, Any], tag: str, extra: str, rotation: Optional[List[float]] = None) -> None:
+            nonlocal created
+            obj = SceneObject(
+                name=f"{prefix}_{tag}_{batch}_{extra}",
+                type="mesh",
+                geometry=Geometry(**geometry),
+                material=Material(color=color, metalness=0.2, roughness=0.4),
+                transform=Transform(
+                    position=[pos_world[0] + px, pos_world[1] + py, pos_world[2] + pz],
+                    rotation=rotation if rotation is not None else [0.0, 0.0, 0.0],
+                    scale=[1.0, 1.0, 1.0],
+                ),
+                tags=[f"geodesic:{batch}"],
+            )
+            scene.objects.append(obj)
+            created += 1
+            deltas.append(SceneDelta(action="create", target_id=obj.id, payload=obj.to_dict()))
+
+        # Joint spheres at every kept vertex.
+        for idx, pos in enumerate(scaled):
+            if not kept[idx]:
+                continue
+            _place(
+                pos,
+                {"type": "sphere", "params": {"radius": joint_radius}},
+                "Joint",
+                str(idx),
+            )
+
+        # Oriented strut cylinders along every kept edge.
+        for i, (a, b) in enumerate(edge_set.values()):
+            if not kept[a] or not kept[b]:
+                continue
+            va, vb = scaled[a], scaled[b]
+            dx = vb[0] - va[0]
+            dy = vb[1] - va[1]
+            dz = vb[2] - va[2]
+            length = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if length < 1e-9:
+                continue
+            ux, uy, uz = dx / length, dy / length, dz / length
+            rot = _euler_align_y(ux, uy, uz)
+            _place(
+                [(va[0] + vb[0]) * 0.5, (va[1] + vb[1]) * 0.5, (va[2] + vb[2]) * 0.5],
+                {
+                    "type": "cylinder",
+                    "params": {"radiusTop": strut_radius, "radiusBottom": strut_radius, "height": length},
+                },
+                "Strut",
+                str(i),
+                rotation=rot,
+            )
+
+        return ToolResult(
+            success=True,
+            message=f"Generated geodesic dome with {created} members (detail={detail}, radius={radius:.2f})",
+            deltas=deltas,
+            data={"count": created, "detail": detail, "radius": radius, "tag": f"geodesic:{batch}"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fractal recursion — self-similar procedural generation of a Sierpinski
+# tetrahedron gasket lattice or a recursively branching fractal tree, both
+# assembled purely from sphere/cylinder primitives so the renderer can draw
+# them without any bespoke mesh loading.
+# ---------------------------------------------------------------------------
+
+_FRACTAL_PARAMS = {
+    "type": "object",
+    "properties": {
+        "fractal_type": {
+            "type": "string",
+            "enum": ["sierpinski", "tree"],
+            "description": "Recursion recipe: 'sierpinski' tetrahedron gasket lattice or 'tree' branching fractal (default sierpinski)",
+        },
+        "depth": {
+            "type": "integer",
+            "description": "Recursion depth (default 1; sierpinski 0-3, tree 0-4). Each level multiplies the member count.",
+            "minimum": 0,
+            "maximum": 4,
+        },
+        "size": {"type": "number", "description": "Overall scale of the root shape (default 3.0)"},
+        "joint_radius": {"type": "number", "description": "Sphere radius at joints (sierpinski, default 0.07)"},
+        "strut_radius": {"type": "number", "description": "Cylinder radius for edges/branches (default 0.025)"},
+        "branching": {
+            "type": "integer",
+            "description": "Child branches per node (tree, default 3, range 2-5)",
+            "minimum": 2,
+            "maximum": 5,
+        },
+        "branch_angle": {"type": "number", "description": "Branch spread angle in degrees (tree, default 28)"},
+        "length_ratio": {"type": "number", "description": "Child branch length as a fraction of the parent (tree, default 0.7)"},
+        "color": {"type": "string", "description": "Primary lattice/branch color (default #9adcff)"},
+        "leaf_color": {"type": "string", "description": "Leaf color (tree tips, default #7ee8a2)"},
+        "position": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "Base position [x, y, z] (default [0, 0, 0])",
+        },
+        "seed": {"type": "integer", "description": "Random seed for tree azimuth spread (default 1)"},
+        "name": {"type": "string", "description": "Optional name prefix"},
+    },
+    "required": [],
+}
+
+
+# Unit-circumradius tetrahedron corners — the self-similar vertex set used to
+# build each gasket frame. Scaling by 1/2 around any corner yields the four
+# congruent sub-tetrahedra of the next level, giving exact self-similarity.
+_TETRA_UNIT = [
+    (1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0)),
+    (1.0 / math.sqrt(3.0), -1.0 / math.sqrt(3.0), -1.0 / math.sqrt(3.0)),
+    (-1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0), -1.0 / math.sqrt(3.0)),
+    (-1.0 / math.sqrt(3.0), -1.0 / math.sqrt(3.0), 1.0 / math.sqrt(3.0)),
+]
+_TETRA_EDGES = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+
+
+def _orthonormal_frame(direction: List[float]) -> tuple:
+    """Return ``(u, v)`` unit vectors spanning the plane perpendicular to ``direction``.
+
+    Used to spread child branches azimuthally around a parent branch so the
+    fractal tree fans out uniformly in 3D rather than flattening to a plane.
+    """
+    d = _normalize3(list(direction))
+    helper = [0.0, 1.0, 0.0] if abs(d[1]) < 0.9 else [1.0, 0.0, 0.0]
+    u = _normalize3([
+        d[1] * helper[2] - d[2] * helper[1],
+        d[2] * helper[0] - d[0] * helper[2],
+        d[0] * helper[1] - d[1] * helper[0],
+    ])
+    v = _normalize3([
+        d[1] * u[2] - d[2] * u[1],
+        d[2] * u[0] - d[0] * u[2],
+        d[0] * u[1] - d[1] * u[0],
+    ])
+    return u, v
+
+
+class FractalRecursionTool(ToolBase):
+    """Generate a self-similar fractal lattice or branching tree from primitives.
+
+    Two recipes are available:
+      - ``sierpinski``: a Sierpinski tetrahedron gasket. Each frame places four
+        joint spheres at the tetrahedron corners and six oriented struts along
+        its edges; every level adds four congruent sub-frames scaled by 1/2 at
+        the corners, so the whole structure is exactly self-similar.
+      - ``tree``: a recursively branching fractal tree. Each node grows a
+        cylinder trunk and spawns ``branching`` child branches tilted away from
+        the parent by ``branch_angle`` and fanned around it, with length and
+        radius decaying by ``length_ratio`` per level; tips carry leaf spheres.
+    All members share a generation tag so they can be selected, animated, and
+    exported as a single unit.
+    """
+
+    name = "create_fractal"
+    description = (
+        "Create a self-similar fractal structure from primitives: a Sierpinski "
+        "tetrahedron gasket lattice or a recursively branching fractal tree. "
+        "Ideal for generative architecture studies, crystalline growth forms, "
+        "and stylized vegetation."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _FRACTAL_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        fractal_type = str(arguments.get("fractal_type", "sierpinski")).lower()
+        depth = max(0, min(4, int(arguments.get("depth", 1))))
+        size = max(0.5, float(arguments.get("size", 3.0)))
+        joint_radius = max(0.01, float(arguments.get("joint_radius", 0.07)))
+        strut_radius = max(0.005, float(arguments.get("strut_radius", 0.025)))
+        branching = max(2, min(5, int(arguments.get("branching", 3))))
+        branch_angle = math.radians(float(arguments.get("branch_angle", 28.0)))
+        length_ratio = max(0.3, min(0.95, float(arguments.get("length_ratio", 0.7))))
+        color = str(arguments.get("color", "#9adcff"))
+        leaf_color = str(arguments.get("leaf_color", "#7ee8a2"))
+        position = arguments.get("position", [0, 0, 0])
+        if not isinstance(position, list) or len(position) != 3:
+            position = [0.0, 0.0, 0.0]
+        px, py, pz = float(position[0]), float(position[1]), float(position[2])
+        seed = int(arguments.get("seed", 1))
+        prefix = str(arguments.get("name", "")).strip() or "Fractal"
+
+        batch = uuid.uuid4().hex[:6]
+        deltas: List[SceneDelta] = []
+        created = 0
+
+        def _place(
+            pos_world: List[float],
+            geometry: Dict[str, Any],
+            tag: str,
+            extra: str,
+            mat_color: str,
+            rotation: Optional[List[float]] = None,
+        ) -> None:
+            nonlocal created
+            obj = SceneObject(
+                name=f"{prefix}_{tag}_{batch}_{extra}",
+                type="mesh",
+                geometry=Geometry(**geometry),
+                material=Material(color=mat_color, metalness=0.25, roughness=0.4),
+                transform=Transform(
+                    position=[pos_world[0] + px, pos_world[1] + py, pos_world[2] + pz],
+                    rotation=rotation if rotation is not None else [0.0, 0.0, 0.0],
+                    scale=[1.0, 1.0, 1.0],
+                ),
+                tags=[f"fractal:{batch}"],
+            )
+            scene.objects.append(obj)
+            created += 1
+            deltas.append(SceneDelta(action="create", target_id=obj.id, payload=obj.to_dict()))
+
+        def _build_sierpinski(center: List[float], radius: float, level: int) -> None:
+            # Joint spheres at the four corners of the current frame.
+            corners = [
+                [center[0] + c[0] * radius, center[1] + c[1] * radius, center[2] + c[2] * radius]
+                for c in _TETRA_UNIT
+            ]
+            for idx, corner in enumerate(corners):
+                _place(
+                    corner,
+                    {"type": "sphere", "params": {"radius": joint_radius}},
+                    "Node",
+                    str(level) + "_" + str(idx),
+                    color,
+                )
+            # Oriented struts along the six edges of the current frame.
+            for ei, (a, b) in enumerate(_TETRA_EDGES):
+                va, vb = corners[a], corners[b]
+                dx, dy, dz = vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]
+                length = math.sqrt(dx * dx + dy * dy + dz * dz)
+                if length < 1e-9:
+                    continue
+                ux, uy, uz = dx / length, dy / length, dz / length
+                _place(
+                    [(va[0] + vb[0]) * 0.5, (va[1] + vb[1]) * 0.5, (va[2] + vb[2]) * 0.5],
+                    {
+                        "type": "cylinder",
+                        "params": {"radiusTop": strut_radius, "radiusBottom": strut_radius, "height": length},
+                    },
+                    "Strut",
+                    str(level) + "_" + str(ei),
+                    color,
+                    rotation=_euler_align_y(ux, uy, uz),
+                )
+            # Recurse into the four congruent sub-tetrahedra at the corners.
+            if level < depth:
+                for corner in corners:
+                    _build_sierpinski(corner, radius * 0.5, level + 1)
+
+        def _build_tree(
+            start: List[float],
+            direction: List[float],
+            length: float,
+            radius: float,
+            level: int,
+            rng: random.Random,
+        ) -> None:
+            end = [start[0] + direction[0] * length, start[1] + direction[1] * length, start[2] + direction[2] * length]
+            dx, dy, dz = end[0] - start[0], end[1] - start[1], end[2] - start[2]
+            _place(
+                [(start[0] + end[0]) * 0.5, (start[1] + end[1]) * 0.5, (start[2] + end[2]) * 0.5],
+                {"type": "cylinder", "params": {"radiusTop": radius, "radiusBottom": radius, "height": length}},
+                "Branch",
+                str(level) + "_" + f"{start[0]:.2f}",
+                color,
+                rotation=_euler_align_y(dx / length, dy / length, dz / length),
+            )
+            if level >= depth:
+                # Leaf sphere terminates the branch.
+                _place(
+                    end,
+                    {"type": "sphere", "params": {"radius": max(joint_radius, radius * 2.2)}},
+                    "Leaf",
+                    str(level) + "_" + f"{end[2]:.2f}",
+                    leaf_color,
+                )
+                return
+            u, v = _orthonormal_frame(direction)
+            base_azimuth = rng.uniform(0.0, 2.0 * math.pi)
+            child_len = length * length_ratio
+            child_radius = radius * length_ratio
+            for k in range(branching):
+                azimuth = base_azimuth + k * (2.0 * math.pi / branching)
+                tilt = branch_angle * (0.7 + 0.6 * rng.random())
+                ca, sa = math.cos(tilt), math.sin(tilt)
+                spread = ca * direction[0] + sa * (math.cos(azimuth) * u[0] + math.sin(azimuth) * v[0])
+                spread_y = ca * direction[1] + sa * (math.cos(azimuth) * u[1] + math.sin(azimuth) * v[1])
+                spread_z = ca * direction[2] + sa * (math.cos(azimuth) * u[2] + math.sin(azimuth) * v[2])
+                child_dir = _normalize3([spread, spread_y, spread_z])
+                _build_tree(end, child_dir, child_len, child_radius, level + 1, rng)
+
+        if fractal_type == "tree":
+            # Seed a deterministic RNG so the same arguments reproduce the
+            # exact same tree across runs.
+            rng = random.Random(seed)
+            _build_tree([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], size, strut_radius, 0, rng)
+            label = "fractal tree"
+        else:
+            _build_sierpinski([0.0, 0.0, 0.0], size, 0)
+            label = "Sierpinski gasket"
+
+        return ToolResult(
+            success=True,
+            message=f"Generated {label} with {created} members (depth={depth}, size={size:.2f})",
+            deltas=deltas,
+            data={"count": created, "fractal_type": fractal_type, "depth": depth, "tag": f"fractal:{batch}"},
         )
