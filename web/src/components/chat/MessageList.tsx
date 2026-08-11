@@ -36,6 +36,9 @@ const SUGGESTIONS: SuggestionItem[] = [
   { icon: Cog, label: 'Gear Assembly', prompt: 'Use the gear_assembly skill to build a row of 3 interlocking gears with 12 teeth each' },
   { icon: FlaskConical, label: 'Molecule', prompt: 'Use the molecule skill to build a ball-and-stick molecule with 4 satellite atoms and bonds' },
   { icon: Snowflake, label: 'Snowman', prompt: 'Use the snowman skill to build a snowman with a carrot nose, coal eyes, stick arms, and a top hat' },
+  // Generative geometry quick-start chips — one-click procedural generation
+  { icon: Boxes, label: 'Geodesic Dome', prompt: 'Create a geodesic dome with detail 2' },
+  { icon: Spline, label: 'Fractal Tree', prompt: 'Create a fractal tree with branching 3 and depth 3' },
 ]
 
 interface MessageListProps {
