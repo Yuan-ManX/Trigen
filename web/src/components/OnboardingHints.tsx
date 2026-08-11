@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Tag,
+  Users,
   Wand2,
   Workflow,
   X,
@@ -30,6 +31,7 @@ type StepId =
   | 'chat'
   | 'templates'
   | 'tools'
+  | 'ensemble'
   | 'scene_intelligence'
   | 'pipeline'
   | 'annotations'
@@ -74,6 +76,14 @@ const STEPS: TourStep[] = [
     title: 'Tools and skills catalog',
     body: 'Browse the Skills tab in the right panel for one-click multi-step compositions, and use the Properties / Layers / Outliner tabs to inspect and tweak individual objects, materials, and transforms directly.',
     hint: 'Tip: the export_code tool can ship the current scene as Three.js, React+R3F, or a standalone HTML file.',
+  },
+  {
+    id: 'ensemble',
+    icon: Users,
+    accent: 'text-accent-purple',
+    title: 'Brainstorm with a specialist ensemble',
+    body: 'For open-ended direction, ask the Agent to run an ensemble brainstorm: several read-only specialists (composition, material, lighting, motion, critique) weigh in on your scene in parallel, then a creative director reconciles their views into one prioritized brief. Try "ensemble: make this scene feel cinematic" or "what should I improve about this scene?"',
+    hint: 'Tip: the ensemble never edits the scene itself — it returns a plan you can approve, then the Agent executes it with its normal tools.',
   },
   {
     id: 'scene_intelligence',
