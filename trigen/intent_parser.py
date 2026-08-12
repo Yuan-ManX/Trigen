@@ -216,6 +216,50 @@ PROCEDURAL_TRIGGERS: List[Tuple[str, str]] = [
     ("change pivot", "set_object_pivot"),
     ("设置轴心", "set_object_pivot"),
     ("轴心", "set_object_pivot"),
+    # Voxel sculpting triggers
+    ("voxel sphere", "voxel_sculpt"),
+    ("voxel box", "voxel_sculpt"),
+    ("voxel pyramid", "voxel_sculpt"),
+    ("voxel sculpt", "voxel_sculpt"),
+    ("voxel", "voxel_sculpt"),
+    ("体素", "voxel_sculpt"),
+    ("体素球", "voxel_sculpt"),
+    ("体素方块", "voxel_sculpt"),
+    # Particle system triggers
+    ("particle fire", "create_particle_system"),
+    ("particle smoke", "create_particle_system"),
+    ("particle sparks", "create_particle_system"),
+    ("particle fountain", "create_particle_system"),
+    ("particle explosion", "create_particle_system"),
+    ("fire effect", "create_particle_system"),
+    ("smoke effect", "create_particle_system"),
+    ("sparks effect", "create_particle_system"),
+    ("粒子火焰", "create_particle_system"),
+    ("粒子烟雾", "create_particle_system"),
+    ("粒子系统", "create_particle_system"),
+    # LOD chain triggers
+    ("lod chain", "generate_lod_chain"),
+    ("level of detail", "generate_lod_chain"),
+    ("lod", "generate_lod_chain"),
+    ("细节层次", "generate_lod_chain"),
+    # Mesh repair triggers
+    ("repair mesh", "repair_mesh"),
+    ("watertight", "repair_mesh"),
+    ("fix mesh", "repair_mesh"),
+    ("manifold", "repair_mesh"),
+    ("修复网格", "repair_mesh"),
+    ("水密", "repair_mesh"),
+    # Self-evaluation triggers
+    ("self evaluate", "self_evaluate"),
+    ("evaluate scene", "self_evaluate"),
+    ("score scene", "self_evaluate"),
+    ("quality check", "self_evaluate"),
+    ("评估场景", "self_evaluate"),
+    ("场景评分", "self_evaluate"),
+    # Consensus voting triggers
+    ("consensus vote", "consensus_vote"),
+    ("multi-model", "consensus_vote"),
+    ("共识投票", "consensus_vote"),
 ]
 
 
