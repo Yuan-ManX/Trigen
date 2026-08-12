@@ -7,7 +7,7 @@
 // see at a glance where each keyframe sits in time. The shared
 // usePlayback store drives the clock; SceneMesh consumes it to apply
 // per-frame transforms.
-import { Circle, Clock, Pause, Play, Repeat, Square, Trash2, Zap } from 'lucide-react'
+import { Circle, Clock, Layers, Pause, Play, Repeat, Sparkles, Square, Trash2, Zap } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { usePlayback } from '../../store/usePlayback'
 import { useScene } from '../../store/useScene'
@@ -31,6 +31,10 @@ function animColor(type: ObjectAnimation['type']): string {
       return 'text-amber-400'
     case 'keyframe':
       return 'text-accent-gold'
+    case 'particle':
+      return 'text-rose-300'
+    case 'lod':
+      return 'text-accent-emerald'
     default:
       return 'text-fg-secondary'
   }
@@ -46,6 +50,8 @@ const EASING_OPTIONS: NonNullable<ObjectAnimation['easing']>[] = [
 function AnimIcon({ type }: { type: ObjectAnimation['type'] }) {
   if (type === 'orbit') return <Circle size={12} className="shrink-0" />
   if (type === 'bounce') return <Zap size={12} className="shrink-0" />
+  if (type === 'particle') return <Sparkles size={12} className="shrink-0" />
+  if (type === 'lod') return <Layers size={12} className="shrink-0" />
   return <Clock size={12} className="shrink-0" />
 }
 
