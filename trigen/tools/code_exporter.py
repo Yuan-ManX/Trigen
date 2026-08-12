@@ -396,7 +396,10 @@ def _build_react_r3f(scene: Scene, include_animation: bool) -> str:
         lines.append(f"    material: {{ color: {json.dumps(mat.color)}, metalness: {mat.metalness:.4f}, roughness: {mat.roughness:.4f}, opacity: {mat.opacity:.4f}, wireframe: {str(mat.wireframe).lower()}, emissive: {json.dumps(mat.emissive)}, emissive_intensity: {mat.emissive_intensity:.4f}, flat_shading: {str(mat.flat_shading).lower()} }},")
         lines.append(f"    geometry: {{ type: {json.dumps(geo.type)}, params: {json.dumps(geo.params or {})} }},")
         if anim:
-            lines.append(f"    animation: {{ type: {json.dumps(str(anim.get('type', '')))}, speed: {float(anim.get('speed', 1)):.4f}, amplitude: {float(anim.get('amplitude', 0.5)):.4f} }},")
+            # Serialise the full animation descriptor so particle trajectories,
+            # LOD metadata, and the standard motion fields all survive export.
+            anim_json = json.dumps(anim)
+            lines.append(f"    animation: {anim_json} as any,")
         lines.append("  },")
     lines.append("];")
     lines.append("")
