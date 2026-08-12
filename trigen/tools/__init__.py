@@ -79,6 +79,9 @@ from trigen.tools.composite_tools import (
     SnapToGridTool,
 )
 from trigen.tools.procedural_tools import (
+    FractalRecursionTool,
+    GeodesicDomeTool,
+    GyroidLatticeTool,
     LSystemTool,
     SpiralStaircaseTool,
     TerrainGeneratorTool,
@@ -238,6 +241,18 @@ from trigen.tools.transition_tools import (
     PlaySceneTransitionTool,
     RemoveSceneTransitionTool,
 )
+from trigen.tools.consensus_tools import (
+    ConsensusVoteTool,
+    SelfEvaluateTool,
+)
+from trigen.tools.voxel_tools import (
+    VoxelSculptTool,
+    ParticleSystemTool,
+)
+from trigen.tools.mesh_quality_tools import (
+    LODChainTool,
+    RepairMeshTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -293,6 +308,11 @@ __all__ = [
     "LSystemTool",
     "SpiralStaircaseTool",
     "VoronoiShatterTool",
+    "GeodesicDomeTool",
+    # Self-similar fractal generation — Sierpinski gasket lattice / fractal tree
+    "FractalRecursionTool",
+    # Triply-periodic minimal-surface lattice — gyroid field isosurface wireframe
+    "GyroidLatticeTool",
     # Object animation
     "KeyframeAnimationTool",
     "OrbitAnimationTool",
