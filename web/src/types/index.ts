@@ -103,7 +103,7 @@ export interface PhysicsDescriptor {
 
 /** Object animation descriptor (keyframe/orbit/wave/bounce) */
 export interface ObjectAnimation {
-  type: 'keyframe' | 'orbit' | 'wave' | 'bounce' | 'pulse' | 'sway' | 'spin'
+  type: 'keyframe' | 'orbit' | 'wave' | 'bounce' | 'pulse' | 'sway' | 'spin' | 'particle' | 'lod'
   duration: number
   loop: boolean
   // keyframe
@@ -131,6 +131,19 @@ export interface ObjectAnimation {
   // sway
   // spin
   speed?: number
+  // particle — per-particle trajectory / size fade
+  effect?: string
+  velocity?: Vec3
+  lifetime?: number
+  size_start?: number
+  size_end?: number
+  gravity?: number
+  // lod — level-of-detail metadata (kept static; selected by distance)
+  level?: number
+  source_segments?: number
+  reduced_segments?: number
+  reduction_ratio?: number
+  source_object?: string
   // internal captured state
   start_position?: Vec3
   start_scale?: Vec3
