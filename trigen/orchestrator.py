@@ -282,6 +282,18 @@ from trigen.tools.transition_tools import (
     PlaySceneTransitionTool,
     RemoveSceneTransitionTool,
 )
+from trigen.tools.consensus_tools import (
+    ConsensusVoteTool,
+    SelfEvaluateTool,
+)
+from trigen.tools.voxel_tools import (
+    VoxelSculptTool,
+    ParticleSystemTool,
+)
+from trigen.tools.mesh_quality_tools import (
+    LODChainTool,
+    RepairMeshTool,
+)
 
 logger = logging.getLogger("trigen.orchestrator")
 
@@ -519,6 +531,15 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "play_scene_transition": "animation",
     "list_scene_transitions": "inspection",
     "remove_scene_transition": "animation",
+    # Consensus voting + agent self-evaluation
+    "consensus_vote": "intelligence",
+    "self_evaluate": "intelligence",
+    # Voxel sculpting + particle systems
+    "voxel_sculpt": "procedural",
+    "create_particle_system": "creation",
+    # Mesh quality — LOD chain + watertight repair
+    "generate_lod_chain": "creation",
+    "repair_mesh": "creation",
 }
 
 
@@ -1051,6 +1072,15 @@ class AgentOrchestrator:
         registry.register(PlaySceneTransitionTool())
         registry.register(ListSceneTransitionsTool())
         registry.register(RemoveSceneTransitionTool())
+        # Multi-model consensus voting + agent self-evaluation
+        registry.register(ConsensusVoteTool(self.config.llm))
+        registry.register(SelfEvaluateTool())
+        # Voxel sculpting + particle system creation
+        registry.register(VoxelSculptTool())
+        registry.register(ParticleSystemTool())
+        # Mesh quality — LOD chain generation + watertight mesh repair
+        registry.register(LODChainTool())
+        registry.register(RepairMeshTool())
 
         # Apply the central category taxonomy to every registered tool so
         # the canonical mapping lives in one place (_TOOL_CATEGORIES above).
@@ -1823,8 +1853,11 @@ class AgentOrchestrator:
             "create", "add a", "add an", "new ", "make a", "make an", "generate a box",
             "duplicate", "copy", "delete", "remove", "boolean", "union", "subtract",
             "intersect", "array", "pattern", "instance",
+            "particle", "fire", "smoke", "sparks", "fountain", "explosion",
+            "lod", "level of detail", "repair", "watertight", "manifold",
             "立方体", "球", "圆柱", "圆锥", "圆环", "平面", "创建", "新建", "添加",
             "复制", "删除", "布尔", "阵列",
+            "粒子", "火焰", "烟雾", "火花", "喷泉", "爆炸", "修复", "水密",
         ],
         "transform": [
             "move", "translate", "rotate", "scale", "align", "distribute", "mirror",
@@ -1871,7 +1904,9 @@ class AgentOrchestrator:
             "terrain", "l-system", "lsystem", "plant", "tree", "shatter", "staircase",
             "spiral stair", "voronoi", "geodesic", "dome", "fractal", "sierpinski",
             "gyroid", "minimal surface", "lattice",
+            "voxel", "sculpt", "block", "cube grid",
             "地形", "植物", "树", "碎裂", "楼梯", "螺旋", "穹顶", "圆顶", "分形", "晶格",
+            "体素", "雕刻", "方块",
         ],
         "multimodal": [
             "generate image", "generate 3d", "generate video", "generate music",
@@ -1895,6 +1930,11 @@ class AgentOrchestrator:
             "solar system", "city", "studio lighting",
             "柱廊", "树林", "水晶", "星系", "银河", "原子", "桥", "禅", "齿轮",
             "分子", "雪人", "太阳系", "城市",
+        ],
+        "intelligence": [
+            "consensus", "vote", "evaluate", "self-evaluate", "score", "quality",
+            "critique", "refine", "auto fix", "autofix", "suggest",
+            "评估", "评分", "质量", "共识", "投票", "优化",
         ],
     }
 
