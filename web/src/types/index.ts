@@ -557,10 +557,10 @@ export interface PlanGraphEvent {
 
 /** Message sent by the client */
 export interface ClientMessage {
-  type: 'message'
+  type: 'message' | 'interrupt'
   data: {
-    message: string
-    session_id: string
+    message?: string
+    session_id?: string
     model?: string
   }
 }
