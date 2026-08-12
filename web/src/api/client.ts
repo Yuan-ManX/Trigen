@@ -157,6 +157,30 @@ export async function fetchPresets(): Promise<PresetsResponse> {
   return res.json() as Promise<PresetsResponse>
 }
 
+/** Default parameter presets for the newer generative tool families. */
+export interface ToolPresetDescriptor {
+  label: string
+  category: string
+  operations?: string[]
+  effects?: string[]
+  fixes?: string[]
+  criteria?: string[]
+  strategies?: string[]
+  defaults: Record<string, unknown>
+}
+
+export interface ToolPresetsResponse {
+  tools: Record<string, ToolPresetDescriptor>
+  count: number
+}
+
+/** Fetch default parameter presets for the newest tool families. */
+export async function fetchToolPresets(): Promise<ToolPresetsResponse> {
+  const res = await fetch('/api/presets/tools')
+  if (!res.ok) throw new Error(`Failed to fetch tool presets: ${res.status}`)
+  return res.json() as Promise<ToolPresetsResponse>
+}
+
 /** Creative skill descriptor returned by /api/skills */
 export interface SkillDescriptor {
   name: string
