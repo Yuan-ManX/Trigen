@@ -41,6 +41,8 @@ type StepId =
   | 'storyboard'
   | 'critique'
   | 'constraints'
+  | 'mesh_quality'
+  | 'evaluation'
   | 'shortcuts'
 
 interface TourStep {
@@ -156,6 +158,22 @@ const STEPS: TourStep[] = [
     title: 'Author spatial constraints and solve them',
     body: 'Open the Constraints panel (link icon) in the right bar to declaratively pin spatial relationships between objects: above, below, above_floor, faces, centered, min_distance, and aligned. Add a rule like "lamp above table" or "chair faces desk", then hit Solve to run the greedy solver — it adjusts subject transforms (and rotation for faces) in one pass so the scene satisfies every rule. Ask the Agent "keep the lamp above the table" or "make the chair face the desk" to add and solve constraints from chat.',
     hint: 'Tip: solve moves subjects only — anchors stay put. Pair with checkpoint before a risky re-arrange so you can roll back.',
+  },
+  {
+    id: 'mesh_quality',
+    icon: Workflow,
+    accent: 'text-accent-emerald',
+    title: 'Sculpt voxels, particles, and mesh quality',
+    body: 'Ask the Agent to "sculpt a voxel pyramid", "add a fountain particle system", "generate an LOD chain for the hero prop", or "repair the mesh so it is watertight". Voxel sculpting places blocky forms on a grid, particle systems emit looping fire/smoke/sparks/fountains, LOD chains spawn distance-ready lower-poly copies, and mesh repair caps openings and fixes thin or degenerate geometry for printing and real-time rendering.',
+    hint: 'Tip: particle systems animate automatically in the viewport — scrub the timeline to watch the effect loop and size-fade.',
+  },
+  {
+    id: 'evaluation',
+    icon: Brain,
+    accent: 'text-accent-cyan',
+    title: 'Self-evaluate and reach consensus',
+    body: 'Ask "evaluate the scene quality" and the self_evaluate tool scores your scene across composition, lighting, color harmony, complexity, and goal alignment — returning a quality rating plus one-tap suggested fixes. For high-stakes direction, run "a consensus vote on the material scheme" and the Agent queries several models in parallel, then synthesises the most agreed-upon answer with an agreement score.',
+    hint: 'Tip: pair self_evaluate with auto-fix — it proposes concrete corrective tool calls you can approve and run in one shot.',
   },
   {
     id: 'shortcuts',
