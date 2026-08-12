@@ -210,6 +210,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             steps={message.planSteps}
             goal={message.planGoal}
             breakdown={message.planBreakdown}
+            assumptions={message.planAssumptions}
+            risks={message.planRisks}
           />
         )}
 
