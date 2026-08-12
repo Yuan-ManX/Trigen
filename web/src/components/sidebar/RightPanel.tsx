@@ -3,7 +3,7 @@
 // scene checkpoints. Uses compact icon-only tabs (with tooltips) so the panels
 // fit within the 280px sidebar; the tab strip scrolls horizontally when needed.
 // Collapsible.
-import { Activity, Brain, Clapperboard, ClipboardCheck, Film, GitCommitVertical, Globe, Layers, Link2, ListTree, Network, PanelRightClose, Settings2, Users, Wand2, Wrench } from 'lucide-react'
+import { Activity, Brain, Clapperboard, ClipboardCheck, Film, GitCommitVertical, Globe, Layers, Link2, ListTree, Network, PanelRightClose, Settings2, SlidersHorizontal, Users, Wand2, Wrench } from 'lucide-react'
 import { useEditor, type PanelTab } from '../../store/useEditor'
 import { useScene } from '../../store/useScene'
 import { useChat } from '../../store/useChat'
@@ -22,6 +22,7 @@ import { SkillsTab } from './SkillsTab'
 import { StoryboardPanel } from './StoryboardPanel'
 import { Timeline } from './Timeline'
 import { ToolBrowser } from './ToolBrowser'
+import { ToolPresetsTab } from './ToolPresetsTab'
 
 interface RightPanelProps {
   onCollapse: () => void
@@ -53,6 +54,7 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
     { id: 'storyboard', icon: Film, label: 'Storyboard' },
     { id: 'critique', icon: ClipboardCheck, label: 'Critique' },
     { id: 'constraints', icon: Link2, label: 'Constraints' },
+    { id: 'toolPresets', icon: SlidersHorizontal, label: 'Generative Tools' },
   ]
 
   return (
@@ -106,6 +108,7 @@ export function RightPanel({ onCollapse }: RightPanelProps) {
         {effectiveTab === 'storyboard' && <StoryboardPanel />}
         {effectiveTab === 'critique' && <CritiquePanel />}
         {effectiveTab === 'constraints' && <ConstraintPanel />}
+        {effectiveTab === 'toolPresets' && <ToolPresetsTab />}
       </div>
     </aside>
   )
