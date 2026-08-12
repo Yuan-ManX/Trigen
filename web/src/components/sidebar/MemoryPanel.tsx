@@ -3,13 +3,15 @@
 // /api/agent/memory. Each fact renders as a chip with a category color and
 // a remove button. A small form at the top lets the user pin a new fact
 // (text + optional category). Bilingual labels: English / 中文.
-import { Brain, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { Brain, ChevronDown, ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   fetchAgentMemory,
+  fetchReflections,
   forgetAgentFact,
   pinAgentFact,
   type PinnedFact,
+  type TurnReflection,
 } from '../../api/client'
 import { useChat } from '../../store/useChat'
 import { useEditor } from '../../store/useEditor'
@@ -41,6 +43,8 @@ const CATEGORY_OPTIONS = ['general', 'project', 'preference', 'constraint', 'sty
 export function MemoryPanel() {
   const [facts, setFacts] = useState<PinnedFact[]>([])
   const [patternCount, setPatternCount] = useState(0)
+  const [reflections, setReflections] = useState<TurnReflection[]>([])
+  const [reflOpen, setReflOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // New-fact form state
@@ -48,23 +52,28 @@ export function MemoryPanel() {
   const [draftCategory, setDraftCategory] = useState('general')
   const [submitting, setSubmitting] = useState(false)
   const activePanel = useEditor((s) => s.activePanel)
+  const sessionId = useChat((s) => s.sessionId)
   const send = useChat((s) => s.send)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const mem = await fetchAgentMemory()
+      const [mem, reflRes] = await Promise.all([
+        fetchAgentMemory(),
+        fetchReflections(sessionId || 'default', 6).catch(() => ({ reflections: [] })),
+      ])
       // Backend stores facts in pinned_at order; sort newest-first client-side.
       const sorted = [...mem.pinned_facts].sort((a, b) => b.pinned_at - a.pinned_at)
       setFacts(sorted)
       setPatternCount(mem.summary?.pattern_count ?? 0)
+      setReflections(reflRes.reflections ?? [])
       setError(null)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load memory')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [sessionId])
 
   // Load on mount and whenever the memory tab becomes active.
   useEffect(() => {
@@ -244,6 +253,69 @@ export function MemoryPanel() {
           })
         )}
       </div>
+
+      {/* Session reflections — the Agent's own per-turn self-assessments */}
+      {reflections.length > 0 && (
+        <div className="px-3 py-2 border-t border-border-subtle">
+          <button
+            onClick={() => setReflOpen((v) => !v)}
+            className="w-full flex items-center gap-1.5 text-left"
+          >
+            {reflOpen ? (
+              <ChevronDown size={11} className="text-fg-muted" />
+            ) : (
+              <ChevronRight size={11} className="text-fg-muted" />
+            )}
+            <span className="text-[9px] uppercase tracking-wider text-fg-muted font-semibold">
+              Session reflections
+            </span>
+            <span className="text-[9px] text-fg-muted/60 font-mono ml-auto">
+              {reflections.length}
+            </span>
+          </button>
+          {reflOpen && (
+            <div className="mt-1.5 space-y-1.5">
+              {reflections.map((r) => {
+                const rating = r.quality?.rating
+                return (
+                  <div
+                    key={r.turn}
+                    className="rounded-md border border-border bg-bg-base/40 px-2 py-1.5"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-mono text-fg-muted">#{r.turn}</span>
+                      {typeof rating === 'string' && (
+                        <span
+                          className={`text-[8.5px] uppercase tracking-wide font-semibold px-1 py-px rounded ${
+                            rating === 'excellent'
+                              ? 'text-emerald-300 bg-emerald-400/10 border border-emerald-400/20'
+                              : rating === 'good'
+                                ? 'text-accent-cyan bg-accent-cyan/10 border border-accent-cyan/20'
+                                : 'text-amber-300 bg-amber-400/10 border border-amber-400/20'
+                          }`}
+                        >
+                          {rating}
+                        </span>
+                      )}
+                    </div>
+                    {r.goal && <p className="text-[10px] text-fg-secondary mt-0.5 truncate">{r.goal}</p>}
+                    {r.outcome && (
+                      <p className="text-[9.5px] text-fg-muted leading-relaxed mt-0.5 line-clamp-2">
+                        {r.outcome}
+                      </p>
+                    )}
+                    {r.tool_calls.length > 0 && (
+                      <p className="text-[8.5px] font-mono text-fg-muted/60 mt-0.5 truncate">
+                        {r.tool_calls.join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer hint */}
       <div className="px-3 py-2 border-t border-border-subtle text-[9px] text-fg-muted/70 flex items-center justify-between gap-1.5">
