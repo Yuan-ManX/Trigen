@@ -154,7 +154,49 @@ function friendlyName(name: string): string {
   return name.replace(/_/g, ' ')
 }
 
+/**
+ * Render tool arguments as a compact, human-readable sentence for the common
+ * editor tools, falling back to pretty JSON for unusual ones. This turns raw
+ * argument maps into the "why/what" a user can actually read at a glance.
+ */
+function summarizeArgs(name: string, args: Record<string, unknown>): string {
+  const esc = (v: unknown): string =>
+    typeof v === 'string' ? v : JSON.stringify(v)
+  const fmtVec = (v: unknown): string => {
+    if (Array.isArray(v)) return `(${(v as unknown[]).map((n) => Number(n).toFixed(2)).join(', ')})`
+    return String(v ?? 0)
+  }
+  switch (name) {
+    case 'create_object':
+      return `${esc(args.geometry_type ?? 'box')} "${esc(args.name ?? '')}"${args.color ? `, color ${esc(args.color)}` : ''} at ${fmtVec(args.position)}`
+    case 'transform_object':
+      return `move "${esc(args.target ?? '')}" to ${fmtVec(args.position)}${args.rotation ? `, rotate ${fmtVec(args.rotation)}` : ''}`
+    case 'apply_material':
+      return `apply ${esc(args.color ?? args.preset ?? 'material')} to "${esc(args.target ?? '')}"`
+    case 'add_light':
+      return `${esc(args.light_type ?? 'light')} "${esc(args.name ?? '')}" at ${fmtVec(args.position)}, intensity ${esc(args.intensity ?? 1)}`
+    case 'create_particle_system':
+      return `${esc(args.effect_type ?? 'fire')} particle system at ${fmtVec(args.position)}, intensity ${esc(args.intensity ?? 1)}`
+    case 'voxel_sculpt':
+      return `${esc(args.operation ?? 'add')} voxel${args.radius ? ` (radius ${esc(args.radius)})` : ''} at ${fmtVec(args.position)}`
+    case 'generate_lod_chain':
+      return `LOD chain for "${esc(args.target ?? '')}" with ${esc(args.levels ?? 3)} levels`
+    case 'repair_mesh':
+      return `repair "${esc(args.target ?? '')}" (${esc(args.fixes ?? ['all']).replace(/"/g, '')})`
+    case 'self_evaluate':
+      return `evaluate scene: "${esc(args.goal ?? '')}"${args.auto_fix ? ' (with auto-fix)' : ''}`
+    case 'consensus_vote':
+      return `multi-model vote (${esc(args.strategy ?? 'majority')}) on "${esc(args.prompt ?? '')}"`
+    case 'orbit_animation':
+      return `orbit "${esc(args.target ?? '')}" radius ${esc(args.radius ?? 3)}`
+    case 'create_particle_system':
+    default:
+      return ''
+  }
+}
+
 export function ToolCallCard({ call }: ToolCallCardProps) {
+  const humanArgs = summarizeArgs(call.name, call.arguments)
   const argString = (() => {
     try {
       return JSON.stringify(call.arguments, null, 2)
@@ -202,9 +244,19 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
       </div>
 
       {Object.keys(call.arguments).length > 0 && (
-        <pre className="px-3 py-2 text-[11px] font-mono text-fg-secondary overflow-x-auto max-h-40 leading-relaxed">
-          {argString}
-        </pre>
+        <div className="px-3 py-2">
+          {humanArgs ? (
+            <p className="text-[11.5px] text-fg-secondary leading-relaxed">{humanArgs}</p>
+          ) : null}
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[10px] text-fg-muted hover:text-fg-secondary select-none">
+              Raw arguments
+            </summary>
+            <pre className="mt-1 text-[11px] font-mono text-fg-secondary overflow-x-auto max-h-40 leading-relaxed">
+              {argString}
+            </pre>
+          </details>
+        </div>
       )}
 
       {call.result && (
