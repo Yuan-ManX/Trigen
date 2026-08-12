@@ -65,6 +65,11 @@ export interface ChatMessage {
    *  "create → material → light" objective sequence above the linear
    *  step checklist. Empty or undefined for single-intent turns. */
   planBreakdown?: PlanGoalBreakdown[]
+  /** Agent-stated assumptions and risks computed during planning, surfaced
+   *  from the `plan` event's `assumptions` / `risks` fields. Rendered by
+   *  PlanTrace so the user sees the "why" (e.g. an irreversible delete). */
+  planAssumptions?: string[]
+  planRisks?: string[]
   /** Proactive next-action suggestions attached to this assistant message
    *  by the `done` event. Rendered as a compact "Quick Actions" chip strip
    *  below the message body so the user can re-send a suggestion as a new
@@ -139,6 +144,7 @@ interface ChatState {
   disconnect: () => void
   send: (text: string) => void
   retry: () => void
+  stop: () => void
   setModel: (model: string) => void
   clearMessages: () => void
   toggleHistory: () => void
@@ -470,6 +476,12 @@ export const useChat = create<ChatState>((set, get) => {
           status: (s.status as PlanStep['status']) ?? 'pending',
         }))
         const goal = typeof ev.data.goal === 'string' ? ev.data.goal : ''
+        const assumptions: string[] | undefined = Array.isArray(ev.data.assumptions)
+          ? ev.data.assumptions.filter((a) => typeof a === 'string')
+          : undefined
+        const risks: string[] | undefined = Array.isArray(ev.data.risks)
+          ? ev.data.risks.filter((r) => typeof r === 'string')
+          : undefined
         const breakdown: PlanGoalBreakdown[] | undefined = Array.isArray(
           ev.data.goal_breakdown
         )
@@ -486,6 +498,8 @@ export const useChat = create<ChatState>((set, get) => {
                 planSteps: steps,
                 planGoal: goal,
                 planBreakdown: breakdown,
+                planAssumptions: assumptions,
+                planRisks: risks,
               }
               return { messages: msgs }
             }
@@ -498,6 +512,8 @@ export const useChat = create<ChatState>((set, get) => {
             planSteps: steps,
             planGoal: goal,
             planBreakdown: breakdown,
+            planAssumptions: assumptions,
+            planRisks: risks,
           })
           return { messages: msgs }
         })
@@ -919,6 +935,13 @@ export const useChat = create<ChatState>((set, get) => {
       set({ messages: cleaned })
       // Re-send the last user message
       get().send(lastUserText)
+    },
+
+    stop: () => {
+      // Ask the server to cancel the current turn. The socket stays open;
+      // the server replies with a ``done`` carrying an ``interrupted`` flag
+      // which finalizes the streaming message.
+      if (socket) socket.interrupt()
     },
 
     setModel: (model) => set({ model }),
