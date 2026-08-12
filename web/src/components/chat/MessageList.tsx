@@ -40,6 +40,11 @@ const SUGGESTIONS: SuggestionItem[] = [
   { icon: Boxes, label: 'Geodesic Dome', prompt: 'Create a geodesic dome with detail 2' },
   { icon: Spline, label: 'Fractal Tree', prompt: 'Create a fractal tree with branching 3 and depth 3' },
   { icon: Boxes, label: 'Gyroid Lattice', prompt: 'Create a gyroid lattice with resolution 8' },
+  // Trigen tools quick-start chips — voxel, particles, LOD, and evaluation
+  { icon: Boxes, label: 'Voxel Sculpt', prompt: 'Create a voxel sphere with radius 3' },
+  { icon: Sparkles, label: 'Particle Fire', prompt: 'Create a fire particle system' },
+  { icon: Boxes, label: 'LOD Chain', prompt: 'Generate LOD chain for the first object' },
+  { icon: Cog, label: 'Self Evaluate', prompt: 'Evaluate the scene quality' },
 ]
 
 interface MessageListProps {
