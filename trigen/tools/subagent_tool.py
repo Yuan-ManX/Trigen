@@ -176,6 +176,29 @@ SUBAGENT_PROFILES: Dict[str, Dict[str, Any]] = {
             "of the geometry you produced."
         ),
     },
+    "procedural_specialist": {
+        "description": (
+            "Sub-agent focused on generative structure synthesis: noise "
+            "terrains, L-system plants, spiral staircases, geodesic domes, "
+            "fractal gaskets/trees, and gyroid minimal-surface lattices."
+        ),
+        "tools": [
+            "terrain_generator", "l_system", "create_spiral_staircase",
+            "create_geodesic_dome", "create_fractal", "create_gyroid",
+            "radial_symmetry", "clone_with_jitter", "scene_info", "list_objects",
+        ],
+        "default_max_steps": 3,
+        "system_prompt": (
+            "You are Trigen's procedural generation specialist sub-agent. You "
+            "sculpt generative structures from primitives: noise terrains, "
+            "L-system plants, spiral staircases, geodesic domes, fractal "
+            "gaskets or trees, and gyroid minimal-surface lattices. Prefer one "
+            "focused generation per turn with deliberate parameters; name each "
+            "structure by its role (e.g. 'Canopy', 'Pavilion'). After your last "
+            "tool call, reply with a one-line summary of the structure you "
+            "produced."
+        ),
+    },
     "critique_specialist": {
         "description": (
             "Sub-agent focused on editorial review: running the scene "
@@ -246,7 +269,7 @@ _SUBAGENT_PARAMS = {
                 "system prompt. Profiles: lighting_specialist, "
                 "material_specialist, composition_specialist, "
                 "animation_specialist, geometry_specialist, "
-                "critique_specialist. When a profile "
+                "procedural_specialist, critique_specialist. When a profile "
                 "is supplied without an explicit 'tools' list, the profile's "
                 "default whitelist is used and mutate_scene is treated as "
                 "true unless explicitly set to false."
@@ -633,6 +656,7 @@ _ENSEMBLE_PROFILE_TO_ASPECT: Dict[str, Dict[str, str]] = {
     "animation_specialist": {"aspect": "motion", "focus": "Keyframe animation, timing, and playback pacing"},
     "critique_specialist": {"aspect": "critique", "focus": "Editorial review: weak points and what to fix first"},
     "geometry_specialist": {"aspect": "geometry", "focus": "Mesh construction, structure, and procedural detail"},
+    "procedural_specialist": {"aspect": "generative", "focus": "Generative structure synthesis and procedural detail"},
 }
 
 _ENSEMBLE_PARAMS = {
