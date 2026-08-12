@@ -3,22 +3,24 @@
 Every chat turn already produces a short end-of-turn narrative written by
 the orchestrator (the ``reflection`` thinking phase: what the Agent built,
 what failed, the resulting scene, and what it would try next). That text is
-streamed to the UI but discarded on process exit. This module captures those
-reflections as structured, queryable records so the Agent's self-assessment
-becomes a durable learning surface:
+streamed to the UI and captured here as structured, queryable records so the
+Agent's self-assessment becomes a durable learning surface:
 
   - ``GET /agent/reflection/{session_id}`` inspects every turn's reflection.
   - The ``reflect_on_session`` tool summarises recent reflections so the
     Agent can ground its next reply in what it learned from prior turns.
 
-The store is a process-local ring buffer (like ``TraceStore``): per-session
-entries are capped and oldest evicted. It is intentionally not persisted —
-reflections describe a live editing session and are reset on restart.
+The store is a per-session ring buffer (capped and oldest evicted) persisted
+to ``<workspace>/reflections.json`` — the same durable file backing that the
+episodic memory store uses — so reflections survive process restarts and can
+be injected into later turns as a compact memory digest.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -63,14 +65,72 @@ class SessionReflection:
             "ts": self.ts,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SessionReflection":
+        """Rebuild a reflection from a persisted dict."""
+        obj = cls(
+            turn=int(data.get("turn", 0)),
+            goal=str(data.get("goal", "")),
+            tool_calls=list(data.get("tool_calls", []) or []),
+            outcome=str(data.get("outcome", "")),
+            quality=dict(data.get("quality", {}) or {}),
+            elapsed=float(data.get("elapsed", 0.0)),
+        )
+        obj.ts = float(data.get("ts", obj.ts))
+        return obj
+
 
 class ReflectionStore:
-    """Bounded, thread-safe, per-session store of turn reflections."""
+    """Bounded, thread-safe, per-session store of turn reflections.
+
+    Persisted to ``<workspace>/reflections.json`` so reflections survive
+    process restarts and can be injected into later turns as a memory digest.
+    """
 
     def __init__(self, max_per_session: int = DEFAULT_MAX_PER_SESSION) -> None:
         self._max = max_per_session
         self._items: Dict[str, List[SessionReflection]] = {}
         self._lock = threading.Lock()
+        self._path: Optional[str] = None
+
+    def init(self, workspace_dir: str) -> None:
+        """Set the persistence path and load any existing reflections."""
+        with self._lock:
+            self._path = os.path.join(workspace_dir, "reflections.json")
+            self._items = self._load_locked()
+
+    def _load_locked(self) -> Dict[str, List[SessionReflection]]:
+        if not self._path or not os.path.exists(self._path):
+            return {}
+        try:
+            with open(self._path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            items: Dict[str, List[SessionReflection]] = {}
+            if isinstance(raw, dict):
+                for sid, buf in raw.items():
+                    if not isinstance(buf, list):
+                        continue
+                    items[sid] = [SessionReflection.from_dict(r) for r in buf if isinstance(r, dict)]
+            return items
+        except Exception:
+            logger.exception("Failed loading reflections; starting fresh")
+            return {}
+
+    def save(self) -> None:
+        """Persist all reflections to disk (best-effort)."""
+        with self._lock:
+            if not self._path:
+                return
+            try:
+                os.makedirs(os.path.dirname(self._path), exist_ok=True)
+                payload = {
+                    sid: [r.to_dict() for r in buf]
+                    for sid, buf in self._items.items()
+                }
+                with open(self._path, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False, indent=2)
+            except Exception:
+                logger.exception("Failed saving reflections")
 
     def record(
         self,
@@ -91,6 +151,7 @@ class ReflectionStore:
             buf.append(refl)
             while len(buf) > self._max:
                 buf.pop(0)
+        self.save()
 
     def get(
         self,
