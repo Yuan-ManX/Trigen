@@ -45,6 +45,8 @@ const SUGGESTIONS: SuggestionItem[] = [
   { icon: Sparkles, label: 'Particle Fire', prompt: 'Create a fire particle system' },
   { icon: Boxes, label: 'LOD Chain', prompt: 'Generate LOD chain for the first object' },
   { icon: Cog, label: 'Self Evaluate', prompt: 'Evaluate the scene quality' },
+  { icon: Boxes, label: 'Mesh Repair', prompt: 'Repair the first object to make it watertight' },
+  { icon: Sparkles, label: 'Consensus Vote', prompt: 'Run a consensus vote on the best material scheme for this scene' },
 ]
 
 interface MessageListProps {
