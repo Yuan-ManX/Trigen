@@ -74,10 +74,69 @@ def _resolve_image_tags(
 
 @router.websocket("/chat/ws")
 async def chat_ws(websocket: WebSocket) -> None:
-    """WebSocket chat endpoint, streaming Agent events."""
+    """WebSocket chat endpoint, streaming Agent events.
+
+    Supports an ``interrupt`` inbound message that cancels the currently
+    running generation turn, so the user can stop a runaway plan without
+    dropping the socket. On interrupt, a clean ``done`` (with an
+    ``interrupted`` flag) event is emitted and the connection stays open.
+    """
     await websocket.accept()  # Accept WebSocket connection
     agent = AgentService.get()
     session_svc = SessionService.get()
+
+    # Holds the streaming task for the current turn so an interrupt can
+    # cancel it mid-flight while keeping the socket alive.
+    stream_task: Optional[asyncio.Task] = None
+    current_session: Optional[str] = None
+
+    async def _stream(message: str, session_id: str, model: Optional[str]) -> None:
+        _, images = _resolve_image_tags(message, agent.config.workspace_dir)
+        interrupted = False
+        try:
+            async for event in agent.chat_stream(
+                message, session_id, model=model, images=images
+            ):
+                await websocket.send_text(event.to_json())
+                # Persist exported assets
+                if event.type.value == "tool_result":
+                    ed = event.data
+                    if ed.get("name") == "export_scene" and ed.get("success"):
+                        export_data = ed.get("data", {})
+                        await session_svc.log_asset(
+                            session_id,
+                            export_data.get("filename", "export"),
+                            export_data.get("format", "glb"),
+                            export_data.get("path", ""),
+                            int(export_data.get("size_kb", 0)),
+                        )
+                if event.type.value == "done":
+                    await session_svc.log_assistant_message(session_id, event.data.get("content", ""))
+        except asyncio.CancelledError:
+            interrupted = True
+            await websocket.send_text(
+                json.dumps({
+                    "type": "done",
+                    "data": {
+                        "content": "",
+                        "session_id": session_id,
+                        "interrupted": True,
+                        "message": "Generation interrupted by user.",
+                    },
+                })
+            )
+        except Exception as e:
+            logger.exception("Agent streaming error")
+            try:
+                await websocket.send_text(
+                    json.dumps({"type": "error", "data": {"message": str(e)}})
+                )
+            except Exception:
+                pass  # Ignore on send failure
+        finally:
+            nonlocal stream_task
+            stream_task = None
+            current_session = None
 
     try:
         while True:
@@ -88,6 +147,12 @@ async def chat_ws(websocket: WebSocket) -> None:
                 await websocket.send_text(
                     json.dumps({"type": "error", "data": {"message": f"Invalid message format: {e}"}})
                 )
+                continue
+
+            if incoming.type == "interrupt":
+                # Cancel the running turn (if any) and continue serving.
+                if stream_task is not None and not stream_task.done():
+                    stream_task.cancel()
                 continue
 
             if incoming.type != "message":
@@ -101,38 +166,13 @@ async def chat_ws(websocket: WebSocket) -> None:
             if not message:
                 continue  # Skip empty message
 
-            # Resolve any [Image: media_id] tags into base64 attachments
-            # so the orchestrator can pass them to vision LLMs and the
-            # image_to_3d tool.
-            message, images = _resolve_image_tags(message, agent.config.workspace_dir)
-
             await session_svc.log_user_message(session_id, message)
-
-            try:
-                async for event in agent.chat_stream(
-                    message, session_id, model=model, images=images
-                ):
-                    await websocket.send_text(event.to_json())
-                    # Persist exported assets
-                    if event.type.value == "tool_result":
-                        ed = event.data
-                        if ed.get("name") == "export_scene" and ed.get("success"):
-                            export_data = ed.get("data", {})
-                            await session_svc.log_asset(
-                                session_id,
-                                export_data.get("filename", "export"),
-                                export_data.get("format", "glb"),
-                                export_data.get("path", ""),
-                                int(export_data.get("size_kb", 0)),
-                            )
-                    if event.type.value == "done":
-                        await session_svc.log_assistant_message(session_id, event.data.get("content", ""))
-            except Exception as e:
-                logger.exception("Agent streaming error")
-                await websocket.send_text(
-                    json.dumps({"type": "error", "data": {"message": str(e)}})
-                )
+            current_session = session_id
+            stream_task = asyncio.create_task(_stream(message, session_id, model))
     except WebSocketDisconnect:
+        # If the client disconnects mid-turn, stop the running task.
+        if stream_task is not None and not stream_task.done():
+            stream_task.cancel()
         logger.info("WebSocket client disconnected")  # Client disconnected actively
     except Exception as e:
         logger.exception("WebSocket error")
