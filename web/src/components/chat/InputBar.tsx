@@ -1,5 +1,5 @@
 // Input bar: model selector + image upload + multiline input box + send button
-import { Check, ChevronDown, Image as ImageIcon, Loader2, Search, Send, X } from 'lucide-react'
+import { Check, ChevronDown, Image as ImageIcon, Loader2, Search, Send, Square, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   fetchModelAvailability,
@@ -306,6 +306,7 @@ export function InputBar() {
    *  render a drop-target highlight border. */
   const [dragOver, setDragOver] = useState(false)
   const send = useChat((s) => s.send)
+  const stop = useChat((s) => s.stop)
   const isResponding = useChat((s) => s.isResponding)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -502,15 +503,27 @@ export function InputBar() {
               className="hidden"
             />
           </div>
-          <button
-            onClick={handleSend}
-            disabled={!canSend}
-            aria-label="Send message"
-            className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all text-[11px] font-medium"
-          >
-            <Send size={13} />
-            <span>Send</span>
-          </button>
+          {isResponding ? (
+            <button
+              onClick={stop}
+              aria-label="Stop generating"
+              title="Stop the current generation"
+              className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all text-[11px] font-medium"
+            >
+              <Square size={13} />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              aria-label="Send message"
+              className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all text-[11px] font-medium"
+            >
+              <Send size={13} />
+              <span>Send</span>
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-1.5 px-1 text-center">
