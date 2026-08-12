@@ -1619,6 +1619,188 @@ class SnowmanSkill(SkillBase):
 
 
 # ---------------------------------------------------------------------------
+# Effects skills — drive the particle / voxel / mesh-quality tool families
+# ---------------------------------------------------------------------------
+
+class ParticleFountainSkill(SkillBase):
+    """Animated particle fountain centered on a plinth."""
+    name = "particle_fountain"
+    description = "Generate an animated fountain with a glowing particle spray rising above a central plinth."
+    category = "effects"
+    icon = "sparkles"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "effect": {"type": "string", "enum": ["fountain", "fire", "sparks", "magic", "explosion"], "description": "Particle effect (default fountain)"},
+                "intensity": {"type": "number", "description": "Particle density 0.1-2.0 (default 1.0)"},
+                "plinth": {"type": "boolean", "description": "Add a pedestal plinth (default true)"},
+                "scale": {"type": "number", "description": "Effect scale (default 1.0)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        effect = str(arguments.get("effect", "fountain"))
+        intensity = float(arguments.get("intensity", 1.0))
+        scale = float(arguments.get("scale", 1.0))
+        add_plinth = bool(arguments.get("plinth", True))
+        result: List[TaskStep] = []
+
+        if add_plinth:
+            result.append(self._step(
+                "create_object",
+                {"geometry_type": "cylinder", "name": f"{id_prefix}FountainPlinth", "position": [0, 0.15, 0], "scale": [1.2, 0.3, 1.2]},
+                f"{id_prefix}plinth",
+                "Fountain plinth",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": f"{id_prefix}FountainPlinth", "color": "#8a8a92", "roughness": 0.4, "metalness": 0.4},
+                f"{id_prefix}plinth_mat",
+                "Stone plinth",
+            ))
+
+        result.append(self._step(
+            "create_particle_system",
+            {"effect_type": effect, "intensity": intensity, "scale": scale, "position": [0, 0.6, 0], "name": f"{id_prefix}FountainSpray"},
+            f"{id_prefix}fx",
+            f"{effect.capitalize()} particle spray",
+        ))
+        result.append(self._step(
+            "set_background",
+            {"color": "#0a0a14"},
+            f"{id_prefix}bg",
+            "Dark backdrop",
+        ))
+        return result
+
+
+class VoxelTerrainSkill(SkillBase):
+    """Voxel-based mountain / pyramid terrain."""
+    name = "voxel_terrain"
+    description = "Generate a voxel terrain landscape with layered mountains and a central peak using voxel sculpting."
+    category = "terrain"
+    icon = "terrain"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "peaks": {"type": "integer", "description": "Number of mountain peaks (default 3)"},
+                "base": {"type": "integer", "description": "Voxel base footprint per peak (default 6)"},
+                "spread": {"type": "number", "description": "Horizontal spread between peaks (default 4)"},
+                "color": {"type": "string", "description": "Voxel color (default #5a7a4a)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        import random
+        rng = random.Random(arguments.get("seed", 13))
+        peaks = max(1, min(6, int(arguments.get("peaks", 3))))
+        base = max(3, min(8, int(arguments.get("base", 6))))
+        spread = float(arguments.get("spread", 4))
+        color = str(arguments.get("color", "#5a7a4a"))
+        result: List[TaskStep] = []
+
+        for i in range(peaks):
+            ox = (i - (peaks - 1) / 2) * spread
+            rng.uniform(-0.5, 0.5)
+            result.append(self._step(
+                "voxel_sculpt",
+                {"operation": "pyramid", "position": [ox, 0, 0], "dimensions": [base, 0, 0], "color": color, "size": 1},
+                f"{id_prefix}peak_{i}",
+                f"Mountain peak {i + 1}",
+            ))
+        result.append(self._step(
+            "set_background",
+            {"color": "#0b1220"},
+            f"{id_prefix}bg",
+            "Twilight sky",
+        ))
+        return result
+
+
+class StarfighterSkill(SkillBase):
+    """Sci-fi starfighter built from emissive primitives + engine glow."""
+    name = "starfighter"
+    description = "Generate a stylized sci-fi starfighter with a fuselage, wings, cockpit, and glowing engine particle exhaust."
+    category = "sci_fi"
+    icon = "sparkles"
+
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "wingspan": {"type": "number", "description": "Wingspan (default 3.0)"},
+                "exhaust": {"type": "boolean", "description": "Add engine particle exhaust (default true)"},
+                "color": {"type": "string", "description": "Hull color (default #c8d0e0)"},
+            },
+        }
+
+    def build_steps(self, arguments: Dict[str, Any], id_prefix: str = "") -> List[TaskStep]:
+        wingspan = float(arguments.get("wingspan", 3.0))
+        exhaust = bool(arguments.get("exhaust", True))
+        color = str(arguments.get("color", "#c8d0e0"))
+        result: List[TaskStep] = []
+
+        # Fuselage
+        result.append(self._step(
+            "create_object",
+            {"geometry_type": "cylinder", "name": f"{id_prefix}Fuselage", "position": [0, 0, 0], "rotation": [1.5708, 0, 0], "scale": [0.5, 1.4, 0.5]},
+            f"{id_prefix}body",
+            "Fuselage",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": f"{id_prefix}Fuselage", "color": color, "roughness": 0.3, "metalness": 0.8},
+            f"{id_prefix}body_mat",
+            "Hull metal",
+        ))
+        # Wings (left + right)
+        for side, sx in (("L", -1), ("R", 1)):
+            result.append(self._step(
+                "create_object",
+                {"geometry_type": "box", "name": f"{id_prefix}Wing{side}", "position": [sx * wingspan * 0.5, 0, -0.1], "scale": [wingspan * 0.5, 0.08, 0.6]},
+                f"{id_prefix}wing_{side}",
+                f"Wing {side}",
+            ))
+            result.append(self._step(
+                "apply_material",
+                {"target": f"{id_prefix}Wing{side}", "color": color, "roughness": 0.3, "metalness": 0.8},
+                f"{id_prefix}wing_mat_{side}",
+                f"Wing {side} metal",
+            ))
+        # Cockpit
+        result.append(self._step(
+            "create_object",
+            {"geometry_type": "sphere", "name": f"{id_prefix}Cockpit", "position": [0, 0.35, -0.4], "scale": [0.22, 0.22, 0.3]},
+            f"{id_prefix}canopy",
+            "Cockpit canopy",
+        ))
+        result.append(self._step(
+            "apply_material",
+            {"target": f"{id_prefix}Cockpit", "color": "#9ad8ff", "emissive": "#66ccff", "emissive_intensity": 1.6, "metalness": 0.2, "roughness": 0.1},
+            f"{id_prefix}canopy_mat",
+            "Glowing canopy",
+        ))
+        if exhaust:
+            result.append(self._step(
+                "create_particle_system",
+                {"effect_type": "fire", "intensity": 0.8, "scale": 0.6, "position": [0, 0, 1.2], "name": f"{id_prefix}Exhaust"},
+                f"{id_prefix}exhaust",
+                "Engine exhaust trail",
+            ))
+        result.append(self._step(
+            "set_background",
+            {"color": "#02040c"},
+            f"{id_prefix}bg",
+            "Deep space",
+        ))
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Skill registry
 # ---------------------------------------------------------------------------
 
@@ -1665,4 +1847,7 @@ def build_default_registry() -> SkillRegistry:
     reg.register(GearAssemblySkill())
     reg.register(MoleculeSkill())
     reg.register(SnowmanSkill())
+    reg.register(ParticleFountainSkill())
+    reg.register(VoxelTerrainSkill())
+    reg.register(StarfighterSkill())
     return reg
