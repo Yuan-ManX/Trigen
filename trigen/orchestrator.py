@@ -75,6 +75,7 @@ from trigen.tools import (
     FrameViewTool,
     GeodesicDomeTool,
     FractalRecursionTool,
+    GyroidLatticeTool,
     Generate3DAssetTool,
     GenerateAnimationTool,
     GenerateImageTool,
@@ -402,6 +403,7 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "voronoi_shatter": "procedural",
     "create_geodesic_dome": "procedural",
     "create_fractal": "procedural",
+    "create_gyroid": "procedural",
     # multimodal — external generative media
     "generate_image": "multimodal",
     "generate_3d_asset": "multimodal",
@@ -859,6 +861,7 @@ class AgentOrchestrator:
         registry.register(VoronoiShatterTool())
         registry.register(GeodesicDomeTool())
         registry.register(FractalRecursionTool())
+        registry.register(GyroidLatticeTool())
         # Object animation
         registry.register(KeyframeAnimationTool())
         registry.register(OrbitAnimationTool())
@@ -1867,7 +1870,8 @@ class AgentOrchestrator:
         "procedural": [
             "terrain", "l-system", "lsystem", "plant", "tree", "shatter", "staircase",
             "spiral stair", "voronoi", "geodesic", "dome", "fractal", "sierpinski",
-            "地形", "植物", "树", "碎裂", "楼梯", "螺旋", "穹顶", "圆顶", "分形",
+            "gyroid", "minimal surface", "lattice",
+            "地形", "植物", "树", "碎裂", "楼梯", "螺旋", "穹顶", "圆顶", "分形", "晶格",
         ],
         "multimodal": [
             "generate image", "generate 3d", "generate video", "generate music",
