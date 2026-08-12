@@ -21,6 +21,8 @@ interface PlanTraceProps {
   steps: PlanStep[]
   goal?: string
   breakdown?: PlanGoalBreakdown[]
+  assumptions?: string[]
+  risks?: string[]
 }
 
 const STATUS_META: Record<
@@ -51,7 +53,7 @@ const BREAKDOWN_ACCENT: Record<string, string> = {
 
 const DEFAULT_BREAKDOWN_ACCENT = 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
 
-export function PlanTrace({ steps, goal, breakdown }: PlanTraceProps) {
+export function PlanTrace({ steps, goal, breakdown, assumptions, risks }: PlanTraceProps) {
   const [open, setOpen] = useState(true)
   if (!steps || steps.length === 0) return null
 
@@ -161,6 +163,38 @@ export function PlanTrace({ steps, goal, breakdown }: PlanTraceProps) {
               )
             })}
           </div>
+
+          {/* Agent-stated assumptions and risks — the "why" behind the plan */}
+          {((assumptions && assumptions.length > 0) || (risks && risks.length > 0)) && (
+            <div className="pt-1.5 border-t border-border-subtle space-y-1.5">
+              {assumptions && assumptions.length > 0 && (
+                <div className="space-y-0.5">
+                  <div className="text-[9px] uppercase tracking-wider text-fg-muted font-semibold">
+                    Assumptions
+                  </div>
+                  {assumptions.map((a, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[10.5px] text-fg-secondary">
+                      <span className="text-fg-muted">•</span>
+                      <span className="leading-relaxed">{a}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {risks && risks.length > 0 && (
+                <div className="space-y-0.5">
+                  <div className="text-[9px] uppercase tracking-wider text-amber-400/80 font-semibold">
+                    Risks
+                  </div>
+                  {risks.map((r, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[10.5px] text-amber-200/80">
+                      <span className="text-amber-400/80">⚠</span>
+                      <span className="leading-relaxed">{r}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
