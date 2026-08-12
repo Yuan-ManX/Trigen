@@ -382,6 +382,11 @@ const ANIM_TYPES: Array<{ value: ObjectAnimation['type']; label: string }> = [
   { value: 'wave', label: 'Wave' },
   { value: 'bounce', label: 'Bounce' },
   { value: 'keyframe', label: 'Keyframe' },
+  { value: 'pulse', label: 'Pulse' },
+  { value: 'sway', label: 'Sway' },
+  { value: 'spin', label: 'Spin' },
+  { value: 'particle', label: 'Particle' },
+  { value: 'lod', label: 'LOD' },
 ]
 
 function ObjectAnimationEditor({ object }: { object: { id: string; animation?: ObjectAnimation | null } }) {
