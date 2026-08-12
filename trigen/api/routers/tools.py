@@ -79,6 +79,73 @@ async def list_presets() -> PresetsResponse:
     )
 
 
+# Default parameter presets for the newer generative tool families. These give
+# the frontend a data source to render parameterized forms without duplicating
+# tool schemas client-side. Grouped by tool name, matching the registry.
+_TOOL_PRESETS: Dict[str, Dict[str, Any]] = {
+    "voxel_sculpt": {
+        "label": "Voxel Sculpt",
+        "category": "procedural",
+        "operations": ["sphere", "box", "pyramid", "add", "remove", "paint"],
+        "defaults": {
+            "operation": "sphere",
+            "size": 1,
+            "color": "#ff6600",
+            "radius": 3,
+            "dimensions": [5, 5, 5],
+        },
+    },
+    "create_particle_system": {
+        "label": "Particle System",
+        "category": "creation",
+        "effects": ["fire", "smoke", "sparks", "fountain", "explosion", "dust", "magic"],
+        "defaults": {
+            "effect_type": "fire",
+            "intensity": 1.0,
+            "scale": 1.0,
+            "position": [0, 0, 0],
+        },
+    },
+    "generate_lod_chain": {
+        "label": "LOD Chain",
+        "category": "creation",
+        "defaults": {"levels": 3, "reduction_factor": 0.5, "auto_tag": True},
+    },
+    "repair_mesh": {
+        "label": "Mesh Repair",
+        "category": "creation",
+        "fixes": ["fill_holes", "cap_openings", "remove_duplicates", "fix_normals", "thicken_thin_walls", "all"],
+        "defaults": {"min_wall_thickness": 0.05, "report_only": False},
+    },
+    "self_evaluate": {
+        "label": "Self Evaluate",
+        "category": "intelligence",
+        "criteria": ["composition", "lighting", "color_harmony", "complexity", "goal_alignment"],
+        "defaults": {"auto_fix": False},
+    },
+    "consensus_vote": {
+        "label": "Consensus Vote",
+        "category": "intelligence",
+        "strategies": ["majority", "best_of_3", "first_success"],
+        "defaults": {"strategy": "majority", "max_models": 3},
+    },
+}
+
+
+@router.get("/presets/tools")
+async def list_tool_presets() -> Dict[str, Any]:
+    """List default parameter presets for the newer generative tool families.
+
+    Returns per-tool defaults (operations, effect types, criteria, strategies)
+    so the frontend can render parameterized tool forms without duplicating
+    tool schemas client-side. Complements the base ``/presets`` endpoint.
+    """
+    return {
+        "tools": _TOOL_PRESETS,
+        "count": len(_TOOL_PRESETS),
+    }
+
+
 # Smart compose scene templates
 SCENE_TEMPLATES = [
     {"id": "solar_system", "name": "Solar System", "description": "Sun with 8 orbiting planets and orbital rings"},
