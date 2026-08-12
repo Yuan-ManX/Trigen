@@ -1023,3 +1023,191 @@ class FractalRecursionTool(ToolBase):
             deltas=deltas,
             data={"count": created, "fractal_type": fractal_type, "depth": depth, "tag": f"fractal:{batch}"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Gyroid lattice — a triply-periodic minimal-surface lattice. The gyroid scalar
+# field is sampled on a voxel grid and the edges whose endpoints straddle the
+# zero isosurface are kept as strut cylinders, with joint spheres at every
+# incident vertex. This yields the interconnected "minimal surface" wireframe
+# widely used in architectural metamaterials and biomimetic scaffolds.
+# ---------------------------------------------------------------------------
+
+_GYROID_PARAMS = {
+    "type": "object",
+    "properties": {
+        "size": {"type": "number", "description": "Bounding-box side length (default 6.0)"},
+        "resolution": {"type": "integer", "description": "Grid cells per axis (default 8, max 14)", "minimum": 3, "maximum": 14},
+        "period": {"type": "number", "description": "Gyroid field period — smaller gives tighter folds (default 2.4)"},
+        "cell_offset": {"type": "number", "description": "Phase offset applied to all three axes (default 0.0)"},
+        "joint_radius": {"type": "number", "description": "Sphere radius at lattice vertices (default 0.08)"},
+        "strut_radius": {"type": "number", "description": "Cylinder radius for lattice edges (default 0.025)"},
+        "color": {"type": "string", "description": "Lattice color (default #cfd8ff)"},
+        "position": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "Lattice origin [x, y, z] (default [0, 0, 0])",
+        },
+        "name": {"type": "string", "description": "Optional lattice name prefix"},
+    },
+    "required": [],
+}
+
+
+class GyroidLatticeTool(ToolBase):
+    """Generate a triply-periodic minimal-surface lattice from the gyroid field.
+
+    The gyroid is an isosurface embedded in all three directions at once:
+      F(x,y,z) = sin(x)cos(y) + sin(y)cos(z) + sin(z)cos(x)
+    Sampling F on a voxel grid and keeping the edges across which F changes
+    sign recovers the classic interconnected minimal-surface wireframe. A joint
+    sphere is placed at every vertex incident to at least one crossing edge and
+    an oriented strut cylinder connects the endpoints of each crossing edge.
+    All members share a generation tag so they can be selected, animated, and
+    exported as a single unit.
+    """
+
+    name = "create_gyroid"
+    description = (
+        "Create a gyroid lattice: a triply-periodic minimal-surface wireframe "
+        "built from joint spheres and strut cylinders by sampling the gyroid "
+        "field on a voxel grid. Ideal for architectural metamaterials, "
+        "biomimetic scaffolds, and generative structure studies."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _GYROID_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        size = max(1.0, float(arguments.get("size", 6.0)))
+        resolution = max(3, min(14, int(arguments.get("resolution", 8))))
+        period = max(0.5, float(arguments.get("period", 2.4)))
+        offset = float(arguments.get("cell_offset", 0.0))
+        joint_radius = max(0.01, float(arguments.get("joint_radius", 0.08)))
+        strut_radius = max(0.005, float(arguments.get("strut_radius", 0.025)))
+        color = str(arguments.get("color", "#cfd8ff"))
+        position = arguments.get("position", [0, 0, 0])
+        if not isinstance(position, list) or len(position) != 3:
+            position = [0.0, 0.0, 0.0]
+        px, py, pz = float(position[0]), float(position[1]), float(position[2])
+        prefix = str(arguments.get("name", "")).strip() or "Gyroid"
+
+        def _field(x: float, y: float, z: float) -> float:
+            k = 2.0 * math.pi / period
+            fx, fy, fz = x * k, y * k, z * k
+            return (
+                math.sin(fx) * math.cos(fy)
+                + math.sin(fy) * math.cos(fz)
+                + math.sin(fz) * math.cos(fx)
+            )
+
+        n = resolution
+        step = size / n
+
+        # Sample the gyroid field at every grid vertex.
+        values: List[List[List[float]]] = []
+        for i in range(n + 1):
+            row: List[List[float]] = []
+            for j in range(n + 1):
+                col: List[float] = []
+                for k in range(n + 1):
+                    x = -size / 2.0 + i * step
+                    y = -size / 2.0 + j * step
+                    z = -size / 2.0 + k * step
+                    col.append(_field(x + offset, y + offset, z + offset))
+                row.append(col)
+            values.append(row)
+
+        def _index(i: int, j: int, k: int) -> int:
+            return i * (n + 1) * (n + 1) + j * (n + 1) + k
+
+        def _pos(i: int, j: int, k: int) -> List[float]:
+            return [-size / 2.0 + i * step, -size / 2.0 + j * step, -size / 2.0 + k * step]
+
+        # Collect edges whose endpoints straddle the zero isosurface.
+        edge_keys = set()
+
+        def _add_edge(a: int, b: int) -> None:
+            edge_keys.add((a, b) if a < b else (b, a))
+
+        for i in range(n + 1):
+            for j in range(n + 1):
+                for k in range(n + 1):
+                    v = values[i][j][k]
+                    if i < n and (v < 0) != (values[i + 1][j][k] < 0):
+                        _add_edge(_index(i, j, k), _index(i + 1, j, k))
+                    if j < n and (v < 0) != (values[i][j + 1][k] < 0):
+                        _add_edge(_index(i, j, k), _index(i, j + 1, k))
+                    if k < n and (v < 0) != (values[i][j][k + 1] < 0):
+                        _add_edge(_index(i, j, k), _index(i, j, k + 1))
+
+        # Vertices incident to at least one crossing edge get a joint sphere.
+        incident = set()
+        for a, b in edge_keys:
+            incident.add(a)
+            incident.add(b)
+
+        batch = uuid.uuid4().hex[:6]
+        deltas: List[SceneDelta] = []
+        created = 0
+
+        def _place(
+            pos_world: List[float],
+            geometry: Dict[str, Any],
+            tag: str,
+            extra: str,
+            rotation: Optional[List[float]] = None,
+        ) -> None:
+            nonlocal created
+            obj = SceneObject(
+                name=f"{prefix}_{tag}_{batch}_{extra}",
+                type="mesh",
+                geometry=Geometry(**geometry),
+                material=Material(color=color, metalness=0.2, roughness=0.4),
+                transform=Transform(
+                    position=[pos_world[0] + px, pos_world[1] + py, pos_world[2] + pz],
+                    rotation=rotation if rotation is not None else [0.0, 0.0, 0.0],
+                    scale=[1.0, 1.0, 1.0],
+                ),
+                tags=[f"gyroid:{batch}"],
+            )
+            scene.objects.append(obj)
+            created += 1
+            deltas.append(SceneDelta(action="create", target_id=obj.id, payload=obj.to_dict()))
+
+        stride = (n + 1) * (n + 1)
+        for idx in incident:
+            i = idx // stride
+            rem = idx % stride
+            j = rem // (n + 1)
+            k = rem % (n + 1)
+            _place(_pos(i, j, k), {"type": "sphere", "params": {"radius": joint_radius}}, "Joint", str(idx))
+
+        for ei, (a, b) in enumerate(sorted(edge_keys)):
+            ia, ra = a // stride, a % stride
+            ja, ka = ra // (n + 1), ra % (n + 1)
+            ib, rb = b // stride, b % stride
+            jb, kb = rb // (n + 1), rb % (n + 1)
+            va, vb = _pos(ia, ja, ka), _pos(ib, jb, kb)
+            dx, dy, dz = vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]
+            length = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if length < 1e-9:
+                continue
+            ux, uy, uz = dx / length, dy / length, dz / length
+            _place(
+                [(va[0] + vb[0]) * 0.5, (va[1] + vb[1]) * 0.5, (va[2] + vb[2]) * 0.5],
+                {
+                    "type": "cylinder",
+                    "params": {"radiusTop": strut_radius, "radiusBottom": strut_radius, "height": length},
+                },
+                "Strut",
+                str(ei),
+                rotation=_euler_align_y(ux, uy, uz),
+            )
+
+        return ToolResult(
+            success=True,
+            message=f"Generated gyroid lattice with {created} members (resolution={resolution}, period={period:.2f})",
+            deltas=deltas,
+            data={"count": created, "resolution": resolution, "period": period, "tag": f"gyroid:{batch}"},
+        )
