@@ -29,6 +29,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from trigen.config import AgentConfig
 from trigen.context import compress_session, should_compress
 from trigen.episodic_memory import store as episodic_store
+from trigen.reflection import reflection_store
 from trigen.macros import macro_store
 from trigen.workflows import workflow_store
 from trigen.variants import variant_store
@@ -754,6 +755,13 @@ class AgentOrchestrator:
             episodic_store.init(self.config.workspace_dir)
         except Exception:
             logger.exception("Episodic memory init failed; continuing without it")
+        # Reflection store — persisted to <workspace>/reflections.json so the
+        # Agent's turn self-assessments survive restarts and can be injected
+        # into later turns as a compact memory digest.
+        try:
+            reflection_store.init(self.config.workspace_dir)
+        except Exception:
+            logger.exception("Reflection store init failed; continuing without it")
         # Macro registry + scene-variant store — same workspace-local JSON
         # persistence pattern as episodic memory. Loaded once at agent
         # construction so subsequent tool calls can read/write without
@@ -2703,6 +2711,27 @@ class AgentOrchestrator:
             pref_note = ""
         if pref_note:
             messages.insert(-1, {"role": "system", "content": pref_note})
+
+        # Inject a compact digest of this session's recent reflections so the
+        # Agent's own prior self-assessments (what worked, what failed, what
+        # it planned next) inform the current turn — closing the loop between
+        # the durable reflection store and the live prompt.
+        try:
+            recent = reflection_store.get(session_id, limit=3)
+            if recent:
+                digest_lines = []
+                for r in recent:
+                    digest_lines.append(
+                        f"- Turn {r['turn']}: goal={r['goal'][:80] or '(none)'} | "
+                        f"outcome={r['outcome'][:100]} | quality={r['quality'].get('rating', 'n/a')}"
+                    )
+                refl_note = (
+                    "Recent session reflections (learn from these):\n"
+                    + "\n".join(digest_lines)
+                )
+                messages.insert(-1, {"role": "system", "content": refl_note})
+        except Exception:
+            logger.exception("Reflection digest lookup failed; continuing without it")
 
         # Structured context compression for long sessions. When the message
         # history has grown past the trigger threshold, inject a scene-aware
