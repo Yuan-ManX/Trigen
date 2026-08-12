@@ -1133,6 +1133,15 @@ export class ChatSocket {
     }
   }
 
+  /** Ask the server to cancel the current generation turn (keeps the
+   *  socket open). The server replies with a ``done`` carrying an
+   *  ``interrupted`` flag so the chat store can finalize the message. */
+  interrupt() {
+    if (this.status === 'connected' && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.rawSend({ type: 'interrupt', data: {} })
+    }
+  }
+
   private rawSend(message: ClientMessage) {
     if (!this.ws) return
     this.ws.send(JSON.stringify(message))
