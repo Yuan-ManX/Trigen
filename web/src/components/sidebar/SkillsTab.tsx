@@ -28,6 +28,9 @@ const CATEGORY_META: Record<
   abstract: { icon: Spline, color: 'text-fuchsia-400', label: 'Abstract' },
   lighting: { icon: Lightbulb, color: 'text-yellow-300', label: 'Lighting' },
   layout: { icon: Package, color: 'text-cyan-300', label: 'Layout' },
+  effects: { icon: Sparkles, color: 'text-rose-300', label: 'Effects' },
+  terrain: { icon: Triangle, color: 'text-emerald-300', label: 'Terrain' },
+  sci_fi: { icon: Wand2, color: 'text-violet-400', label: 'Sci-Fi' },
 }
 
 const DEFAULT_CATEGORY = {

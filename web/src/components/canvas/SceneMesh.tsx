@@ -376,6 +376,38 @@ function solveAnimation(
         scale: lerp3(a.scale, bKf.scale),
       }
     }
+    case 'particle': {
+      // Simulate a single particle's ballistic path. Each frame is offset
+      // by the authored velocity plus a gravity term (positive gravity pulls
+      // downward), wrapped on the particle's lifetime so the effect loops.
+      const vel = anim.velocity ?? [0, 0, 0]
+      const life = Math.max(0.01, anim.lifetime ?? 1)
+      const gravity = anim.gravity ?? 0
+      const t = anim.loop ? (time % life) / life : Math.min(1, time / life)
+      const seg = t * life
+      // size_start -> size_end interpolation for a fade-out / fade-in look
+      const sizeStart = anim.size_start ?? 1
+      const sizeEnd = anim.size_end ?? 0.1
+      const scaleK = sizeStart + (sizeEnd - sizeStart) * t
+      const sizeFactor = sizeStart > 0 ? scaleK / sizeStart : 1
+      return {
+        position: [
+          basePos[0] + vel[0] * seg,
+          basePos[1] + vel[1] * seg - gravity * seg * seg,
+          basePos[2] + vel[2] * seg,
+        ],
+        rotation: [baseRot[0], baseRot[1], baseRot[2]],
+        scale: [
+          baseScale[0] * sizeFactor,
+          baseScale[1] * sizeFactor,
+          baseScale[2] * sizeFactor,
+        ],
+      }
+    }
+    case 'lod':
+      // LOD variants are static copies swapped by camera distance; keep the
+      // authored pose untouched so the variant renders at its authored spot.
+      return { position: basePos, rotation: baseRot, scale: baseScale }
     default:
       return { position: basePos, rotation: baseRot, scale: baseScale }
   }
