@@ -576,6 +576,28 @@ export async function fetchAgentMemory(): Promise<AgentMemoryResponse> {
   return res.json() as Promise<AgentMemoryResponse>
 }
 
+/** A single recorded turn reflection (what the Agent built / failed / planned next). */
+export interface TurnReflection {
+  turn: number
+  goal: string
+  tool_calls: string[]
+  outcome: string
+  quality: Record<string, unknown>
+  elapsed: number
+  ts: number
+}
+
+/** Fetch the recorded turn reflections for a session (newest first). */
+export async function fetchReflections(
+  sessionId: string = 'default',
+  limit?: number,
+): Promise<{ session_id: string; reflections: TurnReflection[] }> {
+  const qs = `?${limit ? `limit=${limit}` : ''}`
+  const res = await fetch(`/api/agent/reflection/${encodeURIComponent(sessionId)}${qs}`)
+  if (!res.ok) throw new Error(`Failed to fetch reflections: ${res.status}`)
+  return res.json() as Promise<{ session_id: string; reflections: TurnReflection[] }>
+}
+
 /** Pin a durable fact. Returns the new fact plus the total fact count. */
 export async function pinAgentFact(
   text: string,
