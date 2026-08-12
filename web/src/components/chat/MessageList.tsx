@@ -39,6 +39,7 @@ const SUGGESTIONS: SuggestionItem[] = [
   // Generative geometry quick-start chips — one-click procedural generation
   { icon: Boxes, label: 'Geodesic Dome', prompt: 'Create a geodesic dome with detail 2' },
   { icon: Spline, label: 'Fractal Tree', prompt: 'Create a fractal tree with branching 3 and depth 3' },
+  { icon: Boxes, label: 'Gyroid Lattice', prompt: 'Create a gyroid lattice with resolution 8' },
 ]
 
 interface MessageListProps {
