@@ -164,10 +164,10 @@ function ModelSelector() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors border border-transparent hover:border-border"
+        className="flex items-center gap-1 px-1.5 py-1 rounded-md text-[10.5px] text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors border border-transparent hover:border-border"
       >
         <span className="font-medium">{current?.label ?? 'Select Model'}</span>
-        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -407,12 +407,12 @@ export function InputBar() {
   }
 
   return (
-    <div className="border-t border-border bg-bg-panel px-3 py-3">
+    <div className="shrink-0 border-t border-border bg-bg-panel px-2.5 py-1.5">
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`rounded-lg border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-3 py-2.5 ${
+        className={`rounded-lg border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-2.5 py-1.5 ${
           dragOver
             ? 'border-accent-cyan ring-2 ring-accent-cyan/30'
             : 'border-border'
@@ -421,8 +421,8 @@ export function InputBar() {
         {/* Drag-over hint — replaces the textarea placeholder visual when a
             file is being hovered so the user knows a drop will attach it. */}
         {dragOver && (
-          <div className="flex items-center justify-center gap-2 py-3 mb-2 rounded-md border border-dashed border-accent-cyan/50 bg-accent-cyan/5 text-accent-cyan text-[11px] font-medium">
-            <ImageIcon size={14} />
+          <div className="flex items-center justify-center gap-2 py-2 mb-1.5 rounded-md border border-dashed border-accent-cyan/50 bg-accent-cyan/5 text-accent-cyan text-[10.5px] font-medium">
+            <ImageIcon size={13} />
             <span>Drop image to attach</span>
           </div>
         )}
@@ -439,8 +439,8 @@ export function InputBar() {
 
         {/* Image preview thumbnail (with upload-in-flight spinner overlay) */}
         {(imagePreview || uploading) && (
-          <div className="mb-2 relative inline-block">
-            <div className="relative h-16 w-16 rounded-md border border-border overflow-hidden bg-bg-base">
+          <div className="mb-1.5 relative inline-block">
+            <div className="relative h-14 w-14 rounded-md border border-border overflow-hidden bg-bg-base">
               {imagePreview ? (
                 <img
                   src={imagePreview}
@@ -449,12 +449,12 @@ export function InputBar() {
                 />
               ) : (
                 <div className="h-full w-full flex items-center justify-center">
-                  <Loader2 size={16} className="text-accent-cyan animate-spin" />
+                  <Loader2 size={15} className="text-accent-cyan animate-spin" />
                 </div>
               )}
               {uploading && imagePreview && (
                 <div className="absolute inset-0 bg-bg-base/60 flex items-center justify-center">
-                  <Loader2 size={16} className="text-accent-cyan animate-spin" />
+                  <Loader2 size={15} className="text-accent-cyan animate-spin" />
                 </div>
               )}
             </div>
@@ -465,9 +465,9 @@ export function InputBar() {
               }}
               aria-label="Remove image"
               disabled={uploading}
-              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <X size={9} />
+              <X size={8.5} />
             </button>
           </div>
         )}
@@ -477,13 +477,13 @@ export function InputBar() {
           value={text}
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          rows={3}
+          rows={2}
           placeholder={isResponding ? 'Trigen is creating…' : 'Describe the 3D scene you want…'}
           disabled={isResponding}
-          className="w-full resize-none bg-transparent text-sm text-fg-primary placeholder:text-fg-muted outline-none leading-relaxed disabled:opacity-60 min-h-[72px]"
+          className="w-full resize-none bg-transparent text-sm text-fg-primary placeholder:text-fg-muted outline-none leading-relaxed disabled:opacity-60 min-h-[42px]"
         />
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between mt-1 pt-1 border-t border-border-subtle">
+          <div className="flex items-center gap-0.5">
             <ModelSelector />
             {/* Image upload button */}
             <button
@@ -493,7 +493,7 @@ export function InputBar() {
               title="Upload a reference image for 3D generation (or drag & drop)"
               className="flex items-center justify-center w-7 h-7 rounded-md text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
+              {uploading ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
             </button>
             <input
               ref={fileInputRef}
@@ -508,9 +508,9 @@ export function InputBar() {
               onClick={stop}
               aria-label="Stop generating"
               title="Stop the current generation"
-              className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all text-[11px] font-medium"
+              className="shrink-0 flex items-center gap-1 px-2.5 h-7 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all text-[10.5px] font-medium"
             >
-              <Square size={13} />
+              <Square size={12} />
               <span>Stop</span>
             </button>
           ) : (
@@ -518,17 +518,17 @@ export function InputBar() {
               onClick={handleSend}
               disabled={!canSend}
               aria-label="Send message"
-              className="shrink-0 flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all text-[11px] font-medium"
+              className="shrink-0 flex items-center gap-1 px-2.5 h-7 rounded-md bg-accent-cyan text-bg-base disabled:bg-bg-hover disabled:text-fg-muted disabled:cursor-not-allowed hover:shadow-glow transition-all text-[10.5px] font-medium"
             >
-              <Send size={13} />
+              <Send size={12} />
               <span>Send</span>
             </button>
           )}
         </div>
       </div>
-      <div className="mt-1.5 px-1 text-center">
-        <span className="text-[10px] text-fg-muted">
-          Enter to send · Shift+Enter for newline · Drop images to attach
+      <div className="mt-1 px-1 text-center">
+        <span className="text-[9px] text-fg-muted">
+          Enter send · Shift+Enter newline · Drop image to attach
         </span>
       </div>
     </div>
