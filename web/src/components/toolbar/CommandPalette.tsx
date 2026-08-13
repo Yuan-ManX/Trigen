@@ -11,6 +11,8 @@ import {
   Gauge,
   Layers,
   Maximize2,
+  PanelLeftOpen,
+  PanelRightOpen,
   Play,
   RotateCcw,
   RotateCw,
@@ -124,6 +126,10 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
   const setEditorMode = useEditor((s) => s.setEditorMode)
   const setMinimapEnabled = useEditor((s) => s.setMinimapEnabled)
   const minimapEnabled = useEditor((s) => s.minimapEnabled)
+  const setPanelVisibility = useEditor((s) => s.setPanelVisibility)
+  const chatPanelVisible = useEditor((s) => s.chatPanelVisible)
+  const rightPanelVisible = useEditor((s) => s.rightPanelVisible)
+  const clearSelection = useScene((s) => s.clearSelection)
 
   // Lazily fetch catalogs when the palette first opens
   useEffect(() => {
@@ -355,6 +361,36 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
       keywords: 'minimap overview overlay toggle',
       run: () => setMinimapEnabled(!minimapEnabled),
     })
+    items.push({
+      id: 'action-toggle-chat-panel',
+      title: 'Toggle Chat Panel',
+      subtitle: `Show or hide the left conversation panel (current: ${chatPanelVisible ? 'visible' : 'hidden'})`,
+      group: 'Actions',
+      icon: PanelLeftOpen,
+      iconClass: 'text-accent-cyan',
+      keywords: 'chat panel left sidebar toggle show hide collapse',
+      run: () => setPanelVisibility('chat'),
+    })
+    items.push({
+      id: 'action-toggle-right-panel',
+      title: 'Toggle Right Panel',
+      subtitle: `Show or hide the right workspace panel (current: ${rightPanelVisible ? 'visible' : 'hidden'})`,
+      group: 'Actions',
+      icon: PanelRightOpen,
+      iconClass: 'text-accent-purple',
+      keywords: 'right panel side workspace sidebar toggle show hide collapse',
+      run: () => setPanelVisibility('right'),
+    })
+    items.push({
+      id: 'action-deselect-all',
+      title: 'Deselect All',
+      subtitle: 'Clear the current object selection',
+      group: 'Actions',
+      icon: Tag,
+      iconClass: 'text-fg-secondary',
+      keywords: 'deselect clear selection unselect drop',
+      run: () => clearSelection(),
+    })
     if (onReopenOnboarding) {
       items.push({
         id: 'action-reopen-onboarding',
@@ -369,7 +405,7 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     }
 
     return items
-  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode, scene, selectedId, addAnnotation, requestCapture, renderQuality, setRenderQuality, editorMode, setEditorMode, setMinimapEnabled, minimapEnabled, onReopenOnboarding])
+  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode, scene, selectedId, addAnnotation, requestCapture, renderQuality, setRenderQuality, editorMode, setEditorMode, setMinimapEnabled, minimapEnabled, setPanelVisibility, chatPanelVisible, rightPanelVisible, clearSelection, onReopenOnboarding])
 
   // Filter + rank
   const filtered = useMemo(() => {
