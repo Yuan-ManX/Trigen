@@ -1,12 +1,45 @@
 // Message bubble: user messages on the right, assistant messages on the left, supports streaming cursor and tool calls
 import { motion } from 'framer-motion'
-import { AlertTriangle, Brain, ChevronDown, ChevronRight, GitBranch, Lightbulb, RefreshCw, Sparkles, Wand2 } from 'lucide-react'
+import { AlertTriangle, Brain, Check, ChevronDown, ChevronRight, Copy, GitBranch, Lightbulb, RefreshCw, Sparkles, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { useChat } from '../../store/useChat'
 import type { ChatMessage, Suggestion, ThinkingTrace } from '../../store/useChat'
 import { NodeGraphView } from '../toolbar/NodeGraphView'
 import { PlanTrace } from './PlanTrace'
 import { ToolCallCard } from './ToolCallCard'
+
+/** Format a Unix epoch (ms) as a compact HH:MM timestamp for display
+ *  next to the message header. Returns empty string for invalid values. */
+function formatTimestamp(ms: number | undefined): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  const h = d.getHours().toString().padStart(2, '0')
+  const m = d.getMinutes().toString().padStart(2, '0')
+  return `${h}:${m}`
+}
+
+/** Copy-to-clipboard button — appears on hover over assistant messages
+ *  that have text content. Shows a brief check-mark confirmation after
+ *  copying so the user knows it worked. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      aria-label="Copy message"
+      title={copied ? 'Copied!' : 'Copy to clipboard'}
+      className="flex items-center justify-center w-5 h-5 rounded text-fg-muted hover:text-accent-cyan hover:bg-bg-hover transition-colors"
+    >
+      {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+    </button>
+  )
+}
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -172,6 +205,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const [showPlanGraph, setShowPlanGraph] = useState(false)
 
   if (isUser) {
+    const ts = formatTimestamp(message.createdAt)
     return (
       <motion.div
         initial={{ opacity: 0, y: 8 }}
@@ -179,13 +213,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         transition={{ duration: 0.18 }}
         className="flex justify-end"
       >
-        <div className="max-w-[88%] rounded-md rounded-tr-sm bg-accent-cyan/15 border border-accent-cyan/30 px-3 py-2 text-sm text-fg-primary whitespace-pre-wrap break-words">
-          {message.content}
+        <div className="flex flex-col items-end gap-0.5 max-w-[88%]">
+          <div className="rounded-md rounded-tr-sm bg-accent-cyan/15 border border-accent-cyan/30 px-3 py-2 text-sm text-fg-primary whitespace-pre-wrap break-words">
+            {message.content}
+          </div>
+          {ts && (
+            <span className="text-[9px] text-fg-muted/50 font-mono px-1">{ts}</span>
+          )}
         </div>
       </motion.div>
     )
   }
 
+  const ts = formatTimestamp(message.createdAt)
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -197,6 +237,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
           <Sparkles size={12} className="text-accent-gold" />
           <span>Trigen AI</span>
+          {ts && (
+            <span className="text-[9px] text-fg-muted/50 font-mono">{ts}</span>
+          )}
+          {/* Copy button — only on completed (non-streaming) assistant
+              messages with text content. Hidden during streaming so it
+              doesn't flicker as the text grows. */}
+          {!message.streaming && message.content && (
+            <CopyButton text={message.content} />
+          )}
         </div>
 
         {/* Reasoning trace */}
