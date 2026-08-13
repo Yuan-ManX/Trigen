@@ -126,33 +126,40 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
         </div>
       </header>
 
-      {/* Body: either history view or chat messages */}
-      {showHistory ? (
-        <ChatHistory />
-      ) : (
-        <>
-          <MessageList onSuggestion={send} />
-          <InputBar />
-          {/* Token usage footer: shows the most recent turn's token totals.
-              Hidden when null (offline mode never reports usage). */}
-          {lastTokenUsage && (
-            <div className="flex items-center justify-end gap-2 px-3 py-1 border-t border-border-subtle bg-bg-panel text-[10px] text-fg-muted font-mono">
-              {lastTokenUsage.prompt_tokens != null &&
-              lastTokenUsage.completion_tokens != null ? (
-                <span title="Prompt / completion tokens for the last turn">
-                  <span className="text-accent-cyan/80">↑{lastTokenUsage.prompt_tokens}</span>
-                  {' '}
-                  <span className="text-accent-gold/80">↓{lastTokenUsage.completion_tokens}</span>
-                </span>
-              ) : (
-                <span title="Total tokens for the last turn">
-                  {lastTokenUsage.total_tokens ?? 0} tokens
-                </span>
-              )}
-            </div>
-          )}
-        </>
-      )}
+      {/* Body: either history view or chat messages. Wrapped in a flex
+          column with min-h-0 so the flex container correctly distributes
+          space between the scrollable area and the fixed input bar.
+          Without this wrapper, the fragment children below can "escape"
+          their min-height constraint in Safari / small viewports, and
+          ChatHistory's h-full would spill past the header. */}
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        {showHistory ? (
+          <ChatHistory />
+        ) : (
+          <>
+            <MessageList onSuggestion={send} />
+            <InputBar />
+            {/* Token usage footer: shows the most recent turn's token totals.
+                Hidden when null (offline mode never reports usage). */}
+            {lastTokenUsage && (
+              <div className="shrink-0 flex items-center justify-end gap-2 px-3 py-1 border-t border-border-subtle bg-bg-panel text-[10px] text-fg-muted font-mono">
+                {lastTokenUsage.prompt_tokens != null &&
+                lastTokenUsage.completion_tokens != null ? (
+                  <span title="Prompt / completion tokens for the last turn">
+                    <span className="text-accent-cyan/80">↑{lastTokenUsage.prompt_tokens}</span>
+                    {' '}
+                    <span className="text-accent-gold/80">↓{lastTokenUsage.completion_tokens}</span>
+                  </span>
+                ) : (
+                  <span title="Total tokens for the last turn">
+                    {lastTokenUsage.total_tokens ?? 0} tokens
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Model settings dialog */}
       <ModelSettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
