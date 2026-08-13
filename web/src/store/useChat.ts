@@ -43,6 +43,10 @@ export interface ChatMessage {
   content: string
   streaming?: boolean
   error?: string
+  /** Unix epoch (ms) when the message was created — used for subtle
+   *  timestamp display in the chat bubble header. Optional for backward
+   *  compatibility with messages restored from older saved conversations. */
+  createdAt?: number
   toolCalls?: ToolCallRecord[]
   thinking?: ThinkingTrace[]
   /** Live execution-plan roadmap (sub-task checklist). Populated by the
@@ -360,6 +364,32 @@ function dispatchEditorDelta(action: string, targetId: string | undefined, paylo
           loop: Boolean(payload.loop ?? true),
         })
       }
+      break
+    }
+    case 'editor_toggle_panel': {
+      // Panel-visibility delta from the toggle_panel tool. The Agent can
+      // show/hide the left chat panel or the right side panel to focus the
+      // user's attention on the canvas or surface a specific workspace tab.
+      const panel = String(payload.panel ?? 'right') as 'chat' | 'right'
+      if (panel === 'chat' || panel === 'right') {
+        editor.setPanelVisibility(
+          panel,
+          payload.visible === undefined ? undefined : Boolean(payload.visible),
+        )
+      }
+      break
+    }
+    case 'editor_set_loop': {
+      // Animation loop-mode delta from the set_animation_loop tool. When
+      // false, playback stops at the end of the timeline instead of
+      // wrapping back to zero.
+      playback.setLoop(Boolean(payload.enabled))
+      break
+    }
+    case 'editor_deselect_all': {
+      // Clear the current selection. Mirrors the Ctrl+Shift+A shortcut so
+      // the Agent can drop an active selection before applying a batch op.
+      scene.clearSelection()
       break
     }
     default:
@@ -706,7 +736,14 @@ export const useChat = create<ChatState>((set, get) => {
         break
       }
       case 'done': {
-        // Finalize the latest streaming assistant message
+        // Finalize a streaming assistant message. When the turn was
+        // interrupted (user sent a new message while the previous turn
+        // was still streaming, or pressed Stop), finalize the OLDEST
+        // streaming assistant message — the one that corresponds to the
+        // cancelled turn — so the newer streaming slot stays open for
+        // the in-flight replacement turn. Otherwise finalize the latest
+        // streaming message (the normal single-turn case).
+        const interrupted = ev.data.interrupted === true
         const doneSuggestions = Array.isArray(ev.data.suggestions)
           ? (ev.data.suggestions as Suggestion[])
           : []
@@ -714,7 +751,12 @@ export const useChat = create<ChatState>((set, get) => {
         const tokenUsage = ev.data.token_usage ?? ev.data.stats?.token_usage ?? null
         set((state) => {
           const msgs = [...state.messages]
-          for (let i = msgs.length - 1; i >= 0; i--) {
+          // Search direction: oldest-first when interrupted, latest-first
+          // for a normal completion.
+          const indices = interrupted
+            ? msgs.map((_, i) => i)
+            : msgs.map((_, i) => i).reverse()
+          for (const i of indices) {
             if (msgs[i].role === 'assistant' && msgs[i].streaming) {
               msgs[i] = {
                 ...msgs[i],
@@ -729,9 +771,12 @@ export const useChat = create<ChatState>((set, get) => {
               break
             }
           }
+          // When interrupted by a new outgoing message, keep isResponding
+          // true so the UI stays in the responding state for the new turn.
+          const stillStreaming = msgs.some((m) => m.role === 'assistant' && m.streaming)
           return {
             messages: msgs,
-            isResponding: false,
+            isResponding: stillStreaming,
             suggestions: doneSuggestions,
             lastTokenUsage: tokenUsage,
           }
@@ -807,13 +852,14 @@ export const useChat = create<ChatState>((set, get) => {
     set((state) => ({
       messages: [
         ...state.messages,
-        { id: genId(), role: 'user', content: trimmed },
+        { id: genId(), role: 'user', content: trimmed, createdAt: Date.now() },
         {
           id: genId(),
           role: 'assistant',
           content: '',
           streaming: true,
           toolCalls: [],
+          createdAt: Date.now(),
         },
       ],
       isResponding: true,
