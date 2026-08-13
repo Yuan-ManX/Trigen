@@ -30,6 +30,21 @@ export function AppShell() {
   // setEditorMode; the store is the single source of truth.
   const mode = useEditor((s) => s.editorMode)
   const setEditorMode = useEditor((s) => s.setEditorMode)
+  // Panel visibility is also reflected in the editor store so the Agent
+  // can drive it through editor_toggle_panel deltas. The local state
+  // remains the source of truth for the layout; this effect syncs the
+  // store's requested visibility back into the local state whenever the
+  // panelToggleToken changes (i.e. the Agent issued a toggle request).
+  const chatPanelVisible = useEditor((s) => s.chatPanelVisible)
+  const rightPanelVisible = useEditor((s) => s.rightPanelVisible)
+  const panelToggleToken = useEditor((s) => s.panelToggleToken)
+  const [lastPanelToken, setLastPanelToken] = useState(0)
+  useEffect(() => {
+    if (panelToggleToken === lastPanelToken) return
+    setLastPanelToken(panelToggleToken)
+    setChatOpen(chatPanelVisible)
+    setRightOpen(rightPanelVisible)
+  }, [panelToggleToken, chatPanelVisible, rightPanelVisible, lastPanelToken])
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const { forceOpen: onboardingForceOpen, reopen: reopenOnboarding, handleClose: handleOnboardingClose } =
@@ -118,8 +133,10 @@ export function AppShell() {
         e.preventDefault()
         if (e.shiftKey) {
           setRightOpen((v) => !v)
+          useEditor.getState().setPanelVisibility('right')
         } else {
           setChatOpen((v) => !v)
+          useEditor.getState().setPanelVisibility('chat')
         }
         return
       }
@@ -310,7 +327,7 @@ export function AppShell() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-bg-base text-fg-primary">
-      <TopToolbar mode={mode} onToggleMode={toggleMode} onShowTour={reopenOnboarding} />
+      <TopToolbar mode={mode} onToggleMode={toggleMode} />
 
       <div className="flex flex-1 min-h-0">
         {/* Left chat panel */}
@@ -324,7 +341,10 @@ export function AppShell() {
               transition={{ duration: 0.22, ease: 'easeInOut' }}
               className="overflow-hidden h-full"
             >
-              <ChatPanel onCollapse={() => setChatOpen(false)} />
+              <ChatPanel onCollapse={() => {
+                setChatOpen(false)
+                useEditor.getState().setPanelVisibility('chat', false)
+              }} />
             </motion.div>
           ) : (
             <motion.button
@@ -333,7 +353,10 @@ export function AppShell() {
               animate={{ width: 44, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
-              onClick={() => setChatOpen(true)}
+              onClick={() => {
+                setChatOpen(true)
+                useEditor.getState().setPanelVisibility('chat', true)
+              }}
               aria-label="Expand chat panel"
               className="shrink-0 flex flex-col items-center gap-2 w-11 border-r border-border bg-bg-panel text-fg-muted hover:text-fg-primary pt-3"
             >
@@ -367,7 +390,10 @@ export function AppShell() {
               transition={{ duration: 0.22, ease: 'easeInOut' }}
               className="overflow-hidden"
             >
-              <RightPanel onCollapse={() => setRightOpen(false)} />
+              <RightPanel onCollapse={() => {
+                setRightOpen(false)
+                useEditor.getState().setPanelVisibility('right', false)
+              }} />
             </motion.div>
           ) : mode === 'run' ? null : (
             <motion.button
@@ -376,7 +402,10 @@ export function AppShell() {
               animate={{ width: 44, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
-              onClick={() => setRightOpen(true)}
+              onClick={() => {
+                setRightOpen(true)
+                useEditor.getState().setPanelVisibility('right', true)
+              }}
               aria-label="Expand right panel"
               className="shrink-0 flex flex-col items-center gap-2 w-11 border-l border-border bg-bg-panel text-fg-muted hover:text-fg-primary pt-3"
             >
