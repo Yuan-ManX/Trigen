@@ -14,7 +14,6 @@ import {
   Sparkles,
   Triangle,
   Undo2,
-  HelpCircle,
   Workflow,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -29,8 +28,6 @@ import { SmartLayout } from './SmartLayout'
 interface TopToolbarProps {
   mode: 'edit' | 'run'
   onToggleMode: () => void
-  /** Optional callback to reopen the first-visit coachmark tour. */
-  onShowTour?: () => void
 }
 
 /** Dropdown menu item */
@@ -45,7 +42,7 @@ interface MenuItem {
   loading?: boolean
 }
 
-export function TopToolbar({ mode, onToggleMode, onShowTour }: TopToolbarProps) {
+export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
   const sessionId = useChat((s) => s.sessionId)
   const send = useChat((s) => s.send)
   const scene = useScene((s) => s.scene)
@@ -306,18 +303,6 @@ export function TopToolbar({ mode, onToggleMode, onShowTour }: TopToolbarProps) 
               )}
             </AnimatePresence>
           </div>
-
-          {/* Help / reopen onboarding tour */}
-          {onShowTour && (
-            <button
-              onClick={onShowTour}
-              aria-label="Show welcome tour"
-              title="Welcome tour"
-              className="flex items-center justify-center w-7 h-7 rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors border border-border"
-            >
-              <HelpCircle size={13} />
-            </button>
-          )}
         </div>
       </header>
 
