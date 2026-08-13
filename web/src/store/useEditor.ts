@@ -140,6 +140,16 @@ interface EditorState {
   /** Active turntable orbit, or null when inactive. Set by the
    *  editor_orbit_viewport delta from orbit_viewport tool execution. */
   orbitViewport: OrbitViewportState | null
+  /** Visibility of the left chat panel. Driven by the editor_toggle_panel
+   *  delta from the toggle_panel tool execution, and also by local Ctrl+B. */
+  chatPanelVisible: boolean
+  /** Visibility of the right side panel. Driven by the editor_toggle_panel
+   *  delta from the toggle_panel tool execution, and also by local Ctrl+Shift+B. */
+  rightPanelVisible: boolean
+  /** Monotonic token bumped every time a panel-visibility change is requested
+   *  so AppShell (which owns the actual open/close state) can react even when
+   *  the requested visibility matches the current state. */
+  panelToggleToken: number
 
   setTransformMode: (m: TransformMode) => void
   setGridSnap: (enabled: boolean, increment?: number) => void
@@ -160,6 +170,7 @@ interface EditorState {
   clearRadialMenu: () => void
   setOrbitViewport: (o: Omit<OrbitViewportState, 'token'> | null) => void
   clearOrbitViewport: () => void
+  setPanelVisibility: (panel: 'chat' | 'right', visible?: boolean) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -180,6 +191,9 @@ export const useEditor = create<EditorState>((set) => ({
   cameraFlythrough: null,
   radialMenu: null,
   orbitViewport: null,
+  chatPanelVisible: true,
+  rightPanelVisible: true,
+  panelToggleToken: 0,
 
   setTransformMode: (m) => set({ transformMode: m }),
   setGridSnap: (enabled, increment) =>
@@ -236,4 +250,15 @@ export const useEditor = create<EditorState>((set) => ({
         : null,
     })),
   clearOrbitViewport: () => set({ orbitViewport: null }),
+  setPanelVisibility: (panel, visible) =>
+    set((state) => {
+      const next = visible === undefined
+        ? panel === 'chat'
+          ? !state.chatPanelVisible
+          : !state.rightPanelVisible
+        : visible
+      return panel === 'chat'
+        ? { chatPanelVisible: next, panelToggleToken: state.panelToggleToken + 1 }
+        : { rightPanelVisible: next, panelToggleToken: state.panelToggleToken + 1 }
+    }),
 }))
