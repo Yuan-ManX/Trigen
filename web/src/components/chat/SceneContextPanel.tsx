@@ -211,9 +211,16 @@ const FALLBACK_TEMPLATES: SkillDescriptor[] = [
   { name: 'zen_garden', description: 'Zen rock garden', category: 'nature', parameters: {} },
 ]
 
-/** Renders scene-aware suggestions and a compact template strip. */
+/** Renders scene-aware suggestions and a compact template strip.
+ *
+ *  Collapsed by default to keep the input bar small; the user can expand
+ *  it with the header toggle. The panel was previously always expanded
+ *  which made the input area grow too tall and overlap the 3D viewport. */
 export function SceneContextPanel({ onInsert, disabled }: SceneContextPanelProps) {
   const scene = useScene((s) => s.scene)
+  // Collapsed by default so the input bar stays short. Only expand when
+  // the user actively wants to browse scene suggestions.
+  const [open, setOpen] = useState(false)
 
   // Fetch skills (scene templates) once on mount; fall back to a static
   // list if the network is unavailable so the panel still has content
@@ -265,73 +272,81 @@ export function SceneContextPanel({ onInsert, disabled }: SceneContextPanelProps
   }
 
   return (
-    <div className="mb-2">
-      <div className="flex items-center justify-between mb-1">
+    <div className="mb-1.5">
+      {/* Collapsible header — the header itself is the toggle. The
+          old layout always showed the suggestion body below, which made
+          the input bar 2-3x taller than necessary. */}
+      <div className="flex items-center justify-between mb-0.5">
         <button
+          onClick={() => setOpen((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-medium text-accent-cyan hover:text-accent-cyan/80 transition-colors"
-          onClick={() => onInsert('')}
-          title="Insert a scene-aware suggestion"
+          title={open ? 'Hide scene suggestions' : 'Show scene suggestions'}
         >
           <Sparkles size={10} />
           <span>Scene suggestions / 场景建议</span>
+          <span className={`text-fg-muted transition-transform text-[9px] ${open ? 'rotate-90' : ''}`}>
+            ▸
+          </span>
         </button>
         <span className="text-[9px] text-fg-muted/60">
-          {suggestions.length} next-best actions
+          {suggestions.length} next-best
         </span>
       </div>
 
-      <div className="rounded-lg border border-border-subtle bg-bg-base/50 p-2">
-        <SceneStateChip />
+      {open && (
+        <div className="rounded-lg border border-border-subtle bg-bg-base/50 px-2 py-1.5">
+          <SceneStateChip />
 
-        {/* Scene-state driven suggestion chips */}
-        <div className="flex items-center gap-1 flex-wrap mb-2">
-          {suggestions.map((s) => {
-            const Icon = s.icon
-            return (
-              <button
-                key={s.id}
-                onClick={() => onInsert(s.prompt)}
-                title={s.prompt}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] border border-border-subtle bg-bg-elevated/60 hover:border-accent-cyan/50 hover:bg-accent-cyan/5 transition-colors"
-              >
-                <Icon size={10} className={s.accent} />
-                <span className="text-fg-primary">{s.label}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Template quick-start strip */}
-        {templateStrip.length > 0 && (
-          <div className="pt-1.5 border-t border-border-subtle">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[9px] uppercase tracking-wider text-fg-muted">
-                Quick templates · 模板
-              </span>
-              <span className="text-[9px] text-fg-muted/60">
-                click to load into Agent
-              </span>
-            </div>
-            <div className="flex items-center gap-1 flex-wrap">
-              {templateStrip.map((t) => (
+          {/* Scene-state driven suggestion chips */}
+          <div className="flex items-center gap-1 flex-wrap mb-1.5">
+            {suggestions.map((s) => {
+              const Icon = s.icon
+              return (
                 <button
-                  key={t.name}
-                  onClick={() =>
-                    onInsert(
-                      `Load the ${t.name} template. ${t.description}.`,
-                    )
-                  }
-                  title={t.description}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] border border-border-subtle bg-bg-panel/70 hover:border-accent-gold/40 hover:bg-accent-gold/5 text-fg-secondary hover:text-fg-primary transition-colors"
+                  key={s.id}
+                  onClick={() => onInsert(s.prompt)}
+                  title={s.prompt}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] border border-border-subtle bg-bg-elevated/60 hover:border-accent-cyan/50 hover:bg-accent-cyan/5 transition-colors"
                 >
-                  <Plus size={9} className="text-accent-gold" />
-                  {t.name.replace(/_/g, ' ')}
+                  <Icon size={9} className={s.accent} />
+                  <span className="text-fg-primary">{s.label}</span>
                 </button>
-              ))}
-            </div>
+              )
+            })}
           </div>
-        )}
-      </div>
+
+          {/* Template quick-start strip */}
+          {templateStrip.length > 0 && (
+            <div className="pt-1 border-t border-border-subtle">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[8.5px] uppercase tracking-wider text-fg-muted">
+                  Quick templates · 模板
+                </span>
+                <span className="text-[8.5px] text-fg-muted/60">
+                  click to load
+                </span>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {templateStrip.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() =>
+                      onInsert(
+                        `Load the ${t.name} template. ${t.description}.`,
+                      )
+                    }
+                    title={t.description}
+                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] border border-border-subtle bg-bg-panel/70 hover:border-accent-gold/40 hover:bg-accent-gold/5 text-fg-secondary hover:text-fg-primary transition-colors"
+                  >
+                    <Plus size={8.5} className="text-accent-gold" />
+                    {t.name.replace(/_/g, ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
