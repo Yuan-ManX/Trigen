@@ -204,11 +204,13 @@ export function Timeline() {
   const isPlaying = usePlayback((s) => s.isPlaying)
   const currentTime = usePlayback((s) => s.currentTime)
   const duration = usePlayback((s) => s.duration)
+  const loop = usePlayback((s) => s.loop)
   const play = usePlayback((s) => s.play)
   const pause = usePlayback((s) => s.pause)
   const stop = usePlayback((s) => s.stop)
   const seek = usePlayback((s) => s.seek)
   const setDuration = usePlayback((s) => s.setDuration)
+  const setLoop = usePlayback((s) => s.setLoop)
 
   const animatedObjects = objects.filter((o) => o.animation)
 
@@ -271,6 +273,18 @@ export function Timeline() {
           aria-label="Stop"
         >
           <Square size={11} />
+        </button>
+        <button
+          onClick={() => setLoop(!loop)}
+          className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+            loop
+              ? 'bg-accent-cyan/10 text-accent-cyan hover:bg-accent-cyan/20'
+              : 'text-fg-muted hover:bg-bg-hover'
+          }`}
+          aria-label={loop ? 'Loop ON' : 'Loop OFF'}
+          title={loop ? 'Loop ON — click to disable' : 'Loop OFF — click to enable'}
+        >
+          <Repeat size={11} />
         </button>
         <span className="text-[11px] font-mono text-fg-secondary tabular-nums">
           {fmt(currentTime)} <span className="text-fg-muted">/</span> {fmt(duration)}
