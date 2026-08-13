@@ -136,6 +136,9 @@ from trigen.tools import (
     ClearMeasurementTool,
     ControlRadialMenuTool,
     StopCameraFlythroughTool,
+    TogglePanelTool,
+    DeselectAllTool,
+    SetAnimationLoopTool,
     DefineMacroTool,
     DeleteMacroTool,
     InvokeMacroTool,
@@ -457,6 +460,11 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     "control_radial_menu": "editor",
     "clear_measurement": "editor",
     "stop_camera_flythrough": "editor",
+    # panel / selection / loop controls — Agent-callable counterparts of the
+    # remaining keyboard shortcuts (Ctrl+B, Ctrl+Shift+B, Ctrl+Shift+A, L).
+    "toggle_panel": "editor",
+    "deselect_all": "editor",
+    "set_animation_loop": "editor",
     # pipeline authoring — compose / inspect multimodal node-graphs
     "compose_pipeline": "multimodal",
     "list_pipeline_templates": "multimodal",
@@ -945,6 +953,13 @@ class AgentOrchestrator:
         registry.register(ControlRadialMenuTool())
         registry.register(ClearMeasurementTool())
         registry.register(StopCameraFlythroughTool())
+        # Panel-visibility, selection-clear, and animation-loop controls —
+        # close the last gaps between the keyboard shortcuts and the
+        # Agent-callable toolset so the conversation can drive the entire
+        # editor surface (Ctrl+B / Ctrl+Shift+B / Ctrl+Shift+A / L).
+        registry.register(TogglePanelTool())
+        registry.register(DeselectAllTool())
+        registry.register(SetAnimationLoopTool())
         # Macros — user-defined reusable tool-call recipes. invoke_macro
         # receives the registry so it can replay steps through the same
         # executor pipeline as normal tool calls.
@@ -4228,13 +4243,15 @@ class AgentOrchestrator:
         if not intents:
             text = (
                 "(Offline mode) I couldn't parse that command. Try:\n"
-                "- \"create a red cube\"\n"
-                "- \"add a blue sphere\"\n"
-                "- \"move the cube to [2, 0, 0]\"\n"
+                "- \"create a red cube\" / \"add a blue sphere\"\n"
+                "- \"make a sunset\" / \"make it night\" / \"make it winter\"\n"
+                "- \"create a living room\" / \"make a bedroom\" / \"create a kitchen scene\"\n"
+                "- \"add water\" / \"add stars to the sky\" / \"add a car\"\n"
+                "- \"make a chess board\" / \"add some furniture\"\n"
                 "- \"apply metal material to the sphere\"\n"
-                "- \"add a point light\"\n"
-                "- \"create solar system\"\n"
-                "- \"arrange in circle\"\n"
+                "- \"add a point light\" / \"move the cube to [2, 0, 0]\"\n"
+                "- \"create solar system\" / \"arrange in circle\"\n"
+                "- \"hide chat panel\" / \"deselect all\" / \"disable loop\"\n"
                 "- \"export as GLB\""
             )
             yield AgentEvent(type=EventType.TEXT_DELTA, data={"content": text, "iteration": 0})
