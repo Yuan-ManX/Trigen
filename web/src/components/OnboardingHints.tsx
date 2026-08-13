@@ -60,7 +60,7 @@ const STEPS: TourStep[] = [
     icon: MessageSquare,
     accent: 'text-accent-cyan',
     title: 'Describe it, build it',
-    body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene.',
+    body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene. Try compound requests like "create a living room", "make a sunset", or "make a chess board" — the Agent decomposes them into multi-step tool sequences automatically.',
     hint: 'Tip: mention materials, lighting, and counts in one sentence for the richest results.',
   },
   {
@@ -180,7 +180,7 @@ const STEPS: TourStep[] = [
     icon: Keyboard,
     accent: 'text-amber-400',
     title: 'Move at the speed of thought',
-    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, 1/2/3 switch between Move, Rotate, and Scale transforms, F frames the selection, A frames all, M toggles the minimap, and Ctrl/Cmd+K opens the Command Palette.',
+    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, 1/2/3 switch between Move, Rotate, and Scale transforms, F frames the selection, A frames all, M toggles the minimap, Ctrl/Cmd+B toggles the chat panel, Ctrl/Cmd+Shift+B toggles the right panel, and Ctrl/Cmd+K opens the Command Palette.',
     hint: 'Tip: press F to frame the camera on whatever you have selected; press A to frame the whole scene.',
   },
 ]
