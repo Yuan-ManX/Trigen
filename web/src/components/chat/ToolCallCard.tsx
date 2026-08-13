@@ -189,7 +189,6 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
       return `multi-model vote (${esc(args.strategy ?? 'majority')}) on "${esc(args.prompt ?? '')}"`
     case 'orbit_animation':
       return `orbit "${esc(args.target ?? '')}" radius ${esc(args.radius ?? 3)}`
-    case 'create_particle_system':
     default:
       return ''
   }
