@@ -4,14 +4,17 @@
 // (unless the user explicitly reopens it from the toolbar).
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  Aperture,
   ArrowLeft,
   ArrowRight,
+  Boxes,
   Brain,
   Check,
   Clapperboard,
   ClipboardCheck,
   Film,
   GitCommitVertical,
+  History,
   Keyboard,
   MessageSquare,
   MousePointerClick,
@@ -20,6 +23,7 @@ import {
   Tag,
   Users,
   Wand2,
+  Waves,
   Workflow,
   X,
 } from 'lucide-react'
@@ -43,6 +47,10 @@ type StepId =
   | 'constraints'
   | 'mesh_quality'
   | 'evaluation'
+  | 'post_processing'
+  | 'deformation'
+  | 'composition'
+  | 'snapshots'
   | 'shortcuts'
 
 interface TourStep {
@@ -60,8 +68,8 @@ const STEPS: TourStep[] = [
     icon: MessageSquare,
     accent: 'text-accent-cyan',
     title: 'Describe it, build it',
-    body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene. Try compound requests like "create a living room", "make a sunset", or "make a chess board" — the Agent decomposes them into multi-step tool sequences automatically.',
-    hint: 'Tip: mention materials, lighting, and counts in one sentence for the richest results.',
+    body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene. Try compound requests like "create a living room", "make a sunset", or "make a chess board" — the Agent decomposes them into multi-step tool sequences automatically. Type / to browse slash commands for quick scene, camera, animation, and editor actions.',
+    hint: 'Tip: mention materials, lighting, and counts in one sentence for the richest results. Press / for command suggestions.',
   },
   {
     id: 'templates',
@@ -176,11 +184,43 @@ const STEPS: TourStep[] = [
     hint: 'Tip: pair self_evaluate with auto-fix — it proposes concrete corrective tool calls you can approve and run in one shot.',
   },
   {
+    id: 'post_processing',
+    icon: Aperture,
+    accent: 'text-rose-300',
+    title: 'Post-processing and visual effects',
+    body: 'Drive the screen-space effect graph straight from chat: bloom bleeds bright pixels for neon and HDR glow, tone mapping (ACES / Filmic / AgX) compresses HDR into a cinematic range, color grading shifts lift / gamma / gain plus temperature and tint, vignette darkens the frame edges for focus, and film grain adds analog texture. Stack them for a finished look. Tell the Agent "add cinematic bloom" for a glowing hero pass, or "make it noir" for a high-contrast desaturated grade with vignette and grain. Use the Post-FX quick toggle in the top toolbar to cycle through bloom, cinematic, and noir presets in one click.',
+    hint: 'Tip: pair bloom with a low tone-mapping exposure so highlights glow without blowing out — say "add cinematic bloom with color grading".',
+  },
+  {
+    id: 'deformation',
+    icon: Waves,
+    accent: 'text-accent-emerald',
+    title: 'Deformation modifiers',
+    body: 'Reshape any mesh non-destructively with procedural deformation modifiers: noise adds organic surface turbulence, bend curves an object along an axis, twist rotates it around its length, taper scales one end relative to the other, and wave drives a sinusoidal ripple through the geometry. Deformations stack on top of the base geometry and stay editable in the Properties tab. Ask the Agent "add noise deformation to the sphere", "twist the cylinder 90 degrees", or "bend the bridge into an arch" — each modifier is applied as a live parameter you can dial in or remove later.',
+    hint: 'Tip: apply deformations to a higher-subdivision mesh so the result stays smooth instead of faceted.',
+  },
+  {
+    id: 'composition',
+    icon: Boxes,
+    accent: 'text-accent-purple',
+    title: 'Scene composition tools',
+    body: 'Build complex arrangements in one step with the composition tools: scatter distributes a count of objects randomly across an area, staircase generates a rising spiral of steps, bridge spans a deck between two points (optionally arched), and terrain sculpts a rolling heightfield. Each tool emits many objects at once while keeping every instance individually editable. Ask the Agent "create a spiral staircase" or "scatter 10 cubes around the origin" — counts, materials, and spacing are all natural-language arguments.',
+    hint: 'Tip: scatter a small count first to check the palette and density, then ask the Agent to scale it up to hundreds.',
+  },
+  {
+    id: 'snapshots',
+    icon: History,
+    accent: 'text-accent-cyan',
+    title: 'Snapshots and version control',
+    body: 'Treat your scene like a git repo: say "save a snapshot" and the Agent captures the current scene as an immutable, semantically labeled revision with an auto-generated geometry, palette, and light summary. Roll back any experiment with "restore snapshot" — restoring never deletes later revisions, so you can branch and explore freely. The Snapshots quick-access button in the top toolbar (git-commit icon) lists your last three revisions with one-tap restore, and the full Checkpoints panel diffs any two revisions to show what was added, removed, or changed.',
+    hint: 'Tip: save a snapshot before a risky deformation or post-processing pass so you can restore in one click if the look misses.',
+  },
+  {
     id: 'shortcuts',
     icon: Keyboard,
     accent: 'text-amber-400',
     title: 'Move at the speed of thought',
-    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, 1/2/3 switch between Move, Rotate, and Scale transforms, F frames the selection, A frames all, M toggles the minimap, Ctrl/Cmd+B toggles the chat panel, Ctrl/Cmd+Shift+B toggles the right panel, and Ctrl/Cmd+K opens the Command Palette.',
+    body: 'Press ? any time to see every keyboard shortcut. Space toggles Edit / Run mode, Ctrl/Cmd+Z undoes, Delete removes the selection, 1/2/3 switch between Move, Rotate, and Scale transforms, F frames the selection, A frames all, M toggles the minimap, W cycles viewport shading (wireframe / solid / material / rendered), Ctrl/Cmd+B toggles the chat panel, Ctrl/Cmd+Shift+B toggles the right panel, and Ctrl/Cmd+K opens the Command Palette.',
     hint: 'Tip: press F to frame the camera on whatever you have selected; press A to frame the whole scene.',
   },
 ]
