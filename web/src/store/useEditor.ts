@@ -53,6 +53,11 @@ export type ViewportProjection = 'perspective' | 'orthographic'
  *  Driven by the editor_set_mode delta from set_editor_mode tool execution. */
 export type EditorMode = 'edit' | 'run'
 
+/** Viewport shading mode — controls how objects are rendered in the viewport.
+ *  Driven by the editor_set_viewport_shading delta from set_viewport_shading
+ *  tool execution, and also by the local W keyboard shortcut. */
+export type ViewportShading = 'wireframe' | 'solid' | 'material' | 'rendered'
+
 /** Cinematic camera flythrough descriptor. Driven by the
  *  editor_camera_flythrough delta from camera_flythrough tool execution.
  *  The canvas component watches the token to (re)start the preview. */
@@ -131,6 +136,9 @@ interface EditorState {
   /** Editor authoring mode (edit vs run/preview). Driven by the
    *  editor_set_mode delta from set_editor_mode tool execution. */
   editorMode: EditorMode
+  /** Viewport shading mode. Driven by the editor_set_viewport_shading
+   *  delta from set_viewport_shading tool execution. */
+  viewportShading: ViewportShading
   /** Active cinematic camera flythrough, or null when cleared. Set by the
    *  editor_camera_flythrough delta from camera_flythrough tool execution. */
   cameraFlythrough: CameraFlythroughState | null
@@ -164,6 +172,7 @@ interface EditorState {
   setShadowsEnabled: (enabled: boolean) => void
   setProjectionMode: (mode: ViewportProjection) => void
   setEditorMode: (mode: EditorMode) => void
+  setViewportShading: (shading: ViewportShading) => void
   setCameraFlythrough: (f: Omit<CameraFlythroughState, 'token'> | null) => void
   clearCameraFlythrough: () => void
   setRadialMenu: (m: Omit<RadialMenuState, 'token'> | null) => void
@@ -188,6 +197,7 @@ export const useEditor = create<EditorState>((set) => ({
   shadowsEnabled: true,
   projectionMode: 'perspective',
   editorMode: 'edit',
+  viewportShading: 'solid',
   cameraFlythrough: null,
   radialMenu: null,
   orbitViewport: null,
@@ -229,6 +239,7 @@ export const useEditor = create<EditorState>((set) => ({
   setShadowsEnabled: (enabled) => set({ shadowsEnabled: enabled }),
   setProjectionMode: (mode) => set({ projectionMode: mode }),
   setEditorMode: (mode) => set({ editorMode: mode }),
+  setViewportShading: (shading) => set({ viewportShading: shading }),
   setCameraFlythrough: (f) =>
     set((state) => ({
       cameraFlythrough: f
