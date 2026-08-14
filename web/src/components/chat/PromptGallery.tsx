@@ -1,14 +1,17 @@
 // Prompt gallery: a curated, categorized library of bilingual example
 // prompts that speeds up 3D creation. Clicking a card inserts its full
 // prompt into the input bar (rather than sending it) so the user can read
-// and refine it before the Agent runs. Grouped by creative intent so the
-// right starting point is easy to find: full scenes, materials & lighting,
-// animation & motion, cinematic storyboards, and procedural generation.
+// and refine it before the Agent runs.
 //
 // The gallery is paired with a SceneContextPanel above it, which suggests
 // next-best actions based on the current live scene and exposes a template
 // quick-start strip driven by the Agent's creative skill catalog.
-import { Clapperboard, Layers, Lightbulb, Sparkles, Wind } from 'lucide-react'
+//
+// Prompts are grouped by creative intent so the right starting point is
+// easy to find: creation (full scenes and procedural generation), lighting
+// & mood, post-processing (cinematic looks), composition (multi-object
+// arrangements), and animation & motion (including camera storyboards).
+import { Aperture, Boxes, Clapperboard, Layers, Lightbulb, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { SceneContextPanel } from './SceneContextPanel'
 
@@ -30,9 +33,9 @@ interface GalleryCategory {
 
 const CATEGORIES: GalleryCategory[] = [
   {
-    id: 'scenes',
-    label: 'Scenes',
-    labelZh: '场景',
+    id: 'creation',
+    label: 'Creation',
+    labelZh: '创建',
     icon: Layers,
     accent: 'text-accent-cyan',
     prompts: [
@@ -54,12 +57,30 @@ const CATEGORIES: GalleryCategory[] = [
         titleZh: '产品展示台',
         prompt: 'Create a minimalist product showcase: a glossy colored sphere on a white pedestal, soft studio three-point lighting, subtle gradient background.',
       },
+      {
+        id: 'terrain',
+        title: 'Rolling terrain',
+        titleZh: '起伏地形',
+        prompt: 'Generate rolling terrain with a few hills, then add an L-system tree on the tallest hill.',
+      },
+      {
+        id: 'crystal',
+        title: 'Crystal cluster',
+        titleZh: '水晶簇',
+        prompt: 'Run the crystal garden composition to scatter a cluster of translucent colored crystals across the ground.',
+      },
+      {
+        id: 'noise-deform',
+        title: 'Noise deformation',
+        titleZh: '噪声变形',
+        prompt: 'Add noise deformation to all spheres',
+      },
     ],
   },
   {
-    id: 'materials',
-    label: 'Materials & Light',
-    labelZh: '材质与光照',
+    id: 'lighting',
+    label: 'Lighting & Mood',
+    labelZh: '光照与氛围',
     icon: Lightbulb,
     accent: 'text-accent-gold',
     prompts: [
@@ -81,13 +102,67 @@ const CATEGORIES: GalleryCategory[] = [
         titleZh: '温暖日落',
         prompt: 'Set the background to a warm sunset gradient, switch the lights to a low warm sun and a cool fill, and add a light amber fog.',
       },
+      {
+        id: 'cozy-mood',
+        title: 'Cozy mood',
+        titleZh: '温馨氛围',
+        prompt: 'Create a cozy lighting mood',
+      },
     ],
   },
   {
-    id: 'motion',
-    label: 'Animation & Motion',
-    labelZh: '动画与运动',
-    icon: Wind,
+    id: 'postprocessing',
+    label: 'Post-Processing',
+    labelZh: '后期处理',
+    icon: Aperture,
+    accent: 'text-rose-300',
+    prompts: [
+      {
+        id: 'cinematic-bloom',
+        title: 'Cinematic bloom',
+        titleZh: '电影感辉光',
+        prompt: 'Add cinematic bloom with color grading',
+      },
+      {
+        id: 'noir',
+        title: 'Noir look',
+        titleZh: '黑色电影',
+        prompt: 'Make it look noir',
+      },
+    ],
+  },
+  {
+    id: 'composition',
+    label: 'Composition',
+    labelZh: '组合构图',
+    icon: Boxes,
+    accent: 'text-accent-purple',
+    prompts: [
+      {
+        id: 'spiral-staircase',
+        title: 'Spiral staircase',
+        titleZh: '螺旋楼梯',
+        prompt: 'Create a spiral staircase with 12 marble steps',
+      },
+      {
+        id: 'scatter-spheres',
+        title: 'Scatter spheres',
+        titleZh: '散布球体',
+        prompt: 'Scatter 15 spheres randomly around the origin',
+      },
+      {
+        id: 'bridge',
+        title: 'Arched bridge',
+        titleZh: '拱桥',
+        prompt: 'Build a bridge with an arch',
+      },
+    ],
+  },
+  {
+    id: 'animation',
+    label: 'Animation',
+    labelZh: '动画',
+    icon: Clapperboard,
     accent: 'text-accent-emerald',
     prompts: [
       {
@@ -108,15 +183,6 @@ const CATEGORIES: GalleryCategory[] = [
         titleZh: '波浪阵列',
         prompt: 'Create a 5x5 grid of small cubes on the ground and add a wave animation to them so they ripple outward in sequence.',
       },
-    ],
-  },
-  {
-    id: 'storyboard',
-    label: 'Storyboard',
-    labelZh: '分镜',
-    icon: Clapperboard,
-    accent: 'text-rose-300',
-    prompts: [
       {
         id: 'director',
         title: 'Cinematic tour',
@@ -128,27 +194,6 @@ const CATEGORIES: GalleryCategory[] = [
         title: 'Hero reveal',
         titleZh: '主角亮相',
         prompt: 'Compose a storyboard titled "Hero reveal" that starts low and pulls back to frame the whole scene, then play it.',
-      },
-    ],
-  },
-  {
-    id: 'procedural',
-    label: 'Procedural',
-    labelZh: '程序化生成',
-    icon: Sparkles,
-    accent: 'text-accent-purple',
-    prompts: [
-      {
-        id: 'terrain',
-        title: 'Rolling terrain',
-        titleZh: '起伏地形',
-        prompt: 'Generate rolling terrain with a few hills, then add an L-system tree on the tallest hill.',
-      },
-      {
-        id: 'crystal',
-        title: 'Crystal cluster',
-        titleZh: '水晶簇',
-        prompt: 'Run the crystal garden composition to scatter a cluster of translucent colored crystals across the ground.',
       },
     ],
   },
