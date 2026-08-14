@@ -2,7 +2,7 @@
 // and FPS counter. Polls /api/agent/status for online/offline mode so the
 // user always knows whether the LLM is powering the chat or the offline
 // rule engine is handling turns.
-import { Box, Cpu, Eye, Lightbulb, MousePointer2, Zap } from 'lucide-react'
+import { Box, Cpu, Eye, Layers, Lightbulb, MousePointer2, Zap } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { fetchAgentStatus } from '../../api/client'
 import type { AgentStatusResponse } from '../../types'
@@ -111,6 +111,9 @@ export function StatusBar({ mode }: StatusBarProps) {
   const visibleCount = scene.objects.filter((o) => o.visible).length
   const polyCount = estimatePolygons(scene.objects)
   const polyLabel = polyCount >= 1000 ? `${(polyCount / 1000).toFixed(1)}k` : `${polyCount}`
+  // Draw call estimate: each visible mesh and each light contributes one
+  // draw call. Lights may add shadow passes, so this is a lower bound.
+  const drawCalls = visibleCount + lightCount
 
   const online = agentStatus?.online ?? false
   const primaryModel = agentStatus?.primary_model
@@ -140,6 +143,10 @@ export function StatusBar({ mode }: StatusBarProps) {
         <span className="flex items-center gap-1">
           <Zap size={10} className="text-accent-cyan/70" />
           <span>{polyLabel} polys</span>
+        </span>
+        <span className="flex items-center gap-1" title="Estimated draw calls (visible objects + lights)">
+          <Layers size={10} className="text-accent-cyan/70" />
+          <span>{drawCalls} draws</span>
         </span>
       </div>
 
