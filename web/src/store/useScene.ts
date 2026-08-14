@@ -170,6 +170,22 @@ export const useScene = create<SceneState>((set, get) => ({
       const nextSelectedIds = state.selectedIds.filter((id) => validIds.has(id))
       const selectedStillExists = state.selectedId && validIds.has(state.selectedId)
       const past = [...state.past, cloneScene(state.scene)].slice(-MAX_HISTORY)
+      // Sync viewport shading from scene metadata (set by the
+      // set_viewport_shading Agent tool) to the editor store so the
+      // renderer picks up the mode on the next render pass.
+      const meta = (incoming as unknown as Record<string, unknown>).metadata as
+        Record<string, unknown> | undefined
+      if (meta?.viewport_shading) {
+        const mode = meta.viewport_shading as string
+        if (['wireframe', 'solid', 'material', 'rendered'].includes(mode)) {
+          // Lazy import to avoid circular dependency at module load time
+          import('./useEditor').then(({ useEditor }) => {
+            useEditor.getState().setViewportShading(
+              mode as 'wireframe' | 'solid' | 'material' | 'rendered',
+            )
+          })
+        }
+      }
       return {
         scene: incoming,
         selectedId: selectedStillExists ? state.selectedId : nextSelectedIds[nextSelectedIds.length - 1] ?? null,
