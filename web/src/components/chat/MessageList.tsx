@@ -4,13 +4,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
+  Activity,
   ArrowDown,
   Boxes,
-  Camera,
+  Flame,
+  Gem,
   Home,
   Lightbulb,
   Moon,
-  Orbit,
   Palette,
   Snowflake,
   Sparkles,
@@ -20,6 +21,7 @@ import {
   Waves,
 } from 'lucide-react'
 import { useChat } from '../../store/useChat'
+import { useScene } from '../../store/useScene'
 import { MessageBubble } from './MessageBubble'
 
 interface SuggestionItem {
@@ -29,28 +31,139 @@ interface SuggestionItem {
 }
 
 const SUGGESTIONS: SuggestionItem[] = [
-  { icon: Sparkles, label: 'Solar System', prompt: 'Create a solar system scene with the sun and 8 orbiting planets' },
+  { icon: Sparkles, label: 'Solar System', prompt: 'Create a solar system' },
   { icon: Boxes, label: 'Red Cube', prompt: 'Create a red metallic cube at the origin' },
   { icon: Sunset, label: 'Sunset', prompt: 'Make a sunset' },
   { icon: Moon, label: 'Night', prompt: 'Make the scene look like night' },
   { icon: Home, label: 'Living Room', prompt: 'Create a living room' },
-  { icon: Home, label: 'Bedroom', prompt: 'Make a bedroom' },
-  { icon: Palette, label: 'Chess Board', prompt: 'Make a chess board' },
-  { icon: Waves, label: 'Water', prompt: 'Add water' },
-  { icon: Lightbulb, label: 'Point Light', prompt: 'Add a warm point light above the scene' },
-  { icon: Orbit, label: 'Arrange Circle', prompt: 'Arrange all objects in a circle of radius 4' },
-  { icon: Camera, label: 'Flythrough', prompt: 'Add a flythrough camera animation that loops every 8 seconds' },
-  { icon: Spline, label: 'Spiral Stairs', prompt: 'Use the spiral_staircase skill to build a spiral staircase with 20 steps' },
-  { icon: Trees, label: 'Forest', prompt: 'Use the forest skill to scatter 12 trees with varying heights across the ground plane' },
-  { icon: Snowflake, label: 'Snowman', prompt: 'Use the snowman skill to build a snowman with a carrot nose, coal eyes, stick arms, and a top hat' },
-  { icon: Sparkles, label: 'Particle Fire', prompt: 'Create a fire particle system' },
+  { icon: Waves, label: 'Ocean', prompt: 'Create an ocean' },
+  { icon: Trees, label: 'Forest', prompt: 'Make a forest' },
+  { icon: Palette, label: 'Crystal Garden', prompt: 'Create a crystal garden' },
+  { icon: Flame, label: 'Campfire', prompt: 'Make a campfire' },
+  { icon: Home, label: 'Castle', prompt: 'Make a castle' },
+  { icon: Spline, label: 'Staircase', prompt: 'Make a staircase' },
+  { icon: Sparkles, label: 'Rainbow', prompt: 'Make a rainbow' },
+  { icon: Snowflake, label: 'Snowfall', prompt: 'Make it look like winter then add snowfall' },
+  { icon: Spline, label: 'City Skyline', prompt: 'Create a city' },
+  { icon: Sparkles, label: 'Cave', prompt: 'Make a cave' },
+  { icon: Sparkles, label: 'Cinematic Bloom', prompt: 'Add cinematic bloom and warm color grading' },
+  { icon: Boxes, label: 'Hex Grid', prompt: 'Create a hex grid pattern on the ground' },
+  { icon: Spline, label: 'Noise Deform', prompt: 'Create a box and add noise deformation' },
+  { icon: Sparkles, label: 'Fibonacci', prompt: 'Create a fibonacci spiral of small spheres' },
 ]
 
-/** Animated three-dot typing indicator — shown when the Agent is responding
- *  but hasn't produced any visible text content yet. Gives the user
- *  immediate visual feedback that their message was received and the
- *  Agent is actively processing. */
+/** Quick-start prompts surfaced when the scene is empty so the user can
+ *  start creating with a single click. Uses the chat store's `send`. */
+const QUICK_START_PROMPTS: SuggestionItem[] = [
+  { icon: Sparkles, label: 'Glossy red sphere on a pedestal', prompt: 'Create a glossy red sphere on a pedestal' },
+  { icon: Sunset, label: 'Sunset scene with warm lighting', prompt: 'Make a sunset scene with warm lighting' },
+  { icon: Spline, label: 'Spiral staircase', prompt: 'Build a spiral staircase' },
+  { icon: Gem, label: 'Crystal garden', prompt: 'Create a crystal garden' },
+]
+
+/** Map a total (objects + lights) to a 0-100 complexity score and label.
+ *  Capped at 40 entities so typical scenes saturate near the high end. */
+function complexityFor(total: number): { pct: number; label: string } {
+  const pct = Math.min(100, Math.round((total / 40) * 100))
+  if (total === 0) return { pct: 0, label: 'Empty' }
+  if (total <= 5) return { pct, label: 'Light' }
+  if (total <= 15) return { pct, label: 'Moderate' }
+  if (total <= 30) return { pct, label: 'Complex' }
+  return { pct, label: 'Heavy' }
+}
+
+/** Compact scene-context strip pinned at the top of the message list.
+ *  Surfaces object count, light count, and a complexity meter so the user
+ *  can gauge how heavy the current scene is without leaving the chat. */
+function SceneContextIndicator() {
+  const objects = useScene((s) => s.scene.objects.length)
+  const lights = useScene((s) => s.scene.lights.length)
+  const total = objects + lights
+  const { pct, label } = complexityFor(total)
+  // Color shifts from cyan (light) to gold (moderate) to rose (heavy).
+  const meterColor =
+    total <= 5 ? 'bg-accent-cyan' : total <= 15 ? 'bg-accent-gold' : 'bg-rose-400'
+
+  return (
+    <div className="sticky top-0 z-10 mb-1 py-1.5 bg-bg-panel/95 backdrop-blur-sm border-b border-border-subtle">
+      <div className="flex items-center gap-2.5 text-[10px] text-fg-muted">
+        <span className="flex items-center gap-1">
+          <Boxes size={10} className="text-accent-cyan/70" />
+          <span className="font-mono text-fg-secondary">{objects}</span>
+          <span className="text-fg-muted/70">obj</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <Lightbulb size={10} className="text-accent-gold/70" />
+          <span className="font-mono text-fg-secondary">{lights}</span>
+          <span className="text-fg-muted/70">lights</span>
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Activity size={10} className="text-fg-muted/70" />
+          <div className="h-1 w-12 rounded-full bg-bg-base overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${meterColor}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-fg-muted font-mono w-12 text-right">{label}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Prominent quick-start card shown when the scene has no objects yet.
+ *  Clicking a prompt sends it straight to the Agent via the chat store. */
+function QuickStartCard() {
+  const send = useChat((s) => s.send)
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="rounded-lg border border-accent-cyan/25 bg-gradient-to-br from-accent-cyan/8 to-accent-gold/5 p-2.5 mb-1"
+    >
+      <div className="flex items-center gap-1.5 mb-2">
+        <Sparkles size={11} className="text-accent-cyan" />
+        <span className="text-[11px] font-semibold text-fg-primary">Quick Start</span>
+        <span className="text-[9px] text-fg-muted ml-auto">Empty scene</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {QUICK_START_PROMPTS.map((p) => {
+          const Icon = p.icon
+          return (
+            <button
+              key={p.label}
+              onClick={() => send(p.prompt)}
+              className="group flex items-start gap-1.5 rounded-md border border-border bg-bg-elevated/60 hover:bg-bg-hover hover:border-accent-cyan/40 transition-all px-2 py-1.5 text-left"
+            >
+              <Icon size={11} className="text-fg-muted group-hover:text-accent-cyan transition-colors shrink-0 mt-0.5" />
+              <span className="text-[9.5px] font-medium text-fg-secondary group-hover:text-fg-primary transition-colors leading-tight">
+                {p.label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </motion.div>
+  )
+}
+
+/** Animated typing indicator with phase-aware label — shown when the Agent
+ *  is responding but hasn't produced any visible text content yet. The
+ *  label cycles through processing phases to give the user a sense of
+ *  what the Agent is doing. */
+const TYPING_PHASES = ['Understanding', 'Planning', 'Executing', 'Reflecting'] as const
+
 function TypingIndicator() {
+  const [phaseIdx, setPhaseIdx] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPhaseIdx((i) => (i + 1) % TYPING_PHASES.length)
+    }, 1800)
+    return () => clearInterval(timer)
+  }, [])
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -64,10 +177,19 @@ function TypingIndicator() {
           <Sparkles size={12} className="text-accent-gold" />
           <span>Trigen AI</span>
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-md rounded-tl-sm bg-bg-elevated border border-border px-4 py-3">
+        <div className="inline-flex items-center gap-2 rounded-md rounded-tl-sm bg-bg-elevated border border-border px-4 py-3">
           <span className="w-2 h-2 rounded-full bg-accent-cyan/60 animate-bounce" style={{ animationDelay: '0ms' }} />
           <span className="w-2 h-2 rounded-full bg-accent-cyan/60 animate-bounce" style={{ animationDelay: '150ms' }} />
           <span className="w-2 h-2 rounded-full bg-accent-cyan/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+          <motion.span
+            key={phaseIdx}
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3 }}
+            className="text-[10px] text-fg-muted ml-1 font-mono"
+          >
+            {TYPING_PHASES[phaseIdx]}…
+          </motion.span>
         </div>
       </div>
     </motion.div>
@@ -81,6 +203,10 @@ interface MessageListProps {
 export function MessageList({ onSuggestion }: MessageListProps) {
   const messages = useChat((s) => s.messages)
   const isResponding = useChat((s) => s.isResponding)
+  // Scene object count — drives the Quick Start card visibility when the
+  // scene has no geometry yet, regardless of whether messages exist.
+  const sceneObjectCount = useScene((s) => s.scene.objects.length)
+  const sceneEmpty = sceneObjectCount === 0
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [showScrollDown, setShowScrollDown] = useState(false)
@@ -141,6 +267,13 @@ export function MessageList({ onSuggestion }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto px-3 py-3 min-h-0">
+        {/* Scene context strip — object/light counts + complexity meter */}
+        <SceneContextIndicator />
+
+        {/* Quick Start card — prominent when the scene is empty so the
+            user can begin creating with a single click. */}
+        {sceneEmpty && <QuickStartCard />}
+
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -214,6 +347,14 @@ export function MessageList({ onSuggestion }: MessageListProps) {
         onScroll={handleScroll}
         className="h-full overflow-y-auto px-4 py-3 space-y-3"
       >
+        {/* Scene context strip — object/light counts + complexity meter,
+            pinned to the top of the scroll area. */}
+        <SceneContextIndicator />
+
+        {/* Quick Start card — shown when the scene has no objects yet so
+            the user can jump back into creating after clearing the scene. */}
+        {sceneEmpty && <QuickStartCard />}
+
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
