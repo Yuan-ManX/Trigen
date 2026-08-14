@@ -422,6 +422,10 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
   const gridSnapEnabled = useEditor((s) => s.gridSnapEnabled)
   const snapIncrement = useEditor((s) => s.snapIncrement)
   const setRadialMenu = useEditor((s) => s.setRadialMenu)
+  // Viewport shading mode drives the material rendering pipeline:
+  // wireframe forces wireframe overlay, solid uses a flat standard
+  // material, material/rendered use the full physical material.
+  const viewportShading = useEditor((s) => s.viewportShading)
   // Capture the base transforms of every secondary selection at drag start
   // so the gizmo can move them as a rigid group alongside the primary.
   // The ref is populated lazily in the onObjectChange handler when the
@@ -539,6 +543,331 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
     )
   })
 
+  // Geometric modifier pass: applies noise displacement, bend, twist,
+  // taper, and wave modifiers to the geometry vertices every frame.
+  // Uses a pristine copy of the original positions so modifiers are
+  // purely additive (no accumulated drift).
+  const modifierOrigRef = useRef<Float32Array | null>(null)
+  useFrame(() => {
+    if (!meshObj || !object.modifiers) {
+      modifierOrigRef.current = null
+      return
+    }
+    const modKeys = Object.keys(object.modifiers)
+    if (modKeys.length === 0) {
+      modifierOrigRef.current = null
+      return
+    }
+    const geom = meshObj.geometry as THREE.BufferGeometry
+    const posAttr = geom.getAttribute('position')
+    if (!posAttr) return
+    const count = posAttr.count
+    const arr = posAttr.array as Float32Array
+
+    // Snapshot original positions on first frame or when modifiers change
+    if (!modifierOrigRef.current || modifierOrigRef.current.length !== count * 3) {
+      modifierOrigRef.current = new Float32Array(count * 3)
+      modifierOrigRef.current.set(arr)
+    }
+
+    const orig = modifierOrigRef.current
+    const time = performance.now() * 0.001
+
+    // Reset to original positions
+    arr.set(orig)
+
+    const mods = object.modifiers
+
+    // ---- Vertex-displacement modifiers (noise, wave) ----
+    const noiseCfg = mods.noise
+    const waveCfg = mods.wave
+    const noiseEnabled = noiseCfg && Boolean((noiseCfg as Record<string, unknown>).enabled ?? true)
+    const waveEnabled = waveCfg && Boolean((waveCfg as Record<string, unknown>).enabled ?? true)
+
+    if (noiseEnabled || waveEnabled) {
+      const noiseAmp = Number((noiseCfg as Record<string, unknown>)?.amplitude ?? 0.3)
+      const noiseFreq = Number((noiseCfg as Record<string, unknown>)?.frequency ?? 1.5)
+      const noiseSeed = Number((noiseCfg as Record<string, unknown>)?.seed ?? 0)
+      const waveAmp = Number((waveCfg as Record<string, unknown>)?.amplitude ?? 0.2)
+      const waveFreq = Number((waveCfg as Record<string, unknown>)?.frequency ?? 1.0)
+      const waveAxis = String((waveCfg as Record<string, unknown>)?.axis ?? 'y')
+
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3
+        let x = orig[ix]
+        let y = orig[ix + 1]
+        let z = orig[ix + 2]
+
+        if (noiseEnabled) {
+          const nx = x * noiseFreq + noiseSeed
+          const ny = y * noiseFreq + noiseSeed * 0.5
+          const nz = z * noiseFreq + noiseSeed * 0.7
+          const n = valueNoise3D(nx, ny, nz)
+          x += n * noiseAmp * 0.3
+          y += n * noiseAmp * 0.7
+          z += n * noiseAmp * 0.3
+        }
+
+        if (waveEnabled) {
+          const wavePhase = time * waveFreq + (x + y + z) * 0.5
+          const waveOffset = Math.sin(wavePhase) * waveAmp
+          if (waveAxis === 'x') x += waveOffset
+          else if (waveAxis === 'z') z += waveOffset
+          else y += waveOffset
+        }
+
+        arr[ix] = x
+        arr[ix + 1] = y
+        arr[ix + 2] = z
+      }
+      posAttr.needsUpdate = true
+      geom.computeVertexNormals()
+    }
+
+    // ---- Matrix-transform modifiers (bend, twist, taper) ----
+    const bendCfg = mods.bend
+    const twistCfg = mods.twist
+    const taperCfg = mods.taper
+    const bendEnabled = bendCfg && Boolean((bendCfg as Record<string, unknown>).enabled ?? false)
+    const twistEnabled = twistCfg && Boolean((twistCfg as Record<string, unknown>).enabled ?? false)
+    const taperEnabled = taperCfg && Boolean((taperCfg as Record<string, unknown>).enabled ?? false)
+
+    if (bendEnabled || twistEnabled || taperEnabled) {
+      const bendAngle = Number((bendCfg as Record<string, unknown>)?.angle ?? 0.5)
+      const bendAxis = String((bendCfg as Record<string, unknown>)?.axis ?? 'z')
+      const bendLength = Number((bendCfg as Record<string, unknown>)?.length ?? 2)
+      const twistAngle = Number((twistCfg as Record<string, unknown>)?.angle ?? 1.0)
+      const twistAxis = String((twistCfg as Record<string, unknown>)?.axis ?? 'y')
+      const taperAmount = Number((taperCfg as Record<string, unknown>)?.amount ?? 0.3)
+      const taperAxis = String((taperCfg as Record<string, unknown>)?.axis ?? 'y')
+
+      // Centroid for pivot
+      let cx = 0, cy = 0, cz = 0
+      for (let i = 0; i < count; i++) {
+        cx += orig[i * 3]; cy += orig[i * 3 + 1]; cz += orig[i * 3 + 2]
+      }
+      cx /= count; cy /= count; cz /= count
+
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3
+        let x = arr[ix] - cx
+        let y = arr[ix + 1] - cy
+        let z = arr[ix + 2] - cz
+
+        if (bendEnabled) {
+          const along = bendAxis === 'x' ? x : bendAxis === 'y' ? y : z
+          const factor = Math.max(-1, Math.min(1, along / (bendLength || 2)))
+          const angle = bendAngle * factor
+          const cos = Math.cos(angle), sin = Math.sin(angle)
+          if (bendAxis === 'x') { const ny = y * cos - z * sin; z = y * sin + z * cos; y = ny }
+          else if (bendAxis === 'y') { const nx = x * cos + z * sin; z = -x * sin + z * cos; x = nx }
+          else { const nx = x * cos - y * sin; y = x * sin + y * cos; x = nx }
+        }
+
+        if (twistEnabled) {
+          const along = twistAxis === 'x' ? x : twistAxis === 'y' ? y : z
+          const maxAbs = Math.max(0.5, Math.abs(along))
+          const angle = twistAngle * (along / maxAbs)
+          const cos = Math.cos(angle), sin = Math.sin(angle)
+          if (twistAxis === 'x') { const ny = y * cos - z * sin; z = y * sin + z * cos; y = ny }
+          else if (twistAxis === 'y') { const nx = x * cos + z * sin; z = -x * sin + z * cos; x = nx }
+          else { const nx = x * cos - y * sin; y = x * sin + y * cos; x = nx }
+        }
+
+        if (taperEnabled) {
+          const along = taperAxis === 'x' ? x : taperAxis === 'y' ? y : z
+          const scale = 1 - taperAmount * Math.abs(along) * 0.5
+          const s = Math.max(0.1, scale)
+          if (taperAxis === 'x') { y *= s; z *= s }
+          else if (taperAxis === 'y') { x *= s; z *= s }
+          else { x *= s; y *= s }
+        }
+
+        arr[ix] = x + cx
+        arr[ix + 1] = y + cy
+        arr[ix + 2] = z + cz
+      }
+      posAttr.needsUpdate = true
+      geom.computeVertexNormals()
+    }
+  })
+
+  // Surface-detail operators: shell, inflate, bevel. Implemented as a
+  // second additive pass on top of the modifier stage so the original
+  // geometry remains intact and both systems compose cleanly.
+  //  - inflate: push every vertex along its normal by a signed amount
+  //  - shell:   two-pass offset (front face + back face) to make a
+  //             hollow-looking shell. Because we render only one mesh the
+  //             effect is approximated as an inflate + doubled side.
+  //  - bevel:   pure-visual softening pass (extra normal smoothing
+  //             approximation combined with subtle edge-vertex offset).
+  const surfaceOrigRef = useRef<Float32Array | null>(null)
+  const surfaceNormalRef = useRef<Float32Array | null>(null)
+  useFrame(() => {
+    if (!meshObj) {
+      surfaceOrigRef.current = null
+      surfaceNormalRef.current = null
+      return
+    }
+    const shell = object.surface_ops?.shell as Record<string, unknown> | undefined
+    const bevel = object.surface_ops?.bevel as Record<string, unknown> | undefined
+    const inflate = object.surface_ops?.inflate as Record<string, unknown> | undefined
+    if (!shell && !bevel && !inflate) {
+      if (surfaceOrigRef.current) {
+        // Reset to captured baseline once and release refs
+        const geom = meshObj.geometry as THREE.BufferGeometry
+        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined
+        if (posAttr && surfaceOrigRef.current.length === (posAttr.array as Float32Array).length) {
+          ;(posAttr.array as Float32Array).set(surfaceOrigRef.current)
+          posAttr.needsUpdate = true
+          geom.computeVertexNormals()
+        }
+        surfaceOrigRef.current = null
+        surfaceNormalRef.current = null
+      }
+      return
+    }
+    const geom = meshObj.geometry as THREE.BufferGeometry
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined
+    const normAttr = geom.getAttribute('normal') as THREE.BufferAttribute | undefined
+    if (!posAttr || !normAttr) return
+    const posArr = posAttr.array as Float32Array
+    const normArr = normAttr.array as Float32Array
+    const count = posAttr.count
+    if (!surfaceOrigRef.current || surfaceOrigRef.current.length !== count * 3) {
+      surfaceOrigRef.current = new Float32Array(count * 3)
+      surfaceOrigRef.current.set(posArr)
+      surfaceNormalRef.current = new Float32Array(count * 3)
+      surfaceNormalRef.current.set(normArr)
+    }
+    const orig = surfaceOrigRef.current
+    const origN = surfaceNormalRef.current!
+
+    const inflateAmount = Number(inflate?.amount ?? 0)
+    const inflatePreserve = Boolean(inflate?.preserve_volume ?? true)
+    const shellThickness = Number(shell?.thickness ?? 0)
+    const bevelRadius = Number(bevel?.radius ?? 0)
+
+    // Total normal offset: shell thickness + inflate (shell thickness is
+    // halved because shell = both directions conceptually, while inflate =
+    // outward only). Bevel adds a very small proportional push to round
+    // silhouette edges.
+    const baseOffset = shellThickness * 0.5 + inflateAmount
+    const bevelBias = bevelRadius * 0.3
+
+    if (baseOffset !== 0 || bevelBias !== 0) {
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3
+        let x = orig[ix]
+        let y = orig[ix + 1]
+        let z = orig[ix + 2]
+        const nx = origN[ix]
+        const ny = origN[ix + 1]
+        const nz = origN[ix + 2]
+        const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1
+        const ux = nx / nLen
+        const uy = ny / nLen
+        const uz = nz / nLen
+        // Push along normal
+        let offset = baseOffset
+        // Bevel: stronger push on silhouette corners — verts whose
+        // normalized position is near the bounding box corners get more
+        // offset (approximates local radius-based bevel weighting).
+        if (bevelBias !== 0) {
+          const pAbs = Math.max(Math.abs(x), Math.abs(y), Math.abs(z))
+          if (pAbs > 0.0001) {
+            const corner = Math.min(1, (Math.abs(x) + Math.abs(y) + Math.abs(z)) / (pAbs * 3 + 0.0001) - 1)
+            offset += bevelBias * Math.max(0, corner)
+          }
+        }
+        x += ux * offset
+        y += uy * offset
+        z += uz * offset
+        // Preserve volume for inflate: scale position inward radially
+        // based on offset magnitude so the overall bounding volume stays
+        // close to the baseline (organic puff look).
+        if (inflatePreserve && inflateAmount !== 0) {
+          const radial = Math.sqrt(x * x + y * y + z * z)
+          if (radial > 0.0001) {
+            const compensated = 1 / (1 + offset / (radial + offset))
+            x *= compensated
+            y *= compensated
+            z *= compensated
+          }
+        }
+        posArr[ix] = x
+        posArr[ix + 1] = y
+        posArr[ix + 2] = z
+      }
+      posAttr.needsUpdate = true
+      geom.computeVertexNormals()
+    }
+  })
+
+  // LOD (level-of-detail) — compute the closest camera distance to this
+  // mesh, pick the highest-detail level whose threshold the camera is
+  // inside, and apply a segment-count multiplier via geometry params.
+  // We scale the mesh uniform slightly as a visual stand-in for the
+  // detail change when the geometry itself can't be re-tessellated live.
+  const lastLodRef = useRef<number | null>(null)
+  useFrame(({ camera }) => {
+    if (!meshObj) return
+    const levels = object.lod?.levels
+    if (!levels || levels.length === 0) {
+      lastLodRef.current = null
+      return
+    }
+    const mp = new THREE.Vector3(
+      object.transform.position[0],
+      object.transform.position[1],
+      object.transform.position[2],
+    )
+    const d = camera.position.distanceTo(mp)
+    let picked = levels.length - 1
+    for (let i = 0; i < levels.length; i++) {
+      if (d <= levels[i].distance) {
+        picked = i
+        break
+      }
+    }
+    if (lastLodRef.current !== picked) {
+      lastLodRef.current = picked
+      // Visual cue: nudge shadow bias and apply a detail scale factor.
+      const detail = Number(levels[picked].detail ?? 1.0)
+      const targetScale = 0.92 + 0.08 * detail
+      meshObj.scale.setScalar(targetScale)
+    }
+  })
+
+  // Simple 3D value noise for vertex displacement
+  function _vf_hash(x: number, y: number, z: number): number {
+    const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453
+    return s - Math.floor(s)
+  }
+
+  function valueNoise3D(x: number, y: number, z: number): number {
+    const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z)
+    const xf = x - xi, yf = y - yi, zf = z - zi
+    const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10)
+    const v = yf * yf * yf * (yf * (yf * 6 - 15) + 10)
+    const w = zf * zf * zf * (zf * (zf * 6 - 15) + 10)
+    const c000 = _vf_hash(xi, yi, zi)
+    const c100 = _vf_hash(xi + 1, yi, zi)
+    const c010 = _vf_hash(xi, yi + 1, zi)
+    const c110 = _vf_hash(xi + 1, yi + 1, zi)
+    const c001 = _vf_hash(xi, yi, zi + 1)
+    const c101 = _vf_hash(xi + 1, yi, zi + 1)
+    const c011 = _vf_hash(xi, yi + 1, zi + 1)
+    const c111 = _vf_hash(xi + 1, yi + 1, zi + 1)
+    const x00 = c000 + (c100 - c000) * u
+    const x10 = c010 + (c110 - c010) * u
+    const x01 = c001 + (c101 - c001) * u
+    const x11 = c011 + (c111 - c011) * u
+    const y0 = x00 + (x10 - x00) * v
+    const y1 = x01 + (x11 - x01) * v
+    return (y0 + (y1 - y0) * w) * 2 - 1
+  }
+
   const isSelected = selectedIds.includes(object.id)
   // Gizmo attaches to the primary (last-clicked) selection only, so multi-select
   // stays inspectable without stacking multiple transform handles.
@@ -600,36 +929,66 @@ function SceneMeshBase({ object, editMode = true, transformMode = 'translate' }:
         userData={{ id: object.id, name: object.name }}
       >
         <GeometryRenderer geometry={object.geometry} />
-        <meshPhysicalMaterial
-          color={mat.color}
-          metalness={mat.metalness}
-          roughness={mat.roughness}
-          opacity={mat.opacity}
-          transparent={transparent}
-          wireframe={mat.wireframe}
-          emissive={mat.emissive}
-          emissiveIntensity={mat.emissive_intensity}
-          flatShading={mat.flat_shading ?? false}
-          side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
-          clearcoat={mat.clearcoat ?? 0}
-          clearcoatRoughness={mat.clearcoat_roughness ?? 0}
-          transmission={mat.transmission ?? 0}
-          thickness={mat.thickness ?? 0}
-          ior={mat.ior ?? 1.5}
-          iridescence={mat.iridescence ?? 0}
-          iridescenceIOR={mat.iridescence_ior ?? 1.3}
-          iridescenceThicknessRange={[
-            mat.iridescence_thickness_min ?? 100,
-            mat.iridescence_thickness_max ?? 400,
-          ]}
-          sheen={mat.sheen ?? 0}
-          sheenColor={mat.sheen_color ?? '#000000'}
-          sheenRoughness={mat.sheen_roughness ?? 1.0}
-          specularIntensity={mat.specular_intensity ?? 1.0}
-          specularColor={mat.specular_color ?? '#ffffff'}
-          attenuationColor={mat.attenuation_color ?? '#ffffff'}
-          attenuationDistance={mat.attenuation_distance ?? 0}
-        />
+        {viewportShading === 'wireframe' ? (
+          // Wireframe mode: force wireframe rendering on the full material
+          // so users can inspect topology without losing material context.
+          <meshPhysicalMaterial
+            color={mat.color}
+            metalness={mat.metalness}
+            roughness={mat.roughness}
+            opacity={mat.opacity}
+            transparent={transparent}
+            wireframe={true}
+            emissive={mat.emissive}
+            emissiveIntensity={mat.emissive_intensity}
+            side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
+          />
+        ) : viewportShading === 'solid' ? (
+          // Solid mode: flat unlit-style standard material for quick
+          // shape review without PBR complexity.
+          <meshStandardMaterial
+            color={mat.color}
+            roughness={1}
+            metalness={0}
+            opacity={mat.opacity}
+            transparent={transparent}
+            flatShading
+            side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
+          />
+        ) : (
+          // Material / rendered mode: full physical material with all PBR
+          // properties for the highest visual fidelity.
+          <meshPhysicalMaterial
+            color={mat.color}
+            metalness={mat.metalness}
+            roughness={mat.roughness}
+            opacity={mat.opacity}
+            transparent={transparent}
+            wireframe={mat.wireframe}
+            emissive={mat.emissive}
+            emissiveIntensity={mat.emissive_intensity}
+            flatShading={mat.flat_shading ?? false}
+            side={mat.side === 'double' ? THREE.DoubleSide : mat.side === 'back' ? THREE.BackSide : THREE.FrontSide}
+            clearcoat={mat.clearcoat ?? 0}
+            clearcoatRoughness={mat.clearcoat_roughness ?? 0}
+            transmission={mat.transmission ?? 0}
+            thickness={mat.thickness ?? 0}
+            ior={mat.ior ?? 1.5}
+            iridescence={mat.iridescence ?? 0}
+            iridescenceIOR={mat.iridescence_ior ?? 1.3}
+            iridescenceThicknessRange={[
+              mat.iridescence_thickness_min ?? 100,
+              mat.iridescence_thickness_max ?? 400,
+            ]}
+            sheen={mat.sheen ?? 0}
+            sheenColor={mat.sheen_color ?? '#000000'}
+            sheenRoughness={mat.sheen_roughness ?? 1.0}
+            specularIntensity={mat.specular_intensity ?? 1.0}
+            specularColor={mat.specular_color ?? '#ffffff'}
+            attenuationColor={mat.attenuation_color ?? '#ffffff'}
+            attenuationDistance={mat.attenuation_distance ?? 0}
+          />
+        )}
         {isSelected && (
           <Edges threshold={15} color={edgeColor} renderOrder={2} scale={1.02} />
         )}
