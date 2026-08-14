@@ -73,6 +73,8 @@ export function AppShell() {
   const setGridSnap = useEditor((s) => s.setGridSnap)
   const renderQuality = useEditor((s) => s.renderQuality)
   const setRenderQuality = useEditor((s) => s.setRenderQuality)
+  const viewportShading = useEditor((s) => s.viewportShading)
+  const setViewportShading = useEditor((s) => s.setViewportShading)
   const requestCapture = useEditor((s) => s.requestCapture)
 
   // Playback store hooks for the playback shortcuts
@@ -272,6 +274,14 @@ export function AppShell() {
         setRenderQuality(order[(idx + 1) % order.length])
         return
       }
+      // W: cycle viewport shading (wireframe / solid / material / rendered)
+      if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault()
+        const modes = ['wireframe', 'solid', 'material', 'rendered'] as const
+        const idx = modes.indexOf(viewportShading)
+        setViewportShading(modes[(idx + 1) % modes.length])
+        return
+      }
       // C: capture viewport
       if (e.key === 'c' || e.key === 'C') {
         e.preventDefault()
@@ -317,6 +327,8 @@ export function AppShell() {
     setGridSnap,
     renderQuality,
     setRenderQuality,
+    viewportShading,
+    setViewportShading,
     requestCapture,
     isPlaying,
     play,
@@ -339,7 +351,7 @@ export function AppShell() {
               animate={{ width: 400, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
-              className="overflow-hidden h-full"
+              className="overflow-hidden h-full shrink-0"
             >
               <ChatPanel onCollapse={() => {
                 setChatOpen(false)
@@ -388,7 +400,7 @@ export function AppShell() {
               animate={{ width: 280, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: 'easeInOut' }}
-              className="overflow-hidden"
+              className="overflow-hidden shrink-0"
             >
               <RightPanel onCollapse={() => {
                 setRightOpen(false)
