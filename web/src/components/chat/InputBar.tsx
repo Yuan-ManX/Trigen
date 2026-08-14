@@ -1,5 +1,24 @@
 // Input bar: model selector + image upload + multiline input box + send button
-import { Check, ChevronDown, Image as ImageIcon, Loader2, Search, Send, Square, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  Boxes,
+  Camera,
+  Check,
+  ChevronDown,
+  HelpCircle,
+  Image as ImageIcon,
+  Info,
+  Loader2,
+  Search,
+  Send,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  Wand2,
+  Wind,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   fetchModelAvailability,
@@ -75,6 +94,86 @@ function groupByProvider(models: ModelEntry[]): Record<string, ModelEntry[]> {
   }
   return groups
 }
+
+/* ============ Slash-command autocomplete ============ */
+
+/** A single slash command shown in the input autocomplete dropdown. */
+interface SlashCommand {
+  /** Command name without the leading "/" (e.g. "sunset"). */
+  name: string
+  /** Short one-line description rendered next to the command name. */
+  description: string
+  /** Natural-language prompt inserted into the input when selected. */
+  prompt: string
+  /** Category id from SLASH_CATEGORIES. */
+  category: string
+}
+
+/** Category metadata for grouping slash commands in the dropdown. */
+interface SlashCategory {
+  id: string
+  label: string
+  icon: LucideIcon
+}
+
+/** Display order + icon for each slash-command category. */
+const SLASH_CATEGORIES: SlashCategory[] = [
+  { id: 'scene', label: 'Scene', icon: Boxes },
+  { id: 'camera', label: 'Camera', icon: Camera },
+  { id: 'animation', label: 'Animation', icon: Wind },
+  { id: 'composition', label: 'Scene Composition', icon: Wand2 },
+  { id: 'editor', label: 'Editor', icon: SlidersHorizontal },
+  { id: 'analysis', label: 'Analysis', icon: Info },
+  { id: 'help', label: 'Help', icon: HelpCircle },
+]
+
+/** Full slash-command catalog. Selecting a command inserts its natural-
+ *  language `prompt` into the input so the Agent receives a readable
+ *  instruction instead of a raw "/" token. */
+const SLASH_COMMANDS: SlashCommand[] = [
+  // Scene
+  { name: 'create', description: 'Create a new object', prompt: 'Create a new object in the scene', category: 'scene' },
+  { name: 'delete', description: 'Delete the selected object', prompt: 'Delete the currently selected object', category: 'scene' },
+  { name: 'duplicate', description: 'Duplicate the selected object', prompt: 'Duplicate the currently selected object', category: 'scene' },
+  { name: 'transform', description: 'Move, rotate, or scale', prompt: 'Transform the selected object (position, rotation, scale)', category: 'scene' },
+  { name: 'material', description: 'Apply a material', prompt: 'Apply a new material to the selected object', category: 'scene' },
+  { name: 'light', description: 'Add or adjust a light', prompt: 'Add or adjust a light source in the scene', category: 'scene' },
+  { name: 'background', description: 'Change the background', prompt: 'Change the scene background', category: 'scene' },
+  { name: 'scene', description: 'Manage the scene', prompt: 'Manage the current scene: list objects, lights, and settings', category: 'scene' },
+  // Camera
+  { name: 'camera', description: 'Adjust camera settings', prompt: 'Adjust the camera settings (position, field of view, projection)', category: 'camera' },
+  { name: 'view', description: 'Switch camera view', prompt: 'Switch to a different camera view', category: 'camera' },
+  { name: 'orbit', description: 'Orbit the camera', prompt: 'Orbit the camera around the center of the scene', category: 'camera' },
+  { name: 'frame', description: 'Frame the selection', prompt: 'Frame the selected object in the viewport', category: 'camera' },
+  { name: 'flythrough', description: 'Cinematic flythrough', prompt: 'Create a cinematic camera flythrough of the scene', category: 'camera' },
+  // Animation
+  { name: 'animate', description: 'Animate the selection', prompt: 'Add an animation to the selected object', category: 'animation' },
+  { name: 'bounce', description: 'Bounce animation', prompt: 'Add a bounce animation to the selected object', category: 'animation' },
+  { name: 'spin', description: 'Spin animation', prompt: 'Add a continuous spin animation to the selected object', category: 'animation' },
+  { name: 'pulse', description: 'Pulse animation', prompt: 'Add a pulse animation to the selected object', category: 'animation' },
+  { name: 'orbit-anim', description: 'Orbit animation', prompt: 'Add an orbit animation around the scene to the selected object', category: 'animation' },
+  { name: 'wave', description: 'Wave animation', prompt: 'Add a wave animation that ripples across the objects', category: 'animation' },
+  // Scene Composition
+  { name: 'sunset', description: 'Sunset scene', prompt: 'Make a sunset scene', category: 'composition' },
+  { name: 'ocean', description: 'Ocean scene', prompt: 'Make an ocean scene', category: 'composition' },
+  { name: 'forest', description: 'Forest scene', prompt: 'Make a forest scene', category: 'composition' },
+  { name: 'castle', description: 'Castle scene', prompt: 'Make a castle scene', category: 'composition' },
+  { name: 'solar', description: 'Solar system scene', prompt: 'Make a solar system scene', category: 'composition' },
+  { name: 'city', description: 'City scene', prompt: 'Make a city scene', category: 'composition' },
+  { name: 'crystal', description: 'Crystal cluster scene', prompt: 'Make a crystal cluster scene', category: 'composition' },
+  // Editor
+  { name: 'grid', description: 'Toggle the grid', prompt: 'Toggle the viewport grid on or off', category: 'editor' },
+  { name: 'toggle-panel', description: 'Toggle side panel', prompt: 'Toggle the side panel visibility', category: 'editor' },
+  { name: 'undo', description: 'Undo last action', prompt: 'Undo the last action', category: 'editor' },
+  { name: 'redo', description: 'Redo last undone action', prompt: 'Redo the last undone action', category: 'editor' },
+  { name: 'export', description: 'Export the scene', prompt: 'Export the current scene', category: 'editor' },
+  { name: 'describe', description: 'Describe the scene', prompt: 'Describe the current scene', category: 'editor' },
+  // Analysis
+  { name: 'analyze', description: 'Analyze the scene', prompt: 'Analyze the current scene and report statistics, complexity, and suggestions', category: 'analysis' },
+  // Help
+  { name: 'help', description: 'Show help', prompt: 'Show help and the list of available commands', category: 'help' },
+  { name: 'shortcuts', description: 'Show keyboard shortcuts', prompt: 'Show the keyboard shortcuts reference', category: 'help' },
+]
 
 /** Model selector dropdown (categorized, with search) */
 function ModelSelector() {
@@ -310,8 +409,60 @@ export function InputBar() {
   const isResponding = useChat((s) => s.isResponding)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** Highlighted row index in the slash-command dropdown. */
+  const [slashIndex, setSlashIndex] = useState(0)
+  /** Dismissal flag — set by Escape, cleared once the "/" prefix is gone. */
+  const [slashDismissed, setSlashDismissed] = useState(false)
+  const slashListRef = useRef<HTMLDivElement>(null)
 
   const canSend = text.trim().length > 0 && !isResponding && !uploading
+
+  /* ---- Slash-command autocomplete ---- */
+  // The menu opens when the input starts with "/" and contains no spaces
+  // (i.e. the user is still typing the command name). Pressing Escape sets
+  // a dismissal flag that suppresses the menu until the "/" prefix is gone.
+  const slashActive = text.startsWith('/') && !text.includes(' ')
+  const slashQuery = slashActive ? text.slice(1).toLowerCase() : ''
+  const slashOpen = slashActive && !slashDismissed && !isResponding
+
+  const filteredSlash = useMemo(() => {
+    const q = slashQuery
+    if (!q) return SLASH_COMMANDS
+    const startsWith = SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q))
+    if (startsWith.length > 0) return startsWith
+    return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().includes(q))
+  }, [slashQuery])
+
+  const groupedSlash = useMemo(() => {
+    const groups: Record<string, SlashCommand[]> = {}
+    for (const c of filteredSlash) {
+      if (!groups[c.category]) groups[c.category] = []
+      groups[c.category].push(c)
+    }
+    return groups
+  }, [filteredSlash])
+
+  const flatSlash = useMemo(() => {
+    const order: SlashCommand[] = []
+    for (const cat of SLASH_CATEGORIES) {
+      if (groupedSlash[cat.id]) order.push(...groupedSlash[cat.id])
+    }
+    return order
+  }, [groupedSlash])
+
+  // Keep the highlight within bounds when the filtered list shrinks.
+  useEffect(() => {
+    if (slashIndex >= flatSlash.length) setSlashIndex(0)
+  }, [flatSlash.length, slashIndex])
+
+  // Scroll the highlighted row into view while keyboard-navigating.
+  useEffect(() => {
+    if (!slashOpen) return
+    const list = slashListRef.current
+    if (!list) return
+    const row = list.querySelector<HTMLElement>(`[data-slash-idx="${slashIndex}"]`)
+    if (row) row.scrollIntoView({ block: 'nearest' })
+  }, [slashIndex, slashOpen])
 
   const handleSend = () => {
     if (!canSend) return
@@ -330,20 +481,68 @@ export function InputBar() {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Slash-command autocomplete navigation takes precedence while the
+    // dropdown is open: arrows move the highlight, Enter/Tab confirm, and
+    // Escape dismisses without sending.
+    if (slashOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashIndex((i) => Math.min(i + 1, flatSlash.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const picked = flatSlash[slashIndex]
+        if (picked) selectSlashCommand(picked)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashDismissed(true)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
   }
 
-  // Auto-adjust height
+  // Auto-adjust height. Also resets slash-command autocomplete state: the
+  // dismissal flag clears once the user moves away from a "/" prefix, and
+  // the highlighted row resets to the top whenever the query changes.
   const handleInput = (value: string) => {
     setText(value)
+    if (!value.startsWith('/')) {
+      setSlashDismissed(false)
+    }
+    setSlashIndex(0)
     const el = textareaRef.current
     if (el) {
       el.style.height = 'auto'
       el.style.height = `${Math.min(el.scrollHeight, 140)}px`
     }
+  }
+
+  // Replace the typed slash command with its natural-language prompt and
+  // refocus the textarea with the caret at the end so the user can keep
+  // refining the instruction before sending.
+  const selectSlashCommand = (cmd: SlashCommand) => {
+    handleInput(cmd.prompt)
+    setSlashDismissed(false)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (el) {
+        const len = el.value.length
+        el.setSelectionRange(len, len)
+        el.focus()
+      }
+    })
   }
 
   // Upload an image File to the workspace via /api/agent/upload/image, then
@@ -412,12 +611,98 @@ export function InputBar() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`rounded-lg border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-2.5 py-1.5 ${
+        className={`relative rounded-lg border bg-bg-elevated focus-within:border-accent-cyan/50 transition-colors px-2.5 py-1.5 ${
           dragOver
             ? 'border-accent-cyan ring-2 ring-accent-cyan/30'
             : 'border-border'
         }`}
       >
+        {/* Slash-command autocomplete dropdown. Shown when the input starts
+            with "/" while the user is still typing the command name. */}
+        <AnimatePresence>
+          {slashOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.98 }}
+              transition={{ duration: 0.14, ease: 'easeOut' }}
+              className="absolute bottom-full left-0 right-0 mb-1.5 rounded-md border border-border bg-bg-elevated shadow-lg overflow-hidden z-50"
+            >
+              {/* Header */}
+              <div className="px-2.5 py-1.5 border-b border-border-subtle flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium text-fg-secondary">
+                  <Sparkles size={11} className="text-accent-cyan" />
+                  <span>Commands</span>
+                </div>
+                <span className="text-[9px] text-fg-muted normal-case">
+                  {filteredSlash.length} available
+                </span>
+              </div>
+              {/* Grouped command list */}
+              <div ref={slashListRef} className="max-h-60 overflow-y-auto">
+                {SLASH_CATEGORIES.map((cat) => {
+                  const list = groupedSlash[cat.id]
+                  if (!list || list.length === 0) return null
+                  const Icon = cat.icon
+                  return (
+                    <div key={cat.id}>
+                      <div className="px-2.5 py-1 text-[9px] uppercase tracking-wider text-fg-muted bg-bg-hover/50 sticky top-0 flex items-center gap-1">
+                        <Icon size={10} className="text-accent-cyan/70" />
+                        <span>{cat.label}</span>
+                      </div>
+                      {list.map((cmd) => {
+                        const idx = flatSlash.findIndex((c) => c.name === cmd.name)
+                        const active = idx === slashIndex
+                        return (
+                          <button
+                            key={cmd.name}
+                            data-slash-idx={idx}
+                            onMouseMove={() => setSlashIndex(idx)}
+                            onClick={() => selectSlashCommand(cmd)}
+                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors border-l-2 ${
+                              active
+                                ? 'bg-accent-cyan/10 border-accent-cyan'
+                                : 'border-transparent hover:bg-bg-hover'
+                            }`}
+                          >
+                            <span className="text-[11px] font-mono text-accent-cyan shrink-0">
+                              /{cmd.name}
+                            </span>
+                            <span className="text-[10px] text-fg-muted truncate flex-1">
+                              {cmd.description}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                {filteredSlash.length === 0 && (
+                  <div className="px-3 py-4 text-center text-[11px] text-fg-muted">
+                    No commands match &ldquo;/{slashQuery}&rdquo;
+                  </div>
+                )}
+              </div>
+              {/* Footer hint */}
+              <div className="flex items-center justify-between gap-2 px-2.5 h-7 border-t border-border-subtle text-[9px] text-fg-muted">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1 h-4 inline-flex items-center rounded border border-border bg-bg-base font-mono">&uarr;</kbd>
+                  <kbd className="px-1 h-4 inline-flex items-center rounded border border-border bg-bg-base font-mono">&darr;</kbd>
+                  navigate
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1 h-4 inline-flex items-center rounded border border-border bg-bg-base font-mono">&#8617;</kbd>
+                  <kbd className="px-1 h-4 inline-flex items-center rounded border border-border bg-bg-base font-mono">Tab</kbd>
+                  select
+                </span>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1 h-4 inline-flex items-center rounded border border-border bg-bg-base font-mono">Esc</kbd>
+                  dismiss
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* Drag-over hint — replaces the textarea placeholder visual when a
             file is being hovered so the user knows a drop will attach it. */}
         {dragOver && (
@@ -526,10 +811,28 @@ export function InputBar() {
           )}
         </div>
       </div>
-      <div className="mt-1 px-1 text-center">
+      <div className="mt-1 px-1 flex items-center justify-between gap-2">
         <span className="text-[9px] text-fg-muted">
-          Enter send · Shift+Enter newline · Drop image to attach
+          {text.trim().length === 0 ? (
+            <>
+              <span className="text-accent-cyan">Type /</span> for commands · Enter send · Shift+Enter newline · Drop image to attach
+            </>
+          ) : (
+            <>Enter send · Shift+Enter newline · Drop image to attach</>
+          )}
         </span>
+        {/* Character count — surfaces length and turns amber past 500 chars
+            so the user knows the message is getting long. */}
+        {text.length > 0 && (
+          <span
+            className={`text-[9px] font-mono tabular-nums ${
+              text.length > 500 ? 'text-accent-gold' : 'text-fg-muted/70'
+            }`}
+            title={text.length > 500 ? 'Long message — consider trimming' : 'Character count'}
+          >
+            {text.length} chars
+          </span>
+        )}
       </div>
     </div>
   )
