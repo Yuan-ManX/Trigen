@@ -15,6 +15,7 @@ import { Minimap } from './Minimap'
 import { RadialMenu } from './RadialMenu'
 import { SceneLight } from './SceneLight'
 import { SceneMesh } from './SceneMesh'
+import { PostFXLayer } from './PostFXLayer'
 
 interface EditorCanvasProps {
   mode?: 'edit' | 'run'
@@ -506,6 +507,10 @@ function SceneContent({
       {mode === 'edit' && <AnnotationLayer />}
 
       <CameraRig autoRotate={mode === 'run'} animation={animation} storyboard={scene.storyboard ?? null} />
+
+      {/* Post-processing effects — composes bloom/DOF/vignette/etc.
+          reading from scene.post_processing config. */}
+      <PostFXLayer />
     </>
   )
 }
