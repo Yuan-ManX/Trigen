@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronDown,
   Download,
+  GitCommitVertical,
   LayoutGrid,
   Loader2,
   Paintbrush,
@@ -16,8 +17,9 @@ import {
   Undo2,
   Workflow,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { resetScene } from '../../api/client'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { executeTool, fetchCheckpoints, resetScene, restoreCheckpoint } from '../../api/client'
+import type { CheckpointEntry } from '../../types'
 import { useChat } from '../../store/useChat'
 import { useScene } from '../../store/useScene'
 import { MaterialLibrary } from './MaterialLibrary'
@@ -42,6 +44,49 @@ interface MenuItem {
   loading?: boolean
 }
 
+/** Post-FX quick-toggle cycle. Each click advances to the next preset and
+ *  applies it directly to the scene's post_processing config via the backend
+ *  apply_post_fx / reset_postfx tools. Order matches the product spec:
+ *  no effects → bloom → cinematic → noir → reset (then loops to no effects). */
+interface PostFxPreset {
+  id: string
+  label: string
+  tool: string
+  args: Record<string, unknown>
+}
+
+const POSTFX_CYCLE: PostFxPreset[] = [
+  { id: 'off', label: 'Post-FX: Off', tool: 'reset_postfx', args: {} },
+  { id: 'bloom', label: 'Post-FX: Bloom', tool: 'apply_post_fx', args: { bloom: true } },
+  {
+    id: 'cinematic',
+    label: 'Post-FX: Cinematic',
+    tool: 'apply_post_fx',
+    args: { bloom: true, color_grading: 'cinematic', tone_mapping: 'aces_filmic' },
+  },
+  {
+    id: 'noir',
+    label: 'Post-FX: Noir',
+    tool: 'apply_post_fx',
+    args: { color_grading: 'noir', vignette: true, grain: 0.4, tone_mapping: 'filmic' },
+  },
+  { id: 'reset', label: 'Post-FX: Reset', tool: 'reset_postfx', args: {} },
+]
+
+/** Format a unix timestamp (seconds) as a compact local string for snapshots. */
+function fmtSnapshotTime(ts: number): string {
+  try {
+    return new Date(ts * 1000).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return ''
+  }
+}
+
 export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
   const sessionId = useChat((s) => s.sessionId)
   const send = useChat((s) => s.send)
@@ -59,6 +104,15 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
   const [showSmartLayout, setShowSmartLayout] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  // Snapshots quick-access dropdown state (last 3 revisions, one-tap restore)
+  const [showSnapshots, setShowSnapshots] = useState(false)
+  const [snapshots, setSnapshots] = useState<CheckpointEntry[]>([])
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
+  const [restoringRev, setRestoringRev] = useState<number | null>(null)
+  const snapshotsRef = useRef<HTMLDivElement>(null)
+  // Post-FX quick-toggle cycle state (off → bloom → cinematic → noir → reset)
+  const [postfxIndex, setPostfxIndex] = useState(0)
+  const [postfxBusy, setPostfxBusy] = useState(false)
   const isRun = mode === 'run'
 
   // Close menu when clicking outside
@@ -72,6 +126,18 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
+
+  // Close snapshots dropdown when clicking outside
+  useEffect(() => {
+    if (!showSnapshots) return
+    const handler = (e: MouseEvent) => {
+      if (snapshotsRef.current && !snapshotsRef.current.contains(e.target as Node)) {
+        setShowSnapshots(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSnapshots])
 
   /** Export the current scene as a JSON file (client-side download) */
   const handleExport = () => {
@@ -104,6 +170,61 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
       clearScene()
     } finally {
       setResetting(false)
+    }
+  }
+
+  /** Fetch the three most recent snapshots for the quick-access dropdown. */
+  const loadSnapshots = useCallback(async () => {
+    setSnapshotsLoading(true)
+    try {
+      const data = await fetchCheckpoints(3)
+      setSnapshots(data.checkpoints ?? [])
+    } catch {
+      setSnapshots([])
+    } finally {
+      setSnapshotsLoading(false)
+    }
+  }, [])
+
+  /** Toggle the snapshots dropdown, refreshing the list when opening. */
+  const toggleSnapshots = () => {
+    if (isRun) return
+    setShowSnapshots((v) => {
+      if (!v) void loadSnapshots()
+      return !v
+    })
+  }
+
+  /** Restore a snapshot revision into the live scene. */
+  const handleRestoreSnapshot = async (entry: CheckpointEntry) => {
+    if (restoringRev !== null) return
+    setRestoringRev(entry.revision)
+    try {
+      const result = await restoreCheckpoint(entry.revision, sessionId)
+      useScene.getState().setScene(result.scene)
+      setShowSnapshots(false)
+    } catch {
+      /* keep the dropdown open so the user can retry */
+    } finally {
+      setRestoringRev(null)
+    }
+  }
+
+  /** Advance the Post-FX cycle by one step and apply the preset to the scene. */
+  const cyclePostFx = async () => {
+    if (postfxBusy || isRun) return
+    setPostfxBusy(true)
+    const nextIndex = (postfxIndex + 1) % POSTFX_CYCLE.length
+    const preset = POSTFX_CYCLE[nextIndex]
+    try {
+      const prev = useScene.getState().scene
+      const res = await executeTool(preset.tool, preset.args, sessionId)
+      if (res.scene) useScene.getState().commitScene(res.scene, prev)
+      setPostfxIndex(nextIndex)
+    } catch {
+      /* leave the current look untouched on failure */
+    } finally {
+      setPostfxBusy(false)
     }
   }
 
@@ -240,6 +361,99 @@ export function TopToolbar({ mode, onToggleMode }: TopToolbarProps) {
               title="Redo (Ctrl+Shift+Z)"
             >
               <Redo2 size={13} />
+            </button>
+          </div>
+
+          {/* Quick-access: Snapshots + Post-FX */}
+          <div className="flex items-center gap-0.5 rounded-md border border-border bg-bg-elevated p-0.5">
+            {/* Snapshots dropdown — last 3 revisions with one-tap restore */}
+            <div ref={snapshotsRef} className="relative">
+              <button
+                onClick={toggleSnapshots}
+                disabled={isRun}
+                className="flex items-center justify-center w-7 h-7 rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-hover transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Snapshots — save & restore revisions"
+              >
+                <GitCommitVertical size={13} />
+              </button>
+              <AnimatePresence>
+                {showSnapshots && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full right-0 mt-1.5 w-60 rounded-md border border-border bg-bg-elevated shadow-lg overflow-hidden z-50"
+                  >
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-fg-muted border-b border-border-subtle flex items-center justify-between">
+                      <span>Snapshots</span>
+                      <span className="text-fg-muted/60 normal-case tracking-normal">
+                        {snapshots.length} rev{snapshots.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="py-1 max-h-64 overflow-y-auto">
+                      {snapshotsLoading ? (
+                        <div className="flex items-center justify-center gap-1.5 px-3 py-3 text-[10px] text-fg-muted">
+                          <Loader2 size={11} className="animate-spin" />
+                          Loading…
+                        </div>
+                      ) : snapshots.length === 0 ? (
+                        <div className="px-3 py-3 text-[10px] text-fg-muted leading-relaxed">
+                          No snapshots yet. Say “save a snapshot” to the Agent, or use the Checkpoints panel.
+                        </div>
+                      ) : (
+                        snapshots.map((entry) => (
+                          <div
+                            key={entry.revision}
+                            className="group flex items-start gap-2 px-3 py-1.5 hover:bg-bg-hover transition-colors"
+                          >
+                            <span className="mt-px px-1.5 py-px rounded text-[9.5px] font-mono font-semibold border text-accent-purple border-accent-purple/40 bg-accent-purple/10">
+                              R{entry.revision}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10.5px] text-fg-primary leading-snug truncate">
+                                {entry.description || `Revision ${entry.revision}`}
+                              </div>
+                              <div className="text-[9px] text-fg-muted font-mono">
+                                {fmtSnapshotTime(entry.created_at)}
+                                {' · '}
+                                {entry.summary?.object_count ?? 0} obj
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRestoreSnapshot(entry)}
+                              disabled={restoringRev !== null}
+                              title="Restore this revision"
+                              className="flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded border border-border text-fg-muted hover:text-accent-cyan hover:border-accent-cyan/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {restoringRev === entry.revision ? (
+                                <Loader2 size={9} className="animate-spin" />
+                              ) : (
+                                <RotateCcw size={9} />
+                              )}
+                              Restore
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Post-FX cycle toggle — off → bloom → cinematic → noir → reset */}
+            <button
+              onClick={cyclePostFx}
+              disabled={isRun || postfxBusy}
+              className={`flex items-center justify-center w-7 h-7 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                postfxIndex > 0 && postfxIndex < POSTFX_CYCLE.length - 1
+                  ? 'text-rose-300 bg-rose-500/10 hover:bg-rose-500/20'
+                  : 'text-fg-secondary hover:text-fg-primary hover:bg-bg-hover'
+              }`}
+              title={POSTFX_CYCLE[postfxIndex].label}
+            >
+              {postfxBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             </button>
           </div>
 
