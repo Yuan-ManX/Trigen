@@ -573,6 +573,174 @@ async def agent_status() -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Scene-awareness polling — combined context endpoint that bundles the
+# scene context analysis, agent state, and recent memory so the frontend
+# can poll a single route to drive its scene-awareness UI. Also exposes
+# a path-param suggest endpoint that returns proactive suggestions.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/agent/context/{session_id}")
+async def agent_context_get(
+    session_id: str,
+    memory_limit: int = 10,
+) -> JSONResponse:
+    """Return the scene context, agent state, and recent memory in one call.
+
+    A combined polling endpoint for the frontend's scene-awareness UI.
+    Bundles three blocks so a single round-trip is enough to render the
+    current scene analysis (object/light counts, complexity, missing
+    elements, suggested focus), the agent's online/offline mode, and the
+    most recent conversation messages for the session. Read-only — does
+    not mutate the scene or memory.
+
+    ``memory_limit`` caps the number of recent messages returned (default
+    10, capped at 50 to keep the payload small).
+    """
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    config = agent.config
+    scene = orch.get_scene(session_id)
+
+    # --- scene context block (mirrors GET /scene/{session_id}/context) ---
+    try:
+        scene_context = orch._build_scene_context(scene)
+    except Exception as e:
+        logger.exception("agent/context scene analysis failed for session %s", session_id)
+        scene_context = {"error": str(e)}
+
+    # --- agent state block (lightweight subset of GET /agent/status) ---
+    try:
+        from trigen.llm.router import router as model_router
+
+        available_chat_models = model_router.list_available_chat_models()
+        real_chat_models = [m for m in available_chat_models if m != "trigen-default"]
+        online = bool(real_chat_models) or config.llm.is_configured
+        primary = None
+        if config.llm.is_configured:
+            primary = config.llm.model or None
+    except Exception:
+        online = config.llm.is_configured
+        primary = None
+        available_chat_models = []
+    agent_state = {
+        "online": online,
+        "mode": "online" if online else "offline",
+        "llm_configured": config.llm.is_configured,
+        "primary_model": primary,
+        "available_chat_models": available_chat_models,
+    }
+
+    # --- recent memory block (mirrors GET /chat/sessions/{id}/memory) ---
+    recent_messages: list = []
+    compacted_summary: str = ""
+    message_count = 0
+    try:
+        from trigen.memory_persistence import persistence as memory_persistence
+
+        memory = memory_persistence.load(session_id)
+        if memory is not None:
+            message_count = len(memory._messages)
+            compacted_summary = memory._compacted_summary or ""
+            cap = max(0, min(int(memory_limit), 50))
+            recent = memory._messages[-cap:] if cap else []
+            recent_messages = [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "timestamp": m.timestamp,
+                    "tool_name": m.tool_name,
+                }
+                for m in recent
+            ]
+    except Exception:
+        logger.exception("agent/context memory load failed for session %s", session_id)
+
+    return JSONResponse(content={
+        "session_id": session_id,
+        "scene_context": scene_context,
+        "agent_state": agent_state,
+        "memory": {
+            "message_count": message_count,
+            "compacted_summary": compacted_summary,
+            "recent": recent_messages,
+        },
+    })
+
+
+@router.post("/agent/suggest/{session_id}")
+async def agent_suggest_for_scene(
+    session_id: str,
+    count: int = 3,
+    direction: str = "any",
+) -> JSONResponse:
+    """Return proactive suggestions for the current scene state.
+
+    Combines the orchestrator's ``_proactive_suggest`` (context-gap-based
+    suggestions) with the registered ``suggest_next_actions`` tool's
+    direction-aware suggestions so the frontend gets a single merged list
+    from one POST. ``count`` caps the merged list (default 3). ``direction``
+    biases the tool-side suggestions (lighting / motion / material /
+    composition / population). Read-only — does not mutate the scene.
+    """
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    scene = orch.get_scene(session_id)
+
+    # Gap-based suggestions from the orchestrator's scene-awareness helper.
+    try:
+        context = orch._build_scene_context(scene)
+        gap_suggestions = orch._proactive_suggest(scene, context, context, [])
+    except Exception:
+        logger.exception("agent/suggest proactive_suggest failed for session %s", session_id)
+        context = {}
+        gap_suggestions = []
+
+    # Direction-aware suggestions from the suggest_next_actions tool.
+    tool_suggestions: list = []
+    tool = orch.registry.get("suggest_next_actions")
+    if tool is not None:
+        try:
+            args: Dict[str, Any] = {"direction": direction}
+            if count is not None:
+                args["count"] = count
+            result = await tool.execute(scene, args)
+            if result.success:
+                data = getattr(result, "data", None) or {}
+                tool_suggestions = data.get("suggestions") or []
+        except Exception:
+            logger.exception("agent/suggest suggest_next_actions failed for session %s", session_id)
+
+    # Merge, de-duping by suggestion name when both sources overlap.
+    merged: list = []
+    seen_names: set = set()
+    for sug in list(gap_suggestions) + list(tool_suggestions):
+        if not isinstance(sug, dict):
+            continue
+        name = sug.get("name") or sug.get("title") or ""
+        if name and name in seen_names:
+            continue
+        if name:
+            seen_names.add(name)
+        merged.append(sug)
+
+    cap = max(1, min(int(count) if count else 3, 10))
+    merged = merged[:cap]
+
+    return JSONResponse(content={
+        "session_id": session_id,
+        "suggestions": merged,
+        "count": len(merged),
+        "direction": direction,
+        "context": context,
+        "sources": {
+            "gap_based": len(gap_suggestions),
+            "tool_based": len(tool_suggestions),
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
 # Unified Workspace bootstrap — single call that bundles everything the
 # frontend needs on initial load: live scene, agent online/offline status
 # + capability summary, tool catalog grouped by category, creative skill
