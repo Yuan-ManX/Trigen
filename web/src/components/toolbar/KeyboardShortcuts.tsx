@@ -40,6 +40,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: 'M', description: 'Toggle viewport minimap' },
       { keys: 'Shift + S', description: 'Toggle grid snap' },
       { keys: 'R', description: 'Toggle render quality (low / medium / high)' },
+      { keys: 'W', description: 'Cycle viewport shading (wireframe / solid / material / rendered)' },
       { keys: 'C', description: 'Capture viewport as PNG download' },
     ],
   },
