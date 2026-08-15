@@ -18,6 +18,7 @@ import {
   Keyboard,
   MessageSquare,
   MousePointerClick,
+  Route,
   ShieldCheck,
   Sparkles,
   Tag,
@@ -33,6 +34,7 @@ const STORAGE_KEY = 'trigen_onboarding_done'
 
 type StepId =
   | 'chat'
+  | 'plan_run'
   | 'templates'
   | 'tools'
   | 'ensemble'
@@ -70,6 +72,14 @@ const STEPS: TourStep[] = [
     title: 'Describe it, build it',
     body: 'Type natural language into the left chat panel — "a glossy red sphere on a marble pedestal, three-point lighting". The Agent plans tool calls, executes them, and streams the result back into the live scene. Try compound requests like "create a living room", "make a sunset", or "make a chess board" — the Agent decomposes them into multi-step tool sequences automatically. Type / to browse slash commands for quick scene, camera, animation, and editor actions.',
     hint: 'Tip: mention materials, lighting, and counts in one sentence for the richest results. Press / for command suggestions.',
+  },
+  {
+    id: 'plan_run',
+    icon: Route,
+    accent: 'text-accent-cyan',
+    title: 'Plan & Run mode',
+    body: 'Toggle the Route icon in the chat header to switch into Plan & Run mode. Instead of streaming a single answer, the Agent first previews a structured plan checklist, then executes each step live over SSE — you watch every tool flip from pending to running to done in real time. Use it for complex multi-step builds like "create a chess board with all 32 pieces" where you want to see the plan before it runs. Press the Stop button any time to cancel mid-stream.',
+    hint: 'Tip: Plan & Run is ideal for ambitious requests — the checklist shows exactly which tools will fire and in what order.',
   },
   {
     id: 'templates',
