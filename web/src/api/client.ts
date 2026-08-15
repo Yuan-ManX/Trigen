@@ -150,6 +150,243 @@ export async function batchExecuteTools(
   return res.json() as Promise<BatchToolResponse>
 }
 
+/* ============ Named-event SSE streaming ============ */
+
+/** A parsed SSE frame carrying a named ``event`` plus a decoded JSON ``data``
+ *  payload. The batch and plan-run endpoints emit named events
+ *  (``step_start`` / ``step_result`` / ``batch_done`` / ``plan_ready`` …)
+ *  rather than the anonymous ``data:``-only frames used by the pipeline
+ *  stream, so they need a parser that tracks the ``event:`` line. */
+export interface NamedSSEEvent<T = Record<string, unknown>> {
+  event: string
+  data: T
+}
+
+/** Read a fetch Response body as a stream of named SSE frames.
+ *
+ *  sse-starlette separates frames with a blank line and prefixes the event
+ *  name with ``event:`` and the JSON payload with ``data:``. Multi-line
+ *  ``data:`` values are concatenated. Frames without an explicit ``event:``
+ *  line default to ``message`` per the SSE spec. */
+export async function* parseNamedSSEStream<T = Record<string, unknown>>(
+  res: Response,
+): AsyncGenerator<NamedSSEEvent<T>> {
+  if (!res.ok || !res.body) {
+    throw new Error(`SSE stream failed: ${res.status}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let pendingEvent = 'message'
+  let pendingData: string[] = []
+
+  const flush = (): NamedSSEEvent<T> | undefined => {
+    if (pendingData.length === 0) return undefined
+    const raw = pendingData.join('\n').trim()
+    pendingData = []
+    const eventName = pendingEvent
+    pendingEvent = 'message'
+    if (!raw) return undefined
+    try {
+      const data = JSON.parse(raw) as T
+      return { event: eventName, data }
+    } catch {
+      return { event: eventName, data: { _raw: raw } as unknown as T }
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      // A blank line terminates the current frame.
+      if (line.trim() === '') {
+        const frame = flush()
+        if (frame) yield frame
+        continue
+      }
+      if (line.startsWith('event:')) {
+        pendingEvent = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        pendingData.push(line.slice(5).trimStart())
+      }
+    }
+  }
+  // Flush any trailing frame without a closing blank line.
+  const tail = flush()
+  if (tail) yield tail
+}
+
+/* ============ Batch execution SSE stream ============ */
+
+/** A single tool call inside a batch SSE request. */
+export interface BatchSSEStep {
+  name: string
+  arguments: Record<string, unknown>
+}
+
+/** Typed union of all events emitted by POST /api/agent/batch (SSE). */
+export type BatchStreamEvent =
+  | { event: 'step_start'; data: { index: number; total: number; name: string; arguments: Record<string, unknown> } }
+  | {
+      event: 'step_result'
+      data: {
+        index: number
+        name: string
+        success: boolean
+        message: string
+        error?: string
+        tool_call?: Record<string, unknown>
+        completed: number
+        failed: number
+      }
+    }
+  | {
+      event: 'batch_done'
+      data: {
+        session_id: string
+        total: number
+        completed: number
+        failed: number
+        elapsed: number
+        results: Array<{ index: number; name: string; success: boolean; message: string; error?: string }>
+        scene: SceneData
+      }
+    }
+  | { event: 'batch_error'; data: { error: string; completed?: number; failed?: number; scene?: SceneData } }
+
+/** Execute an ordered list of tool calls with streaming SSE progress.
+ *  Yields ``step_start`` before each step, ``step_result`` after each step,
+ *  and a final ``batch_done`` (or ``batch_error`` on abort). Each step sees
+ *  the scene as the previous step left it, enabling create → transform →
+ *  material chains in one request. */
+export async function* streamBatchExecution(
+  steps: BatchSSEStep[],
+  sessionId: string = 'default',
+  stopOnError: boolean = true,
+): AsyncGenerator<BatchStreamEvent> {
+  const res = await fetch('/api/agent/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps, session_id: sessionId, stop_on_error: stopOnError }),
+  })
+  for await (const frame of parseNamedSSEStream(res)) {
+    yield frame as BatchStreamEvent
+  }
+}
+
+/* ============ Plan-then-run SSE stream ============ */
+
+/** Typed union of all events emitted by POST /api/agent/plan/run (SSE).
+ *  Phase 1 (plan) emits ``plan_ready`` (or ``plan_error`` / ``plan_empty``);
+ *  phase 2 (execute) emits ``step_start`` / ``step_result`` per step and a
+ *  final ``plan_done`` with the full scene snapshot. */
+export type PlanRunStreamEvent =
+  | {
+      event: 'plan_ready'
+      data: {
+        session_id: string
+        goal: string
+        total_steps: number
+        executable_steps: number
+        has_destructive_steps: boolean
+        steps_preview: Array<{ id: string; description: string; tool: string | null }>
+        auto_approve: boolean
+      }
+    }
+  | {
+      event: 'step_start'
+      data: { index: number; total: number; name: string; arguments: Record<string, unknown>; phase?: string }
+    }
+  | {
+      event: 'step_result'
+      data: {
+        index: number
+        name: string
+        success: boolean
+        message: string
+        error?: string
+        tool_call?: Record<string, unknown>
+        completed: number
+        failed: number
+        phase?: string
+      }
+    }
+  | {
+      event: 'plan_done'
+      data: {
+        session_id: string
+        goal: string
+        total: number
+        completed: number
+        failed: number
+        elapsed: number
+        results: Array<{ index: number; name: string; success: boolean; message: string; error?: string }>
+        scene: SceneData
+      }
+    }
+  | { event: 'plan_empty'; data: { session_id: string; message: string; elapsed: number } }
+  | { event: 'plan_error'; data: { error: string; phase?: string } }
+  | { event: 'approval_skipped'; data: { note: string; executable_steps: number } }
+
+/** Plan a natural-language message and then execute each planned step with
+ *  live SSE progress. Emits ``plan_ready`` first (preview without mutation),
+ *  then ``step_start`` / ``step_result`` per step, then ``plan_done``. */
+export async function* streamPlanRun(
+  message: string,
+  sessionId: string = 'default',
+  model?: string,
+  autoApprove: boolean = true,
+): AsyncGenerator<PlanRunStreamEvent> {
+  const res = await fetch('/api/agent/plan/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId, model: model ?? null, auto_approve: autoApprove }),
+  })
+  for await (const frame of parseNamedSSEStream(res)) {
+    yield frame as PlanRunStreamEvent
+  }
+}
+
+/** Per-step validation preview returned by POST /api/agent/batch/preview. */
+export interface BatchPreviewStep {
+  index: number
+  name: string
+  valid: boolean
+  requires_approval?: boolean
+  description?: string
+  arguments?: Record<string, unknown>
+  error?: string
+}
+
+export interface BatchPreviewResponse {
+  session_id: string
+  total_steps: number
+  valid_steps: number
+  missing_tools: string[]
+  has_destructive_steps: boolean
+  preview: BatchPreviewStep[]
+}
+
+/** Validate a batch request without executing any tool. Resolves every tool
+ *  name, reports missing tools, and returns the coerced-argument preview per
+ *  step so the UI can render a confirmation dialog before running the batch. */
+export async function previewBatch(
+  steps: BatchSSEStep[],
+  sessionId: string = 'default',
+): Promise<BatchPreviewResponse> {
+  const res = await fetch('/api/agent/batch/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps, session_id: sessionId }),
+  })
+  if (!res.ok) throw new Error(`Batch preview failed: ${res.status}`)
+  return res.json() as Promise<BatchPreviewResponse>
+}
+
 /** Fetch the preset catalog (geometry / material / light) */
 export async function fetchPresets(): Promise<PresetsResponse> {
   const res = await fetch('/api/presets')
