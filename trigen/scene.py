@@ -111,6 +111,23 @@ class SceneObject:
     # gravity so the object falls to the floor and bounces. Stored as a
     # plain dict for forward compatibility.
     physics: Optional[Dict[str, Any]] = None
+    # Non-destructive geometric modifiers. Keys are modifier names
+    # (noise, bend, twist, taper, wave) and values are modifier-specific
+    # parameter dicts. Applied by the viewport shader so the original
+    # geometry stays intact and parameters remain editable.
+    modifiers: Dict[str, Any] = field(default_factory=dict)
+    # Surface-detail operators: shell / bevel / inflate. Each key names an
+    # operator; the value is its parameter dict. Applied at render time by
+    # the SurfaceDetailRenderer so the underlying geometry stays intact.
+    surface_ops: Dict[str, Any] = field(default_factory=dict)
+    # Texture/UV operators. Currently carries the "uv" mapping
+    # (projection / scale / offset / rotation / axis). Rendered by the
+    # viewport's material pipeline when generating procedural textures.
+    texture_ops: Dict[str, Any] = field(default_factory=dict)
+    # Level-of-detail chain. ``levels`` is a list of {distance, detail}
+    # dicts sorted by distance ascending. The viewport swaps geometry
+    # detail based on camera distance.
+    lod: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -126,6 +143,10 @@ class SceneObject:
             "tags": list(self.tags),
             "animation": self.animation,
             "physics": self.physics,
+            "modifiers": dict(self.modifiers),
+            "surface_ops": dict(self.surface_ops),
+            "texture_ops": dict(self.texture_ops),
+            "lod": dict(self.lod) if self.lod else None,
         }
 
     @classmethod
@@ -146,6 +167,10 @@ class SceneObject:
             tags=list(data.get("tags", [])),
             animation=data.get("animation"),
             physics=data.get("physics"),
+            modifiers=dict(data.get("modifiers", {})),
+            surface_ops=dict(data.get("surface_ops", {})),
+            texture_ops=dict(data.get("texture_ops", {})),
+            lod=dict(data.get("lod")) if data.get("lod") else None,
         )
 
 
@@ -246,6 +271,9 @@ class Scene:
     background: str = "#0a0a0f"
     environment: Optional[str] = None
     fog: Optional[Dict[str, Any]] = None  # {"color": "#0a0a0f", "near": 18, "far": 55}
+    ambient_intensity: float = 0.3
+    ambient_color: str = "#ffffff"
+    global_gravity: float = 9.8
     grid_visible: bool = True
     grid_size: float = 40.0
     # On-canvas annotations: text labels anchored to an object id or a
@@ -272,6 +300,28 @@ class Scene:
     # ``duration`` seconds — an AI-native "motion choreography" layer.
     transitions: List[Dict[str, Any]] = field(default_factory=list)
     active_transition: Optional[str] = None
+    # Screen-space post-processing pipeline configuration. Keys are effect
+    # names (bloom, tone_mapping, color_grading, vignette, film_grain,
+    # dof, chromatic_aberration) and values are effect-specific dicts.
+    # The viewport composer reads this dict each frame so parameters
+    # stay live-editable.
+    post_processing: Dict[str, Any] = field(default_factory=dict)
+    # Scene version snapshots — named revision history created by the
+    # snapshot_scene tool so the user/agent can jump back to a known-good
+    # state or diff revisions.
+    snapshots: Dict[str, Any] = field(default_factory=dict)
+    # UI theme state: {name, palette, radius_scale, bounce_animations}.
+    # Drives the frontend ThemeProvider and is initialized from workspace
+    # preferences (defaults to "warm" when not configured).
+    theme: Dict[str, Any] = field(default_factory=lambda: {"name": "warm"})
+    # Render quality string-level: low | medium | high | ultra.
+    render_quality: str = "high"
+    # Linear exposure multiplier applied before tone-mapping.
+    exposure: float = 1.0
+    # Workspace shell layout: {name, panels, viewport}. Loaded by the
+    # set_workspace_layout tool and consumed by AppShell to expand /
+    # collapse left / right / chat / timeline panels.
+    workspace_layout: Dict[str, Any] = field(default_factory=lambda: {"name": "modeler"})
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -282,6 +332,9 @@ class Scene:
             "background": self.background,
             "environment": self.environment,
             "fog": self.fog,
+            "ambient_intensity": self.ambient_intensity,
+            "ambient_color": self.ambient_color,
+            "global_gravity": self.global_gravity,
             "grid_visible": self.grid_visible,
             "grid_size": self.grid_size,
             "annotations": list(self.annotations),
@@ -290,6 +343,12 @@ class Scene:
             "node_graph": self.node_graph,
             "transitions": list(self.transitions),
             "active_transition": self.active_transition,
+            "post_processing": dict(self.post_processing),
+            "snapshots": dict(self.snapshots),
+            "theme": dict(self.theme),
+            "render_quality": self.render_quality,
+            "exposure": float(self.exposure),
+            "workspace_layout": dict(self.workspace_layout),
         }
 
     @classmethod
@@ -302,6 +361,9 @@ class Scene:
             background=data.get("background", "#0a0a0f"),
             environment=data.get("environment"),
             fog=data.get("fog"),
+            ambient_intensity=data.get("ambient_intensity", 0.3),
+            ambient_color=data.get("ambient_color", "#ffffff"),
+            global_gravity=data.get("global_gravity", 9.8),
             grid_visible=data.get("grid_visible", True),
             grid_size=data.get("grid_size", 40.0),
             annotations=list(data.get("annotations", [])),
@@ -310,6 +372,12 @@ class Scene:
             node_graph=data.get("node_graph"),
             transitions=list(data.get("transitions", [])),
             active_transition=data.get("active_transition"),
+            post_processing=dict(data.get("post_processing", {})),
+            snapshots=dict(data.get("snapshots", {})),
+            theme=dict(data.get("theme", {"name": "warm"})),
+            render_quality=str(data.get("render_quality", "high")),
+            exposure=float(data.get("exposure", 1.0)),
+            workspace_layout=dict(data.get("workspace_layout", {"name": "modeler"})),
         )
 
     def find_object(self, identifier: str) -> Optional[SceneObject]:
