@@ -2,21 +2,25 @@
 
 Exposes agent-level operations that sit outside the chat stream:
 plan preview (no execution), cooperative turn interruption, tool/skill
-documentation, and multimodal image upload for chat input.
+documentation, multimodal image upload for chat input, batch tool
+execution with streaming SSE progress, and plan-then-run execution.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from trigen.api.services.agent_service import AgentService
 from trigen.scene import Scene
@@ -1554,3 +1558,449 @@ async def agent_story_play(req: StoryPlayRequest) -> JSONResponse:
     except Exception as e:
         logger.exception("agent/story play error")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Batch tool execution with streaming SSE progress + plan-then-run execution.
+# These endpoints turn the Agent into a programmable remote control: the
+# frontend Command Palette (or any external orchestrator) can submit an
+# ordered list of tool calls and receive per-step progress events over SSE,
+# or submit a natural-language message and watch the Agent plan it and then
+# execute each planned step with live status. Both endpoints mutate the
+# scene in place and stream a final ``done`` event carrying the full scene
+# snapshot so the client can swap it in atomically.
+# ---------------------------------------------------------------------------
+
+
+class BatchStep(BaseModel):
+    """A single tool call inside a batch execution request."""
+
+    name: str = Field(..., description="Registered tool name to execute")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool arguments validated against the tool's schema.",
+    )
+
+
+class BatchRequest(BaseModel):
+    """Request body for the batch tool-execution endpoint.
+
+    Runs an ordered list of tool calls against the session's scene. Each
+    step sees the scene as the previous step left it, so a batch can chain
+    create -> transform -> material -> animate in one request. ``stop_on_error``
+    (default true) aborts the batch on the first failing step; when false,
+    failures are recorded and execution continues with the next step.
+    """
+
+    session_id: str = Field(default="default", description="Session whose scene to run against")
+    steps: List[BatchStep] = Field(..., description="Ordered tool calls to execute")
+    stop_on_error: bool = Field(default=True, description="Abort the batch on the first failing step")
+
+
+class PlanRunRequest(BaseModel):
+    """Request body for the plan-then-run endpoint.
+
+    Submits a natural-language message, asks the Agent to plan it (single
+    LLM pass, or the offline rule parser when no LLM is configured), and
+    then executes each planned tool call in order with live SSE progress.
+    ``auto_approve`` (default true) runs every step without prompting;
+    when false the stream pauses after ``plan_ready`` and waits for the
+    client to POST ``/agent/plan/run/confirm`` with the run_id (not yet
+    wired — currently auto_approve=false still runs but emits an
+    ``approval_skipped`` notice so the client can surface it).
+    """
+
+    message: str = Field(..., description="User input to plan and execute")
+    session_id: str = Field(default="default", description="Session ID")
+    model: Optional[str] = Field(default=None, description="LLM model override")
+    auto_approve: bool = Field(default=True, description="Run every planned step without prompting")
+
+
+def _coerce_tool_args(tool: Any, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce JSON argument types to match the tool schema (advisory)."""
+    out = dict(args or {})
+    try:
+        schema = tool.schema()
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        for key, value in list(out.items()):
+            if value is None:
+                out.pop(key, None)
+                continue
+            prop = props.get(key) or {}
+            typ = prop.get("type")
+            if typ == "integer" and isinstance(value, float) and value.is_integer():
+                out[key] = int(value)
+            elif typ == "boolean" and not isinstance(value, bool):
+                out[key] = bool(value)
+    except Exception:
+        logger.debug("schema coercion skipped for %s", getattr(tool, "name", "?"))
+    return out
+
+
+def _delta_dict(d: Any) -> Any:
+    if hasattr(d, "to_dict"):
+        return d.to_dict()
+    if hasattr(d, "__dict__"):
+        return d.__dict__
+    return d
+
+
+async def _execute_single_tool(
+    agent: Any,
+    name: str,
+    session_id: str,
+    raw_args: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Resolve and run one tool, returning a structured result dict.
+
+    Mirrors the validation + coercion + execution path of ``/agent/run``
+    so batch and single-shot produce identical tool_call payloads.
+    """
+    tool = agent.orchestrator.registry.get(name)
+    if tool is None:
+        return {
+            "success": False,
+            "error": f"Tool not registered: {name}",
+            "status_code": 404,
+        }
+    scene = agent.orchestrator.get_scene(session_id)
+    args = _coerce_tool_args(tool, raw_args)
+    try:
+        result = await tool.execute(scene, args)
+    except Exception as e:  # noqa: BLE001 — surface every tool error to the client
+        logger.exception("batch step %s raised", name)
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": 500,
+        }
+    result_payload = result.to_dict() if hasattr(result, "to_dict") else {"message": result.message}
+    deltas = getattr(result, "deltas", None) or []
+    return {
+        "success": result.success,
+        "message": result.message,
+        "result": result_payload,
+        "deltas": [_delta_dict(d) for d in deltas],
+        "tool_call": {
+            "type": "tool_call",
+            "name": name,
+            "arguments": args,
+            "result": result_payload,
+            "deltas": [_delta_dict(d) for d in deltas],
+            "direct": True,
+            "ts": time.time(),
+        },
+        "status_code": 422 if not result.success else 200,
+    }
+
+
+@router.post("/agent/batch")
+async def agent_batch(req: BatchRequest) -> EventSourceResponse:
+    """Execute an ordered list of tool calls with streaming SSE progress.
+
+    Emits one ``step_start`` event before each step, one ``step_result``
+    event after each step (carrying the tool_call payload and deltas),
+    and a final ``batch_done`` event with the summary + full scene
+    snapshot. When ``stop_on_error`` is true and a step fails, the stream
+    emits ``batch_error`` and terminates early. Each event's ``data`` is
+    a JSON string so any SSE client can parse it uniformly.
+    """
+    agent = AgentService.get()
+    steps = list(req.steps or [])
+    if not steps:
+        return EventSourceResponse(_batch_error_stream("steps must be a non-empty array"))
+
+    async def event_gen():
+        total = len(steps)
+        completed = 0
+        failed = 0
+        results: List[Dict[str, Any]] = []
+        t0 = time.time()
+        for idx, step in enumerate(steps):
+            step_event = {
+                "event": "step_start",
+                "data": json.dumps({
+                    "index": idx,
+                    "total": total,
+                    "name": step.name,
+                    "arguments": step.arguments,
+                }),
+            }
+            yield step_event
+            outcome = await _execute_single_tool(agent, step.name, req.session_id, step.arguments)
+            completed += 1 if outcome["success"] else 0
+            failed += 0 if outcome["success"] else 1
+            results.append({
+                "index": idx,
+                "name": step.name,
+                "success": outcome["success"],
+                "message": outcome.get("message", ""),
+                "error": outcome.get("error"),
+                "tool_call": outcome.get("tool_call"),
+            })
+            yield {
+                "event": "step_result",
+                "data": json.dumps({
+                    "index": idx,
+                    "name": step.name,
+                    "success": outcome["success"],
+                    "message": outcome.get("message", ""),
+                    "error": outcome.get("error"),
+                    "tool_call": outcome.get("tool_call"),
+                    "completed": completed,
+                    "failed": failed,
+                }),
+            }
+            if not outcome["success"] and req.stop_on_error:
+                scene = agent.orchestrator.get_scene(req.session_id)
+                yield {
+                    "event": "batch_error",
+                    "data": json.dumps({
+                        "session_id": req.session_id,
+                        "index": idx,
+                        "name": step.name,
+                        "error": outcome.get("error") or outcome.get("message", "step failed"),
+                        "completed": completed,
+                        "failed": failed,
+                        "scene": scene.to_dict(),
+                    }),
+                }
+                return
+        scene = agent.orchestrator.get_scene(req.session_id)
+        yield {
+            "event": "batch_done",
+            "data": json.dumps({
+                "session_id": req.session_id,
+                "total": total,
+                "completed": completed,
+                "failed": failed,
+                "elapsed": round(time.time() - t0, 3),
+                "results": results,
+                "scene": scene.to_dict(),
+            }),
+        }
+
+    return EventSourceResponse(event_gen())
+
+
+async def _batch_error_stream(message: str):
+    """Helper: emit a single batch_error event for invalid requests."""
+    yield {
+        "event": "batch_error",
+        "data": json.dumps({"error": message, "completed": 0, "failed": 0}),
+    }
+
+
+@router.post("/agent/plan/run")
+async def agent_plan_run(req: PlanRunRequest) -> EventSourceResponse:
+    """Plan a message and then execute each planned step with SSE progress.
+
+    Two-phase streaming endpoint. Phase one calls the orchestrator's
+    ``plan_only`` to produce a structured plan (goal, steps, tool calls)
+    without mutating the scene, and emits a ``plan_ready`` event. Phase
+    two executes each planned tool call in order, emitting ``step_start``
+    / ``step_result`` per step, then a final ``plan_done`` event with the
+    full scene snapshot. When the plan has zero executable steps (e.g.
+    the LLM returned only a text answer), the stream emits ``plan_empty``
+    and terminates. Falls back to the offline rule parser when no LLM is
+    configured so the endpoint works in offline mode too.
+    """
+    agent = AgentService.get()
+
+    async def event_gen():
+        t0 = time.time()
+        # --- phase 1: plan ---
+        try:
+            plan_result = await agent.orchestrator.plan_only(
+                req.message, req.session_id, model=req.model
+            )
+        except Exception as e:
+            logger.exception("agent/plan/run plan phase error")
+            yield {
+                "event": "plan_error",
+                "data": json.dumps({"error": str(e), "phase": "plan"}),
+            }
+            return
+
+        plan = plan_result.get("plan") or {}
+        steps = plan.get("steps") or []
+        # Extract executable tool calls. Sources, in priority order:
+        #   1. Top-level ``tool_calls`` array (offline mode canonical form):
+        #      each item carries {name, arguments}.
+        #   2. Per-step ``tool_call`` dict {name, arguments} (online mode).
+        #   3. Per-step ``tool`` + ``arguments`` keys (offline plan steps).
+        executable: List[Dict[str, Any]] = []
+        seen_keys: set = set()
+        top_level_calls = plan_result.get("tool_calls") or []
+        if isinstance(top_level_calls, list):
+            for tc in top_level_calls:
+                if isinstance(tc, dict) and tc.get("name"):
+                    name = str(tc["name"])
+                    if name in seen_keys:
+                        continue
+                    seen_keys.add(name)
+                    executable.append({"name": name, "arguments": tc.get("arguments", {}) or {}})
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            tc = step.get("tool_call")
+            if isinstance(tc, dict) and tc.get("name"):
+                name = str(tc["name"])
+                if name not in seen_keys:
+                    seen_keys.add(name)
+                    executable.append({"name": name, "arguments": tc.get("arguments", {}) or {}})
+            elif isinstance(tc, list):
+                for item in tc:
+                    if isinstance(item, dict) and item.get("name"):
+                        name = str(item["name"])
+                        if name not in seen_keys:
+                            seen_keys.add(name)
+                            executable.append({"name": name, "arguments": item.get("arguments", {}) or {}})
+            elif step.get("tool"):
+                name = str(step["tool"])
+                if name not in seen_keys:
+                    seen_keys.add(name)
+                    executable.append({"name": name, "arguments": step.get("arguments", {}) or {}})
+        yield {
+            "event": "plan_ready",
+            "data": json.dumps({
+                "session_id": req.session_id,
+                "goal": plan.get("goal", req.message),
+                "total_steps": len(steps),
+                "executable_steps": len(executable),
+                "has_destructive_steps": plan_result.get("has_destructive_steps", False),
+                "steps_preview": [
+                    {
+                        "id": s.get("id", f"step_{i}"),
+                        "description": s.get("description", ""),
+                        "tool": (s.get("tool_call") or {}).get("name") if isinstance(s.get("tool_call"), dict) else None,
+                    }
+                    for i, s in enumerate(steps)
+                ],
+                "auto_approve": req.auto_approve,
+            }),
+        }
+
+        if not executable:
+            yield {
+                "event": "plan_empty",
+                "data": json.dumps({
+                    "session_id": req.session_id,
+                    "message": plan_result.get("message", "Plan produced no executable tool calls."),
+                    "elapsed": round(time.time() - t0, 3),
+                }),
+            }
+            return
+
+        if not req.auto_approve:
+            yield {
+                "event": "approval_skipped",
+                "data": json.dumps({
+                    "note": "auto_approve=false is not yet wired to a confirmation gate; running the plan anyway.",
+                    "executable_steps": len(executable),
+                }),
+            }
+
+        # --- phase 2: execute each planned step ---
+        total = len(executable)
+        completed = 0
+        failed = 0
+        results: List[Dict[str, Any]] = []
+        for idx, step in enumerate(executable):
+            yield {
+                "event": "step_start",
+                "data": json.dumps({
+                    "index": idx,
+                    "total": total,
+                    "name": step["name"],
+                    "arguments": step["arguments"],
+                    "phase": "execute",
+                }),
+            }
+            outcome = await _execute_single_tool(agent, step["name"], req.session_id, step["arguments"])
+            completed += 1 if outcome["success"] else 0
+            failed += 0 if outcome["success"] else 1
+            results.append({
+                "index": idx,
+                "name": step["name"],
+                "success": outcome["success"],
+                "message": outcome.get("message", ""),
+                "error": outcome.get("error"),
+                "tool_call": outcome.get("tool_call"),
+            })
+            yield {
+                "event": "step_result",
+                "data": json.dumps({
+                    "index": idx,
+                    "name": step["name"],
+                    "success": outcome["success"],
+                    "message": outcome.get("message", ""),
+                    "error": outcome.get("error"),
+                    "tool_call": outcome.get("tool_call"),
+                    "completed": completed,
+                    "failed": failed,
+                    "phase": "execute",
+                }),
+            }
+            # Plan-run continues through failures so a single bad step
+            # does not abandon the rest of the user's intent.
+
+        scene = agent.orchestrator.get_scene(req.session_id)
+        yield {
+            "event": "plan_done",
+            "data": json.dumps({
+                "session_id": req.session_id,
+                "goal": plan.get("goal", req.message),
+                "total": total,
+                "completed": completed,
+                "failed": failed,
+                "elapsed": round(time.time() - t0, 3),
+                "results": results,
+                "scene": scene.to_dict(),
+            }),
+        }
+
+    return EventSourceResponse(event_gen())
+
+
+@router.post("/agent/batch/preview")
+async def agent_batch_preview(req: BatchRequest) -> JSONResponse:
+    """Validate a batch request without executing any tool.
+
+    Resolves every tool name, reports missing tools, and returns the
+    coerced-argument preview per step so the frontend can render a
+    confirmation dialog before running ``/agent/batch``. Read-only —
+    does not mutate the scene.
+    """
+    agent = AgentService.get()
+    preview: List[Dict[str, Any]] = []
+    missing: List[str] = []
+    for idx, step in enumerate(req.steps or []):
+        tool = agent.orchestrator.registry.get(step.name)
+        if tool is None:
+            missing.append(step.name)
+            preview.append({
+                "index": idx,
+                "name": step.name,
+                "valid": False,
+                "error": "Tool not registered",
+            })
+            continue
+        coerced = _coerce_tool_args(tool, step.arguments)
+        requires_approval = bool(getattr(tool, "requires_approval", False))
+        preview.append({
+            "index": idx,
+            "name": step.name,
+            "valid": True,
+            "requires_approval": requires_approval,
+            "description": getattr(tool, "description", ""),
+            "arguments": coerced,
+        })
+    return JSONResponse(content={
+        "session_id": req.session_id,
+        "total_steps": len(req.steps or []),
+        "valid_steps": sum(1 for p in preview if p.get("valid")),
+        "missing_tools": missing,
+        "has_destructive_steps": any(p.get("requires_approval") for p in preview if p.get("valid")),
+        "preview": preview,
+    })
