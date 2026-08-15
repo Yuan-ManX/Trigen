@@ -1,5 +1,5 @@
 // Chat panel container: header title + message list + input bar + history view
-import { Eraser, History, KeyRound, PanelLeftClose, Plus, Radio, Shield, ShieldAlert } from 'lucide-react'
+import { Eraser, History, KeyRound, PanelLeftClose, Plus, Radio, Route, Shield, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { useChat } from '../../store/useChat'
 import { ChatHistory } from './ChatHistory'
@@ -27,6 +27,10 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
   const pendingDestructive = useChat((s) => s.pendingDestructive)
   const confirmPendingDestructive = useChat((s) => s.confirmPendingDestructive)
   const cancelPendingDestructive = useChat((s) => s.cancelPendingDestructive)
+  // Plan-then-run SSE mode toggle: when active, send() routes through
+  // /api/agent/plan/run and renders a live step-by-step plan checklist.
+  const planRunMode = useChat((s) => s.planRunMode)
+  const setPlanRunMode = useChat((s) => s.setPlanRunMode)
   // Token usage from the most recent DONE event
   const lastTokenUsage = useChat((s) => s.lastTokenUsage)
   const [showSettings, setShowSettings] = useState(false)
@@ -77,6 +81,26 @@ export function ChatPanel({ onCollapse }: ChatPanelProps) {
             }`}
           >
             {confirmDestructive ? <ShieldAlert size={14} /> : <Shield size={14} />}
+          </button>
+          {/* Plan-then-run mode toggle: when active, send() plans the message
+              and streams step-by-step execution over SSE, rendering a live
+              plan checklist with per-step status (pending → running → done). */}
+          <button
+            onClick={() => setPlanRunMode(!planRunMode)}
+            aria-label="Toggle plan-then-run mode"
+            aria-pressed={planRunMode}
+            title={
+              planRunMode
+                ? 'Plan & Run mode ON (plan preview + live step execution)'
+                : 'Plan & Run mode OFF (streaming chat)'
+            }
+            className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              planRunMode
+                ? 'text-accent-cyan bg-cyan-500/10'
+                : 'text-fg-muted hover:text-fg-primary hover:bg-bg-hover'
+            }`}
+          >
+            <Route size={14} />
           </button>
           {/* Model settings / API keys */}
           <button
