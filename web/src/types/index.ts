@@ -88,6 +88,21 @@ export interface SceneObject {
   animation?: ObjectAnimation | null
   /** Rigid-body physics descriptor (enabled/gravity/bounciness/friction/floor) */
   physics?: PhysicsDescriptor | null
+  /** Non-destructive geometric modifiers applied to the geometry on the GPU.
+   *  Keys are modifier names (noise, bend, twist, taper, wave) and values
+   *  are per-modifier parameter dicts. The original geometry stays intact. */
+  modifiers?: Record<string, Record<string, unknown>>
+  /** Surface-detail operators: {shell, bevel, inflate}. Non-destructive
+   *  shader-level surface deformation applied on top of the base mesh.
+   *  See surface_detail_tools.py for schema per operator. */
+  surface_ops?: Record<string, Record<string, unknown>>
+  /** Texture / UV operators: {uv: {projection, scale, offset, rotation, axis}}.
+   *  Consumed by the material pipeline to align procedural textures. */
+  texture_ops?: Record<string, Record<string, unknown>>
+  /** Level-of-detail chain: {enabled, levels: [{distance, detail}]}.
+   *  The viewport picks the highest detail level whose distance the
+   *  camera is inside. */
+  lod?: { enabled: boolean; levels: Array<{ distance: number; detail: number }> } | null
 }
 
 /** Rigid-body physics descriptor read by the viewport simulation. */
@@ -277,6 +292,18 @@ export interface SceneData {
   transitions?: SceneTransition[]
   /** Id of the transition the viewport is currently playing. */
   activeTransition?: string | null
+  /** Screen-space post-processing pipeline configuration. Keys are effect
+   *  names (bloom, tone_mapping, color_grading, vignette, film_grain,
+   *  dof, chromatic_aberration) and values are per-effect parameter dicts. */
+  post_processing?: Record<string, Record<string, unknown>>
+  /** UI theme state: {name, palette?, description?}. Drives ThemeProvider. */
+  theme?: { name: string; palette?: Record<string, string> }
+  /** Render quality preset: low | medium | high | ultra. */
+  render_quality?: 'low' | 'medium' | 'high' | 'ultra' | string
+  /** Linear exposure multiplier applied before tone-mapping. */
+  exposure?: number
+  /** Workspace shell layout: {name, panels, viewport}. Drives AppShell panel state. */
+  workspace_layout?: { name: string; panels?: Record<string, string>; viewport?: Record<string, unknown> }
 }
 
 /** A single target state within a scene transition. */
@@ -346,6 +373,11 @@ export const EMPTY_SCENE: SceneData = {
   nodeGraph: null,
   transitions: [],
   activeTransition: null,
+  post_processing: {},
+  theme: { name: 'warm' },
+  render_quality: 'high',
+  exposure: 1.0,
+  workspace_layout: { name: 'modeler' },
 }
 
 /* ============ WebSocket event types ============ */
@@ -439,6 +471,11 @@ export interface DoneEvent {
     session_id?: string
     /** Cross-turn project headline inferred from the latest plan. */
     project_goal?: string
+    /** True when the turn was cancelled mid-flight (user pressed Stop or
+     *  sent a new message that superseded this turn). The frontend uses
+     *  this to finalize the correct streaming message slot — the oldest
+     *  one, not the newest — so the replacement turn keeps its slot. */
+    interrupted?: boolean
   }
 }
 
