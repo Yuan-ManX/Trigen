@@ -211,6 +211,205 @@ class SetFogTool(ToolBase):
         )
 
 
+_ENVIRONMENT_PRESETS: Dict[str, Dict[str, Any]] = {
+    "sunset": {
+        "background": "#ff8a5c",
+        "fog": {"color": "#ffb08a", "near": 15, "far": 55},
+        "ambient": {"intensity": 0.5, "color": "#ffd0a0"},
+    },
+    "night": {
+        "background": "#0a0e2a",
+        "fog": {"color": "#1a2040", "near": 20, "far": 60},
+        "ambient": {"intensity": 0.15, "color": "#6080c0"},
+    },
+    "winter": {
+        "background": "#e0ecf5",
+        "fog": {"color": "#d0dce5", "near": 15, "far": 50},
+        "ambient": {"intensity": 0.5, "color": "#c0d8f0"},
+    },
+    "ocean": {
+        "background": "#1a4a7a",
+        "fog": {"color": "#3a6a9a", "near": 10, "far": 55, "density": 0.01},
+        "ambient": {"intensity": 0.4, "color": "#4a7aaa"},
+    },
+    "forest": {
+        "background": "#1a3a1a",
+        "fog": {"color": "#3a5a3a", "near": 10, "far": 45},
+        "ambient": {"intensity": 0.35, "color": "#70a070"},
+    },
+    "rainy": {
+        "background": "#3a4a5a",
+        "fog": {"color": "#5a6a7a", "near": 8, "far": 40},
+        "ambient": {"intensity": 0.3, "color": "#8a9aaa"},
+    },
+    "dawn": {
+        "background": "#f0a080",
+        "fog": {"color": "#f5c0a0", "near": 12, "far": 50},
+        "ambient": {"intensity": 0.45, "color": "#ffd0b0"},
+    },
+    "cave": {
+        "background": "#0a0a0a",
+        "fog": {"color": "#1a1a1a", "near": 5, "far": 25},
+        "ambient": {"intensity": 0.1, "color": "#4a3a2a"},
+    },
+    "underwater": {
+        "background": "#0a3a5a",
+        "fog": {"color": "#2a5a7a", "near": 5, "far": 35},
+        "ambient": {"intensity": 0.25, "color": "#4a8aaa"},
+    },
+    "beach": {
+        "background": "#ffd88c",
+        "fog": {"color": "#ffe0a0", "near": 15, "far": 55},
+        "ambient": {"intensity": 0.75, "color": "#fff0c0"},
+    },
+    "default": {
+        "background": "#1a1a2a",
+        "fog": None,
+        "ambient": {"intensity": 0.3, "color": "#ffffff"},
+    },
+}
+
+_SET_ENVIRONMENT_PARAMS = {
+    "type": "object",
+    "properties": {
+        "preset": {
+            "type": "string",
+            "enum": list(_ENVIRONMENT_PRESETS.keys()),
+            "description": "Named atmosphere preset to apply to the scene.",
+        },
+    },
+    "required": ["preset"],
+}
+
+
+class SetSceneEnvironmentTool(ToolBase):
+    """Apply a named atmosphere preset to the scene.
+
+    Bundles background color, fog, and ambient level into a single call so
+    the Agent can quickly shift the mood of the viewport in one tool call.
+    """
+
+    name = "set_scene_environment"
+    description = (
+        "Apply a named atmosphere preset (sunset, night, winter, ocean, forest, "
+        "rainy, dawn, cave, underwater, beach, default) to set background color, "
+        "fog, and ambient lighting in one step."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_ENVIRONMENT_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        preset_name = str(arguments.get("preset", "")).strip()
+        preset = _ENVIRONMENT_PRESETS.get(preset_name)
+        if preset is None:
+            keys = ", ".join(_ENVIRONMENT_PRESETS.keys())
+            return ToolResult(
+                success=False,
+                message=f"Unknown environment preset '{preset_name}'. Known presets: {keys}",
+                deltas=[],
+                data={},
+            )
+
+        deltas: List[SceneDelta] = []
+
+        scene.background = str(preset["background"])
+        deltas.append(SceneDelta(action="set_background", payload={"color": scene.background}))
+
+        if preset["fog"] is not None:
+            scene.fog = {
+                "color": str(preset["fog"]["color"]),
+                "near": float(preset["fog"].get("near", 10)),
+                "far": float(preset["fog"].get("far", 50)),
+            }
+            deltas.append(SceneDelta(action="set_fog", payload={"fog": scene.fog}))
+        else:
+            scene.fog = None
+            deltas.append(SceneDelta(action="set_fog", payload={"fog": None}))
+
+        ambient = preset["ambient"]
+        intensity = float(ambient.get("intensity", 0.3))
+        color = str(ambient.get("color", "#ffffff"))
+        scene.ambient_intensity = intensity
+        scene.ambient_color = color
+        deltas.append(SceneDelta(
+            action="set_ambient_level",
+            payload={"intensity": intensity, "color": color},
+        ))
+
+        return ToolResult(
+            success=True,
+            message=f"Environment set to '{preset_name}'",
+            deltas=deltas,
+            data={"preset": preset_name, "fog": scene.fog, "background": scene.background},
+        )
+
+
+_SET_GLOBAL_GRAVITY_PARAMS = {
+    "type": "object",
+    "properties": {
+        "gravity": {
+            "type": "number",
+            "description": "Global gravity magnitude applied to all physics-enabled objects (0-60, default 9.8).",
+        },
+    },
+    "required": ["gravity"],
+}
+
+
+class SetGlobalGravityTool(ToolBase):
+    """Set the gravity value used by every physics-enabled object.
+
+    The per-object physics descriptor typically falls back to a global
+    default; this tool rewrites the stored gravity on every currently
+    physics-enabled object so they all accelerate at the same rate.
+    """
+
+    name = "set_global_gravity"
+    description = (
+        "Set the global gravity magnitude (0-60) for all currently physics-enabled "
+        "objects. Use 9.8 for earth-like, 1.6 for moon-like, 0 to float."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_GLOBAL_GRAVITY_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        try:
+            gravity = max(0.0, min(60.0, float(arguments["gravity"])))
+        except (TypeError, ValueError):
+            return ToolResult(
+                success=False,
+                message="Invalid gravity value",
+                deltas=[],
+                data={},
+            )
+
+        changed = 0
+        deltas: List[SceneDelta] = []
+        for obj in scene.objects:
+            if obj.physics and obj.physics.get("enabled"):
+                merged = dict(obj.physics)
+                merged["gravity"] = gravity
+                obj.physics = merged
+                deltas.append(SceneDelta(
+                    action="update_object",
+                    target_id=obj.id,
+                    payload=obj.to_dict(),
+                ))
+                changed += 1
+
+        # Also store as a scene-level default for newly-applied physics.
+        scene.global_gravity = gravity
+
+        return ToolResult(
+            success=True,
+            message=f"Global gravity set to {gravity}; updated {changed} active physics objects.",
+            deltas=deltas,
+            data={"gravity": gravity, "updated_count": changed},
+        )
+
+
 class ArrangeLayoutTool(ToolBase):
     """Arrange layout tool."""
 
