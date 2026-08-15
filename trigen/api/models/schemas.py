@@ -21,6 +21,7 @@ class ChatResponse(BaseModel):
     content: str
     session_id: str
     scene: Optional[Dict[str, Any]] = None
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
