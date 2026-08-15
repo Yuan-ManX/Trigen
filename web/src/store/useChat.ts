@@ -5,6 +5,9 @@ import {
   ChatSocket,
   fetchAgentPlan,
   getOrCreateSessionId,
+  streamBatchExecution,
+  streamPlanRun,
+  type BatchSSEStep,
   type SocketStatus,
   type TokenUsage,
 } from '../api/client'
@@ -143,10 +146,24 @@ interface ChatState {
   } | null
   /** Token usage reported by the most recent DONE event (cumulative per turn). */
   lastTokenUsage: TokenUsage | null
+  /** When true, send() routes through the plan-then-run SSE endpoint
+   *  (/api/agent/plan/run) instead of the WebSocket chat. The Agent first
+   *  previews a structured plan, then executes each step with live
+   *  step_start / step_result progress rendered inline as a PlanTrace. */
+  planRunMode: boolean
 
   connect: () => void
   disconnect: () => void
   send: (text: string) => void
+  /** Toggle plan-then-run mode. When enabled, the next send() plans the
+   *  message and streams step-by-step execution over SSE. */
+  setPlanRunMode: (enabled: boolean) => void
+  /** Execute an ordered list of tool calls with streaming SSE progress.
+   *  Each step sees the scene as the previous step left it. Used by macro
+   *  / workflow runners and the batch confirmation dialog. */
+  runBatch: (steps: BatchSSEStep[], stopOnError?: boolean) => Promise<void>
+  /** Stop an in-flight plan-run or batch SSE stream. */
+  stopPlanRun: () => void
   retry: () => void
   stop: () => void
   setModel: (model: string) => void
@@ -174,6 +191,11 @@ let sceneBeforeResponse: SceneData | null = null
  *  (editor-only turns such as undo/redo/play/pause), the ``done`` event's
  *  scene snapshot is skipped so it does not override local frontend state. */
 let turnHadSceneMutation = false
+
+/** AbortController for the in-flight plan-run / batch SSE stream. Set by
+ *  runPlanThenExecute / runBatch and aborted by stopPlanRun so the user can
+ *  cancel a long-running multi-step execution mid-stream. */
+let planRunAbort: AbortController | null = null
 
 /** Dispatch editor-control deltas to the matching local store. These deltas
  *  do not mutate the backend Scene; they request a frontend-side action. */
@@ -874,6 +896,164 @@ export const useChat = create<ChatState>((set, get) => {
     s.send({ type: 'message', data: { message: trimmed, session_id: sessionId, model: get().model } })
   }
 
+  /** Plan a message over SSE and execute each planned step with live
+   *  step_start / step_result progress. Unlike the WebSocket chat path,
+   *  this routes through POST /api/agent/plan/run so the UI can render a
+   *  structured plan checklist that flips status as each tool runs. The
+   *  assistant message is seeded with an empty planSteps array that fills
+   *  in as ``plan_ready`` / ``step_start`` / ``step_result`` arrive, and
+   *  the final ``plan_done`` scene snapshot is committed to history. */
+  const _runPlanThenExecute = async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    const sessionId = get().sessionId
+    const assistantId = genId()
+
+    // Capture the scene snapshot before the Agent responds, for undo history.
+    sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
+    turnHadSceneMutation = false
+
+    // Push user message + reserve a streaming assistant slot carrying an
+    // empty planSteps array so PlanTrace mounts immediately.
+    set((state) => ({
+      messages: [
+        ...state.messages,
+        { id: genId(), role: 'user', content: trimmed, createdAt: Date.now() },
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          streaming: true,
+          toolCalls: [],
+          planSteps: [],
+          planGoal: trimmed,
+          createdAt: Date.now(),
+        },
+      ],
+      isResponding: true,
+      suggestions: [],
+      pendingDestructive: null,
+    }))
+
+    planRunAbort = new AbortController()
+    const model = get().model
+
+    /** Patch the reserved assistant message in place. */
+    const patch = (fn: (m: ChatMessage) => ChatMessage) => {
+      set((state) => {
+        const msgs = [...state.messages]
+        const idx = msgs.findIndex((m) => m.id === assistantId)
+        if (idx === -1) return {}
+        msgs[idx] = fn(msgs[idx])
+        return { messages: msgs }
+      })
+    }
+
+    try {
+      for await (const ev of streamPlanRun(trimmed, sessionId, model, true)) {
+        if (planRunAbort?.signal.aborted) break
+        if (ev.event === 'plan_ready') {
+          const d = ev.data
+          const steps: PlanStep[] = d.steps_preview.map((s, i) => ({
+            id: s.id || `step_${i}`,
+            tool: s.tool || 'reasoning',
+            description: s.description,
+            status: 'pending' as const,
+          }))
+          patch((m) => ({
+            ...m,
+            planSteps: steps,
+            planGoal: d.goal || m.planGoal,
+            content: `Plan ready — ${d.executable_steps} step${d.executable_steps === 1 ? '' : 's'} to execute.`,
+          }))
+        } else if (ev.event === 'step_start') {
+          const d = ev.data
+          patch((m) => {
+            if (!m.planSteps) return m
+            const steps = [...m.planSteps]
+            if (steps[d.index]) {
+              steps[d.index] = { ...steps[d.index], tool: d.name, status: 'running' }
+            }
+            return { ...m, planSteps: steps }
+          })
+        } else if (ev.event === 'step_result') {
+          const d = ev.data
+          turnHadSceneMutation = true
+          patch((m) => {
+            const steps = [...(m.planSteps ?? [])]
+            if (steps[d.index]) {
+              steps[d.index] = {
+                ...steps[d.index],
+                status: d.success ? 'done' : 'failed',
+                message: d.success ? d.message : d.error || d.message,
+              }
+            }
+            const toolCalls = [...(m.toolCalls ?? [])]
+            toolCalls.push({
+              id: genId(),
+              name: d.name,
+              arguments: {},
+              pending: false,
+              result: { success: d.success, message: d.success ? d.message : d.error || d.message },
+            })
+            return { ...m, planSteps: steps, toolCalls }
+          })
+          // Apply incremental scene deltas carried by the tool_call payload
+          // so the viewport updates live between steps rather than only at
+          // the end of the whole plan.
+          const tc = d.tool_call as { deltas?: Array<{ action: string }> } | undefined
+          if (tc?.deltas?.some((dl) => !dl.action.startsWith('editor_'))) {
+            // Live mid-plan scene refresh: fetch is avoided; the final
+            // plan_done snapshot is authoritative. Skipping here keeps the
+            // viewport from thrashing on rapid multi-step plans.
+          }
+        } else if (ev.event === 'plan_done') {
+          const d = ev.data
+          patch((m) => ({
+            ...m,
+            streaming: false,
+            content:
+              `Plan complete — ${d.completed}/${d.total} step${d.total === 1 ? '' : 's'} succeeded` +
+              (d.failed ? `, ${d.failed} failed` : '') + ` in ${d.elapsed}s.`,
+          }))
+          if (d.scene) {
+            const before = sceneBeforeResponse
+            if (before) {
+              useScene.getState().commitScene(d.scene, before)
+            } else {
+              useScene.getState().applyScene(d.scene)
+            }
+          }
+        } else if (ev.event === 'plan_empty') {
+          patch((m) => ({
+            ...m,
+            streaming: false,
+            content: ev.data.message || 'Plan produced no executable tool calls.',
+          }))
+        } else if (ev.event === 'plan_error') {
+          patch((m) => ({
+            ...m,
+            streaming: false,
+            error: ev.data.error,
+            content: `Plan error: ${ev.data.error}`,
+          }))
+        }
+      }
+    } catch (err) {
+      patch((m) => ({
+        ...m,
+        streaming: false,
+        error: err instanceof Error ? err.message : String(err),
+        content: `Plan-run failed: ${err instanceof Error ? err.message : String(err)}`,
+      }))
+    } finally {
+      // Ensure the assistant slot is finalized even on early abort.
+      patch((m) => (m.streaming ? { ...m, streaming: false } : m))
+      set({ isResponding: false })
+      planRunAbort = null
+    }
+  }
+
   return {
     messages: [],
     status: 'idle',
@@ -888,6 +1068,7 @@ export const useChat = create<ChatState>((set, get) => {
     planning: false,
     pendingDestructive: null,
     lastTokenUsage: null,
+    planRunMode: false,
 
     connect: () => {
       const s = ensureSocket({ onStatus, onEvent })
@@ -905,6 +1086,12 @@ export const useChat = create<ChatState>((set, get) => {
     send: (text) => {
       const trimmed = text.trim()
       if (!trimmed) return
+      // Plan-then-run mode: route through the SSE plan-run endpoint so the
+      // user sees a structured plan checklist with live step progress.
+      if (get().planRunMode) {
+        void _runPlanThenExecute(trimmed)
+        return
+      }
       // When confirmation is disabled, just send.
       if (!get().confirmDestructive) {
         _sendNow(trimmed)
@@ -949,6 +1136,138 @@ export const useChat = create<ChatState>((set, get) => {
 
     cancelPendingDestructive: () => set({ pendingDestructive: null }),
 
+    setPlanRunMode: (enabled) => set({ planRunMode: enabled }),
+
+    stopPlanRun: () => {
+      if (planRunAbort) {
+        planRunAbort.abort()
+        planRunAbort = null
+      }
+      // Finalize any streaming assistant message owned by the plan-run flow.
+      set((state) => {
+        const msgs = state.messages.map((m) =>
+          m.streaming ? { ...m, streaming: false } : m,
+        )
+        return { messages: msgs, isResponding: false }
+      })
+    },
+
+    runBatch: async (steps, stopOnError = true) => {
+      if (!steps || steps.length === 0) return
+      const sessionId = get().sessionId
+      const assistantId = genId()
+
+      // Capture scene snapshot for undo history before the batch mutates it.
+      sceneBeforeResponse = JSON.parse(JSON.stringify(useScene.getState().scene))
+      turnHadSceneMutation = false
+
+      // Seed an assistant message with a plan checklist built from the steps.
+      const planSteps: PlanStep[] = steps.map((s, i) => ({
+        id: `batch_${i}`,
+        tool: s.name,
+        description: s.name,
+        status: 'pending' as const,
+      }))
+      set((state) => ({
+        messages: [
+          ...state.messages,
+          {
+            id: assistantId,
+            role: 'assistant' as const,
+            content: `Running batch — ${steps.length} tool${steps.length === 1 ? '' : 's'}.`,
+            streaming: true,
+            toolCalls: [],
+            planSteps,
+            planGoal: `Batch execution (${steps.length} steps)`,
+            createdAt: Date.now(),
+          },
+        ],
+        isResponding: true,
+        suggestions: [],
+      }))
+
+      planRunAbort = new AbortController()
+      const patch = (fn: (m: ChatMessage) => ChatMessage) => {
+        set((state) => {
+          const msgs = [...state.messages]
+          const idx = msgs.findIndex((m) => m.id === assistantId)
+          if (idx === -1) return {}
+          msgs[idx] = fn(msgs[idx])
+          return { messages: msgs }
+        })
+      }
+
+      try {
+        for await (const ev of streamBatchExecution(steps, sessionId, stopOnError)) {
+          if (planRunAbort?.signal.aborted) break
+          if (ev.event === 'step_start') {
+            const d = ev.data
+            patch((m) => {
+              const stepsArr = [...(m.planSteps ?? [])]
+              if (stepsArr[d.index]) stepsArr[d.index] = { ...stepsArr[d.index], status: 'running' }
+              return { ...m, planSteps: stepsArr }
+            })
+          } else if (ev.event === 'step_result') {
+            const d = ev.data
+            turnHadSceneMutation = true
+            patch((m) => {
+              const stepsArr = [...(m.planSteps ?? [])]
+              if (stepsArr[d.index]) {
+                stepsArr[d.index] = {
+                  ...stepsArr[d.index],
+                  status: d.success ? 'done' : 'failed',
+                  message: d.success ? d.message : d.error || d.message,
+                }
+              }
+              const toolCalls = [...(m.toolCalls ?? [])]
+              toolCalls.push({
+                id: genId(),
+                name: d.name,
+                arguments: {},
+                pending: false,
+                result: { success: d.success, message: d.success ? d.message : d.error || d.message },
+              })
+              return { ...m, planSteps: stepsArr, toolCalls }
+            })
+          } else if (ev.event === 'batch_done') {
+            const d = ev.data
+            patch((m) => ({
+              ...m,
+              streaming: false,
+              content:
+                `Batch complete — ${d.completed}/${d.total} succeeded` +
+                (d.failed ? `, ${d.failed} failed` : '') + ` in ${d.elapsed}s.`,
+            }))
+            if (d.scene) {
+              const before = sceneBeforeResponse
+              if (before) useScene.getState().commitScene(d.scene, before)
+              else useScene.getState().applyScene(d.scene)
+            }
+          } else if (ev.event === 'batch_error') {
+            const d = ev.data
+            patch((m) => ({
+              ...m,
+              streaming: false,
+              error: d.error,
+              content: `Batch aborted: ${d.error}`,
+            }))
+            if (d.scene) useScene.getState().replaceScene(d.scene)
+          }
+        }
+      } catch (err) {
+        patch((m) => ({
+          ...m,
+          streaming: false,
+          error: err instanceof Error ? err.message : String(err),
+          content: `Batch failed: ${err instanceof Error ? err.message : String(err)}`,
+        }))
+      } finally {
+        patch((m) => (m.streaming ? { ...m, streaming: false } : m))
+        set({ isResponding: false })
+        planRunAbort = null
+      }
+    },
+
     retry: () => {
       const state = get()
       if (state.isResponding) return
@@ -984,6 +1303,19 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     stop: () => {
+      // Cancel any in-flight plan-run / batch SSE stream first so the
+      // reserved assistant message is finalized immediately.
+      if (planRunAbort) {
+        planRunAbort.abort()
+        planRunAbort = null
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.streaming ? { ...m, streaming: false } : m,
+          ),
+          isResponding: false,
+        }))
+        return
+      }
       // Ask the server to cancel the current turn. The socket stays open;
       // the server replies with a ``done`` carrying an ``interrupted`` flag
       // which finalizes the streaming message.
