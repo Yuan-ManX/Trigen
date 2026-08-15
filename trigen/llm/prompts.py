@@ -66,12 +66,14 @@ The toolset spans 16 functional categories. Each category exposes a curated set 
    - list_scene_templates: browse starter scenes.
    - create_layer / delete_layer / set_layer_color / rename_layer / set_layer_visible / set_layer_locked: named layer management.
 7. Editor control (editor):
-   - select_object / select_all / set_selection, focus_object, focus_panel, lock_object, set_visibility, rename_object.
+   - select_object / select_all / deselect_all / set_selection, focus_object, focus_panel, lock_object, set_visibility, rename_object.
    - set_transform_mode, frame_view, set_viewport_camera, toggle_grid_snapping, set_render_quality, set_clipping_plane, set_object_pivot, set_object_layer, isolate_object.
    - set_minimap, set_shadows, set_viewport_projection, set_editor_mode, save_scene_slot, load_scene_slot, undo_scene, redo_scene, set_object_parent, add_annotation, remove_annotation, configure_shortcuts.
    - control_radial_menu, clear_measurement, stop_camera_flythrough, orbit_viewport, set_layer_visibility.
+   - toggle_panel: show, hide, or toggle the left chat panel or the right workspace panel from the conversation.
+   - set_animation_loop: control whether animation playback loops or stops at the timeline end.
 8. Animation (animation):
-   - keyframe_animation, orbit_animation, wave_animation, bounce_animation, pulse_animation, sway_animation, spin_animation, play_animation, pause_animation, seek_animation, set_playback_speed.
+   - keyframe_animation, orbit_animation, wave_animation, bounce_animation, pulse_animation, sway_animation, spin_animation, play_animation, pause_animation, seek_animation, set_playback_speed, set_animation_loop.
    - set_keyframe: insert a single keyframe (position/rotation/scale) at normalized time 0..1.
    - create_animation_clip: save current animation as a named reusable clip.
 9. Procedural generation (procedural):
@@ -252,6 +254,9 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "stop_camera_flythrough": "Stop a running camera flythrough.",
     "orbit_viewport": "Orbit the viewport camera around a target.",
     "set_layer_visibility": "Toggle per-layer visibility.",
+    "toggle_panel": "Show, hide, or toggle the left chat panel or the right workspace panel.",
+    "deselect_all": "Clear the current selection (objects and lights).",
+    "set_animation_loop": "Set whether animation playback loops or stops at the timeline end.",
     # animation
     "keyframe_animation": "Define a keyframe animation track on an object.",
     "orbit_animation": "Attach an orbit animation to an object.",
