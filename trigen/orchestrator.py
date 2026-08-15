@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import socket
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -110,6 +111,8 @@ from trigen.tools import (
     SetBackgroundTool,
     SetEnvironmentTool,
     SetFogTool,
+    SetSceneEnvironmentTool,
+    SetGlobalGravityTool,
     SetGridSizeTool,
     SetPlaybackSpeedTool,
     SetRenderQualityTool,
@@ -298,8 +301,117 @@ from trigen.tools.mesh_quality_tools import (
     LODChainTool,
     RepairMeshTool,
 )
+from trigen.tools.viewport_tools import (
+    SetViewportShadingTool,
+    CreateCurveTool,
+    BatchCreateObjectsTool,
+    SetMaterialTextureTool,
+    SetViewportBackgroundTool,
+)
+from trigen.tools.viewport_control_tools import (
+    SetXrayModeTool,
+    SetSelectionColorTool,
+    SnapSelectionToGroundTool,
+    SetViewportResolutionTool,
+)
+from trigen.tools.deformation_tools import (
+    NoiseDeformTool,
+    BendModifierTool,
+    TwistModifierTool,
+    TaperModifierTool,
+    WaveModifierTool,
+    ClearModifiersTool,
+)
+from trigen.tools.postfx_tools import (
+    SetBloomTool,
+    SetToneMappingTool,
+    SetColorGradingTool,
+    SetVignetteTool,
+    SetFilmGrainTool,
+    SetDOFTool,
+    SetChromaticAberrationTool,
+    ResetPostfxTool,
+    ApplyPostFxTool,
+)
+from trigen.tools.pattern_generators import (
+    HexGridPatternTool,
+    FibonacciLatticeTool,
+    MazeGeneratorTool,
+    HoneycombTrussTool,
+    KnotworkLatticeTool,
+)
+from trigen.tools.composition_tools import (
+    ScatterObjectsTool,
+    CreateStaircaseTool,
+    CreateBridgeTool,
+    CreateTerrainTool,
+    CloneChainTool,
+)
+from trigen.tools.snapshot_tools import (
+    SnapshotSceneTool,
+    ListSnapshotsTool,
+    RestoreSnapshotTool,
+    SnapshotDiffTool,
+    DeleteSnapshotTool,
+)
+from trigen.tools.surface_detail_tools import (
+    ShellModifierTool,
+    BevelModifierTool,
+    InflateModifierTool,
+    ClearSurfaceOpsTool,
+    UvMapTool,
+    TextureTileTool,
+    BakeLodTool,
+)
+from trigen.tools.workspace_ux_tools import (
+    SetThemeTool,
+    BrowseHistoryTool,
+    RestoreHistoryEntryTool,
+    ApplyRenderPresetTool,
+    SetWorkspaceLayoutTool,
+    ListRenderPresetsTool,
+    ListThemesTool,
+    ListWorkspaceLayoutsTool,
+)
+from trigen.tools.precision_modeling_tools import (
+    SetEdgeCreaseTool,
+    SetBevelWeightTool,
+    ManageVertexGroupTool,
+)
+from trigen.reasoning import ReActLoop, LoopBudget, offline_thought, offline_self_critique
+from trigen.semantic_memory import get_store as get_semantic_store
 
 logger = logging.getLogger("trigen.orchestrator")
+
+
+def _is_local_url(url: str) -> bool:
+    """Return True when ``url`` points at a localhost / 127.0.0.1 address."""
+    if not url:
+        return False
+    low = url.lower()
+    return any(h in low for h in ("localhost", "127.0.0.1", "[::1]", "0.0.0.0"))
+
+
+def _probe_local_url(url: str, timeout: float = 0.5) -> bool:
+    """Quick TCP connect probe to see if a local service is listening.
+
+    Parses the host and port from ``url`` and tries to establish a TCP
+    connection within ``timeout`` seconds. Returns True when the port is
+    open, False otherwise. Used by ``_find_available_alternative`` to
+    skip local providers (e.g. Ollama) whose daemon is not running.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port
+        if port is None:
+            port = 443 if parsed.scheme == "https" else 80
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
 
 
 # Central tool taxonomy. Maps every registered tool name to a coarse
@@ -549,6 +661,75 @@ _TOOL_CATEGORIES: Dict[str, str] = {
     # Mesh quality — LOD chain + watertight repair
     "generate_lod_chain": "creation",
     "repair_mesh": "creation",
+    # Viewport shading + curve creation + batch creation + texture mapping
+    "set_viewport_shading": "viewport",
+    "create_curve": "creation",
+    "batch_create_objects": "creation",
+    "set_material_texture": "material",
+    "set_viewport_background": "scene",
+    # Viewport control gap tools — X-ray mode, selection highlight color,
+    # bulk snap-to-ground, granular render scale.
+    "set_xray_mode": "viewport",
+    "set_selection_color": "editor",
+    "snap_selection_to_ground": "transform",
+    "set_viewport_resolution": "viewport",
+    # Non-destructive geometric modifiers — applied on top of base geometry
+    "noise_deform": "procedural",
+    "bend_object": "procedural",
+    "twist_object": "procedural",
+    "taper_object": "procedural",
+    "wave_deform": "procedural",
+    "clear_modifiers": "procedural",
+    # Viewport post-processing effect pipeline
+    "set_bloom": "viewport",
+    "set_tone_mapping": "viewport",
+    "set_color_grading": "viewport",
+    "set_vignette": "viewport",
+    "set_film_grain": "viewport",
+    "set_depth_of_field": "viewport",
+    "set_chromatic_aberration": "viewport",
+    "reset_postfx": "viewport",
+    "apply_post_fx": "viewport",
+    # Advanced spatial pattern generators — groups of structured primitives
+    "hex_grid_pattern": "procedural",
+    "fibonacci_lattice": "procedural",
+    "generate_maze": "procedural",
+    "honeycomb_truss": "procedural",
+    "knotwork_lattice": "procedural",
+    # Scene composition tools — multi-part structures and distributions
+    "scatter_objects": "creation",
+    "create_staircase": "creation",
+    "create_bridge": "creation",
+    "create_terrain_mesh": "creation",
+    "clone_chain": "creation",
+    # Session-scoped named snapshots — lightweight version control
+    "snapshot_scene": "scene",
+    "list_snapshots": "scene",
+    "restore_snapshot": "scene",
+    "snapshot_diff": "inspection",
+    "delete_snapshot": "scene",
+    # Surface-detail operators — shell / bevel / inflate / clear
+    "shell_modifier": "detail",
+    "bevel_modifier": "detail",
+    "inflate_modifier": "detail",
+    "clear_surface_ops": "detail",
+    # UV / texture mapping + level-of-detail baking
+    "uv_map": "texture",
+    "texture_tile": "texture",
+    "bake_lod": "quality",
+    # Workspace UX — theme, history browse, render presets, layouts
+    "set_theme": "editor",
+    "browse_history": "editor",
+    "restore_history_entry": "editor",
+    "apply_render_preset": "postfx",
+    "set_workspace_layout": "editor",
+    "list_render_presets": "postfx",
+    "list_themes": "editor",
+    "list_workspace_layouts": "editor",
+    # Precision modeling — edge crease, bevel weight, vertex groups
+    "set_edge_crease": "detail",
+    "set_bevel_weight": "detail",
+    "manage_vertex_group": "detail",
 }
 
 
@@ -818,6 +999,8 @@ class AgentOrchestrator:
         registry.register(UngroupObjectsTool())
         registry.register(SetBackgroundTool())
         registry.register(SetFogTool())
+        registry.register(SetSceneEnvironmentTool())
+        registry.register(SetGlobalGravityTool())
         registry.register(ArrangeLayoutTool())
         registry.register(AssignToGroupTool())
         registry.register(RenameGroupTool())
@@ -1104,6 +1287,96 @@ class AgentOrchestrator:
         # Mesh quality — LOD chain generation + watertight mesh repair
         registry.register(LODChainTool())
         registry.register(RepairMeshTool())
+        # Viewport shading modes + curve creation + batch creation +
+        # texture mapping + viewport background — close the remaining
+        # gaps between the editor surface and the Agent-callable toolset.
+        registry.register(SetViewportShadingTool())
+        registry.register(CreateCurveTool())
+        registry.register(BatchCreateObjectsTool())
+        registry.register(SetMaterialTextureTool())
+        registry.register(SetViewportBackgroundTool())
+        # Viewport control gap tools — X-ray see-through mode, selection
+        # highlight color, bulk snap-to-ground, and granular render scale.
+        # Close the remaining viewport-control gaps so the Agent can drive
+        # every editor viewport function through the same tool registry.
+        registry.register(SetXrayModeTool())
+        registry.register(SetSelectionColorTool())
+        registry.register(SnapSelectionToGroundTool())
+        registry.register(SetViewportResolutionTool())
+        # Non-destructive geometric modifiers — vertex-displacement shaders
+        # applied on top of the original geometry so parameters stay editable.
+        registry.register(NoiseDeformTool())
+        registry.register(BendModifierTool())
+        registry.register(TwistModifierTool())
+        registry.register(TaperModifierTool())
+        registry.register(WaveModifierTool())
+        registry.register(ClearModifiersTool())
+        # Viewport post-processing effect pipeline — screen-space effects
+        # applied by the three.js EffectComposer: bloom, tone mapping,
+        # color grading, vignette, film grain, depth-of-field, and
+        # chromatic aberration. ResetPostfxTool clears every override.
+        registry.register(SetBloomTool())
+        registry.register(SetToneMappingTool())
+        registry.register(SetColorGradingTool())
+        registry.register(SetVignetteTool())
+        registry.register(SetFilmGrainTool())
+        registry.register(SetDOFTool())
+        registry.register(SetChromaticAberrationTool())
+        registry.register(ResetPostfxTool())
+        registry.register(ApplyPostFxTool())
+        # Advanced spatial pattern generators — produce grouped collections
+        # of primitives arranged by higher-level packing rules: hex grids,
+        # Fibonacci sunflower lattices, random-walk mazes, honeycomb
+        # trusses, and Celtic-style knotwork lattices.
+        registry.register(HexGridPatternTool())
+        registry.register(FibonacciLatticeTool())
+        registry.register(MazeGeneratorTool())
+        registry.register(HoneycombTrussTool())
+        registry.register(KnotworkLatticeTool())
+        # Scene composition tools — multi-part structures and object
+        # distributions: random scattering, staircases, bridges, terrain
+        # meshes, and chained clones along a parametric path.
+        registry.register(ScatterObjectsTool())
+        registry.register(CreateStaircaseTool())
+        registry.register(CreateBridgeTool())
+        registry.register(CreateTerrainTool())
+        registry.register(CloneChainTool())
+        # Session-scoped named snapshots — lightweight scene version
+        # control that lives inside the session state itself. Complementary
+        # to checkpoints (persistent disk-backed revision history):
+        # snapshots are ephemeral, instant, and designed for quick undo
+        # of Agent multi-step compound operations.
+        registry.register(SnapshotSceneTool())
+        registry.register(ListSnapshotsTool())
+        registry.register(RestoreSnapshotTool())
+        registry.register(SnapshotDiffTool())
+        registry.register(DeleteSnapshotTool())
+        # Surface-detail operators (shell / bevel / inflate + cleanup) and
+        # texture / UV mapping + level-of-detail baking annotations.
+        registry.register(ShellModifierTool())
+        registry.register(BevelModifierTool())
+        registry.register(InflateModifierTool())
+        registry.register(ClearSurfaceOpsTool())
+        registry.register(UvMapTool())
+        registry.register(TextureTileTool())
+        registry.register(BakeLodTool())
+        # Workspace UX: theme toggles, undo-history browse, render presets,
+        # panel arrangements, and the matching list-* inspection tools.
+        registry.register(SetThemeTool())
+        registry.register(BrowseHistoryTool())
+        registry.register(RestoreHistoryEntryTool())
+        registry.register(ApplyRenderPresetTool())
+        registry.register(SetWorkspaceLayoutTool())
+        registry.register(ListRenderPresetsTool())
+        registry.register(ListThemesTool())
+        registry.register(ListWorkspaceLayoutsTool())
+        # Precision modeling: edge crease, bevel weight, vertex groups.
+        # These tag edges/vertices with weights that the viewport renderer
+        # reads at draw time for selective subdivision sharpness, bevel
+        # spread, and deformation targeting.
+        registry.register(SetEdgeCreaseTool())
+        registry.register(SetBevelWeightTool())
+        registry.register(ManageVertexGroupTool())
 
         # Apply the central category taxonomy to every registered tool so
         # the canonical mapping lives in one place (_TOOL_CATEGORIES above).
@@ -1977,6 +2250,181 @@ class AgentOrchestrator:
         "creation", "transform", "material", "lighting", "camera",
         "scene", "export",
     }
+
+    # ------------------------------------------------------------------
+    # Scene-context awareness — structured scene-state snapshot used by
+    # the offline reasoning flow to show awareness of the current scene
+    # and to drive proactive suggestions.
+    # ------------------------------------------------------------------
+
+    def _build_scene_context(self, scene: Scene) -> Dict[str, Any]:
+        """Analyze the current scene and return a structured context dict.
+
+        Produces a compact scene-state snapshot the Agent uses to reason
+        about what exists, what is missing, and where to focus next. The
+        dict carries object/light/camera counts, the top-3 dominant
+        material colors, a 0-100 scene-complexity score, the list of
+        missing elements, and a suggested next focus. Purely advisory —
+        never mutates the scene.
+        """
+        scene_dict = scene.to_dict()
+        objects = scene_dict.get("objects", []) or []
+        lights = scene_dict.get("lights", []) or []
+        cameras = scene_dict.get("cameras", []) or []
+
+        object_count = len(objects)
+        light_count = len(lights)
+        camera_count = len(cameras)
+
+        # Dominant material colors — tally hex strings and keep the top 3.
+        color_counts: Dict[str, int] = {}
+        for obj in objects:
+            mat = (obj.get("material") or {})
+            color = str(mat.get("color") or "#cccccc").lower()
+            color_counts[color] = color_counts.get(color, 0) + 1
+        ranked_colors = sorted(color_counts.items(), key=lambda kv: kv[1], reverse=True)
+        dominant_colors = [c for c, _ in ranked_colors[:3]]
+
+        # Geometry type diversity — distinct geometry types present.
+        geo_types = {
+            (o.get("geometry") or {}).get("type", "mesh") for o in objects
+        }
+
+        # Material diversity — distinct material colors and presets.
+        material_palette = {
+            str((o.get("material") or {}).get("color", "")).lower()
+            for o in objects
+        }
+        for o in objects:
+            preset = (o.get("material") or {}).get("preset", "")
+            if preset:
+                material_palette.add(str(preset).lower())
+
+        # Scene complexity score (0-100): combines object count, geometry
+        # diversity, material diversity, and lighting presence. Each axis
+        # contributes a capped slice so no single factor dominates.
+        obj_score = min(40, object_count * 4)
+        geo_score = min(25, len(geo_types) * 5)
+        mat_score = min(20, len(material_palette) * 4)
+        light_score = min(15, light_count * 5)
+        complexity = max(0, min(100, obj_score + geo_score + mat_score + light_score))
+
+        # Missing elements — what the scene lacks for a complete composition.
+        missing_elements: List[str] = []
+        if object_count == 0:
+            missing_elements.append("empty scene")
+        if light_count == 0:
+            missing_elements.append("no lighting")
+        if camera_count == 0:
+            missing_elements.append("no camera")
+
+        # Suggested focus — pick the most pressing gap as the next focus.
+        suggested_focus = "refine the existing composition"
+        if "empty scene" in missing_elements:
+            suggested_focus = "create initial geometry to populate the scene"
+        elif "no lighting" in missing_elements:
+            suggested_focus = "add lighting to illuminate the objects"
+        elif "no camera" in missing_elements:
+            suggested_focus = "add a camera to frame the composition"
+        elif object_count > 0 and light_count > 0 and complexity < 30:
+            suggested_focus = "enrich the scene with more detail or variation"
+
+        return {
+            "object_count": object_count,
+            "light_count": light_count,
+            "camera_count": camera_count,
+            "dominant_colors": dominant_colors,
+            "geometry_types": sorted(geo_types),
+            "complexity": complexity,
+            "missing_elements": missing_elements,
+            "suggested_focus": suggested_focus,
+        }
+
+    def _proactive_suggest(
+        self,
+        scene: Scene,
+        before_context: Dict[str, Any],
+        after_context: Dict[str, Any],
+        executed_intents: List[Any],
+    ) -> List[Dict[str, Any]]:
+        """Generate 2-3 contextual follow-up suggestions after a turn.
+
+        Combines what was just created (inferred from the executed intents)
+        with what the scene still needs (gaps surfaced by the after-context)
+        to propose concrete next steps. Each suggestion mirrors the shape
+        of the suggestion-engine output: name, description, skill_or_tool,
+        arguments, rationale.
+        """
+        suggestions: List[Dict[str, Any]] = []
+        executed_tools = {getattr(i, "tool_name", "") for i in executed_intents}
+
+        # 1. Objects were created but no lights exist — suggest lighting.
+        created = "create_object" in executed_tools or "batch_create_objects" in executed_tools
+        if created and after_context.get("light_count", 0) == 0:
+            suggestions.append({
+                "name": "Illuminate the scene",
+                "description": "Add a directional key light plus ambient fill so objects read clearly.",
+                "skill_or_tool": "add_light",
+                "arguments": {"light_type": "directional", "intensity": 1.2, "position": [5, 8, 5]},
+                "rationale": "New objects are present but unlit — adding light reveals form and material.",
+            })
+
+        # 2. Lights were added but no camera exists — suggest a camera.
+        if "add_light" in executed_tools and after_context.get("camera_count", 0) == 0:
+            suggestions.append({
+                "name": "Add a camera",
+                "description": "Frame the freshly lit composition with a perspective camera.",
+                "skill_or_tool": "add_camera",
+                "arguments": {"position": [5.0, 4.0, 7.0], "target": [0.0, 0.5, 0.0]},
+                "rationale": "Lighting was set up but the scene has no camera to capture it.",
+            })
+
+        # 3. Sparse scene with a single object — suggest duplication/arrangement.
+        if created and after_context.get("object_count", 0) <= 2:
+            suggestions.append({
+                "name": "Duplicate and arrange",
+                "description": "Create copies of the new object and arrange them in a circle or grid.",
+                "skill_or_tool": "duplicate_object",
+                "arguments": {"count": 4},
+                "rationale": "Sparse scene — duplicating and arranging builds a fuller composition quickly.",
+            })
+
+        # 4. Scene has content but no animation — suggest adding motion.
+        animated = any(getattr(o, "animation", None) for o in scene.objects)
+        if (
+            after_context.get("object_count", 0) >= 3
+            and not animated
+            and "orbit_animation" not in executed_tools
+        ):
+            suggestions.append({
+                "name": "Add motion",
+                "description": "Attach an orbit animation to a central object for visual energy.",
+                "skill_or_tool": "orbit_animation",
+                "arguments": {"radius": 3.0, "duration": 6.0, "loop": True},
+                "rationale": "Static composition — motion immediately adds life to the scene.",
+            })
+
+        # 5. High complexity — suggest self-evaluation.
+        if after_context.get("complexity", 0) >= 50:
+            suggestions.append({
+                "name": "Self-evaluate the scene",
+                "description": "Score composition, lighting, and color harmony, then get corrective steps.",
+                "skill_or_tool": "self_evaluate",
+                "arguments": {"goal": "polish the scene", "auto_fix": True},
+                "rationale": "Scene complexity is high — a structured review surfaces concrete improvements.",
+            })
+
+        # 6. Monochrome palette — suggest a curated palette.
+        if len(after_context.get("dominant_colors", [])) <= 1 and after_context.get("object_count", 0) >= 2:
+            suggestions.append({
+                "name": "Apply a harmonious palette",
+                "description": "Recolor all objects with a curated palette for visual contrast.",
+                "skill_or_tool": "randomize_palette",
+                "arguments": {"target": "all"},
+                "rationale": "Materials are tonally uniform — a palette adds contrast and cohesion.",
+            })
+
+        return suggestions[:3]
 
     def _select_tool_schemas(self, user_message: str) -> tuple:
         """Pick the tool schema subset relevant to this user message.
@@ -3549,6 +3997,13 @@ class AgentOrchestrator:
         id of the first usable alternative, or None when no model in the
         chain has a configured API key (excluding the offline default).
         The `exclude` set skips models that have already been tried.
+
+        Local providers (e.g. Ollama) get a dummy API key from ``resolve``
+        so they appear "configured" even when the daemon is not running.
+        To avoid hanging on unreachable local services, we perform a quick
+        TCP reachability probe (0.5 s timeout) before accepting a local
+        candidate. Remote providers with a real API key are accepted
+        without probing.
         """
         chain = model_router.build_fallback_chain(primary)
         skip = exclude or set()
@@ -3560,8 +4015,18 @@ class AgentOrchestrator:
             if model_router.is_generation_model(candidate):
                 continue
             resolved = model_router.resolve(candidate)
-            if resolved.get("api_key"):
-                return candidate
+            if not resolved.get("api_key"):
+                continue
+            # Quick reachability check for local providers so we do not
+            # hang retrying a daemon that is not running (e.g. Ollama).
+            base_url = resolved.get("base_url", "")
+            if _is_local_url(base_url) and not _probe_local_url(base_url):
+                logger.debug(
+                    "Skipping local provider %s at %s — not reachable",
+                    candidate, base_url,
+                )
+                continue
+            return candidate
         return None
 
     def _find_alternative_tool(
@@ -4181,13 +4646,19 @@ class AgentOrchestrator:
         scene_objects = scene_dict.get("objects", [])
         scene_lights = scene_dict.get("lights", [])
 
-        # Phase 1: Understanding
+        # Phase 1: Understanding — build a scene-context snapshot so the
+        # Agent shows awareness of the current scene state (object/light/
+        # camera counts, dominant colors, complexity, missing elements,
+        # suggested focus) before planning. The before-context is also
+        # captured here for the post-execution reflection comparison.
+        scene_context_before = self._build_scene_context(scene)
         yield AgentEvent(
             type=EventType.THINKING,
             data={
                 "phase": "understanding",
                 "content": f"Parsing user instruction: {user_message[:120]}",
                 "scene_summary": build_scene_summary(scene_dict),
+                "scene_context": scene_context_before,
             },
         )
 
@@ -4244,11 +4715,13 @@ class AgentOrchestrator:
             text = (
                 "(Offline mode) I couldn't parse that command. Try:\n"
                 "- \"create a red cube\" / \"add a blue sphere\"\n"
-                "- \"make a sunset\" / \"make it night\" / \"make it winter\"\n"
+                "- \"make a sunset\" / \"make it night\" / \"make it winter\" / \"make it dawn\"\n"
+                "- \"create an ocean\" / \"make a forest\" / \"make a cave\" / \"create a beach\"\n"
+                "- \"make it rain\" / \"underwater scene\" / \"add clouds\" / \"add falling leaves\" / \"snowfall\"\n"
+                "- \"create a city\" / \"create a crystal garden\" / \"create a flower garden\" / \"make a chess board\"\n"
+                "- \"make a castle\" / \"make a campfire\" / \"make a pool\" / \"make a staircase\" / \"make a rainbow\"\n"
                 "- \"create a living room\" / \"make a bedroom\" / \"create a kitchen scene\"\n"
-                "- \"add water\" / \"add stars to the sky\" / \"add a car\"\n"
-                "- \"make a chess board\" / \"add some furniture\"\n"
-                "- \"apply metal material to the sphere\"\n"
+                "- \"apply metal material to the sphere\" / \"add water\" / \"add stars to the sky\"\n"
                 "- \"add a point light\" / \"move the cube to [2, 0, 0]\"\n"
                 "- \"create solar system\" / \"arrange in circle\"\n"
                 "- \"hide chat panel\" / \"deselect all\" / \"disable loop\"\n"
@@ -4577,6 +5050,99 @@ class AgentOrchestrator:
                     },
                 )
 
+        # Phase 4c: Reflection — generate a natural-language summary of
+        # what was accomplished, counting successes and failures and
+        # mentioning specific objects, materials, and scene changes.
+        _success_count = sum(1 for r in offline_results if r.success)
+        _fail_count = len(offline_results) - _success_count
+        _created_names = []
+        _modified_names = []
+        _scene_changes = []
+        for i, intent in enumerate(intents):
+            r = offline_results[i] if i < len(offline_results) else None
+            if not r or not r.success:
+                continue
+            tn = intent.tool_name
+            if tn == "create_object":
+                name = intent.arguments.get("name", r.data.get("name", "object") if r.data else "object")
+                gt = intent.arguments.get("geometry_type", "object")
+                _created_names.append(f"{gt} '{name}'")
+            elif tn in ("apply_material", "apply_material_preset"):
+                target = intent.arguments.get("target", "object")
+                preset = intent.arguments.get("preset", "material")
+                _modified_names.append(f"{preset} on {target}")
+            elif tn == "add_light":
+                lt = intent.arguments.get("light_type", "light")
+                _scene_changes.append(f"added {lt} light")
+            elif tn == "set_background":
+                _scene_changes.append(f"set background to {intent.arguments.get('color', '')}")
+            elif tn == "set_scene_environment":
+                _scene_changes.append(f"applied {intent.arguments.get('preset', '')} atmosphere")
+            elif tn == "set_fog":
+                _scene_changes.append("configured fog")
+            elif tn == "create_particle_system":
+                _scene_changes.append(f"added {intent.arguments.get('target', 'particle')} particles")
+
+        _summary_parts = []
+        if _created_names:
+            _summary_parts.append("Created " + ", ".join(_created_names[:5]))
+        if _modified_names:
+            _summary_parts.append("Applied " + ", ".join(_modified_names[:5]))
+        if _scene_changes:
+            _summary_parts.append("; ".join(_scene_changes[:5]))
+        if _fail_count > 0:
+            _summary_parts.append(f"{_fail_count} operation(s) failed")
+
+        _reflection = ". ".join(_summary_parts) + "." if _summary_parts else f"Executed {len(intents)} operation(s)."
+        if _success_count == len(intents) and _fail_count == 0:
+            _reflection = "All operations succeeded. " + _reflection
+
+        # Build the after-context and compare it against the before-context
+        # captured at Phase 1 to produce a brief scene-state delta summary.
+        # This lets the Agent reflect on what concretely changed in the
+        # scene composition (new objects, new lights, complexity shift).
+        scene_context_after = self._build_scene_context(scene)
+        _delta_parts: List[str] = []
+        _obj_delta = scene_context_after["object_count"] - scene_context_before["object_count"]
+        if _obj_delta != 0:
+            _delta_parts.append(f"objects {scene_context_before['object_count']} -> {scene_context_after['object_count']}")
+        _light_delta = scene_context_after["light_count"] - scene_context_before["light_count"]
+        if _light_delta != 0:
+            _delta_parts.append(f"lights {scene_context_before['light_count']} -> {scene_context_after['light_count']}")
+        _cam_delta = scene_context_after["camera_count"] - scene_context_before["camera_count"]
+        if _cam_delta != 0:
+            _delta_parts.append(f"cameras {scene_context_before['camera_count']} -> {scene_context_after['camera_count']}")
+        _complexity_delta = scene_context_after["complexity"] - scene_context_before["complexity"]
+        if _complexity_delta != 0:
+            _delta_parts.append(f"complexity {scene_context_before['complexity']} -> {scene_context_after['complexity']}")
+        _context_delta = ", ".join(_delta_parts)
+
+        if _context_delta:
+            _reflection = _reflection + " Scene delta: " + _context_delta + "."
+
+        # Generate proactive follow-up suggestions based on what was just
+        # created and what the scene still needs.
+        _proactive = self._proactive_suggest(
+            scene, scene_context_before, scene_context_after, intents
+        )
+
+        yield AgentEvent(
+            type=EventType.THINKING,
+            data={
+                "phase": "reflection",
+                "content": _reflection,
+                "success_count": _success_count,
+                "fail_count": _fail_count,
+                "created_objects": _created_names,
+                "modified_objects": _modified_names,
+                "scene_changes": _scene_changes,
+                "context_before": scene_context_before,
+                "context_after": scene_context_after,
+                "context_delta": _context_delta,
+                "proactive_suggestions": _proactive,
+            },
+        )
+
         # Phase 5: Complete
         elapsed = round(time.time() - start_ts, 2)
         yield AgentEvent(
@@ -4589,10 +5155,18 @@ class AgentOrchestrator:
             },
         )
 
-        full_text = "(Offline mode) " + "\n".join(text_parts)
+        full_text = _reflection + "\n\n" + "\n".join(text_parts)
         yield AgentEvent(type=EventType.TEXT_DELTA, data={"content": full_text, "iteration": 0})
         memory = self.get_memory(session_id)
         memory.add_assistant(full_text)
+        # Merge proactive suggestions (contextual to what was just done)
+        # with the generic scene suggestions. Proactive entries come first so
+        # the most contextually relevant next step is surfaced on top.
+        _scene_suggestions = await self._scene_suggestions(scene)
+        _merged_suggestions = list(_proactive) + [
+            s for s in _scene_suggestions
+            if s.get("name") not in {p.get("name") for p in _proactive}
+        ]
         yield AgentEvent(
             type=EventType.DONE,
             data={
@@ -4605,7 +5179,8 @@ class AgentOrchestrator:
                     "tool_calls": len(intents),
                     "elapsed": elapsed,
                 },
-                "suggestions": await self._scene_suggestions(scene),
+                "suggestions": _merged_suggestions[:5],
+                "proactive_suggestions": _proactive,
                 "project_goal": memory.project_goal,
             },
         )
