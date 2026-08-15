@@ -6,6 +6,7 @@ import {
   Box,
   Camera,
   Command,
+  Copy,
   CornerDownLeft,
   Frame,
   Gauge,
@@ -14,12 +15,15 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Play,
+  Route,
   RotateCcw,
   RotateCw,
+  Save,
   Search,
   Sparkles,
   Tag,
   Terminal,
+  Trash2,
   Wand2,
   HelpCircle,
   type LucideIcon,
@@ -130,6 +134,14 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
   const chatPanelVisible = useEditor((s) => s.chatPanelVisible)
   const rightPanelVisible = useEditor((s) => s.rightPanelVisible)
   const clearSelection = useScene((s) => s.clearSelection)
+  const duplicateObject = useScene((s) => s.duplicateObject)
+  const removeObject = useScene((s) => s.removeObject)
+  const selectAll = useScene((s) => s.selectAll)
+  const transformMode = useEditor((s) => s.transformMode)
+  const viewportShading = useEditor((s) => s.viewportShading)
+  const setViewportShading = useEditor((s) => s.setViewportShading)
+  const planRunMode = useChat((s) => s.planRunMode)
+  const setPlanRunMode = useChat((s) => s.setPlanRunMode)
 
   // Lazily fetch catalogs when the palette first opens
   useEffect(() => {
@@ -246,6 +258,157 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
       iconClass: 'text-fg-secondary',
       keywords: 'translate move gizmo transform',
       run: () => setTransformMode('translate'),
+    })
+    items.push({
+      id: 'action-rotate-mode',
+      title: 'Rotate Mode',
+      subtitle: `Switch the transform gizmo to rotate (current: ${transformMode})`,
+      group: 'Actions',
+      icon: RotateCw,
+      iconClass: 'text-fg-secondary',
+      keywords: 'rotate gizmo transform orientation',
+      run: () => setTransformMode('rotate'),
+    })
+    items.push({
+      id: 'action-scale-mode',
+      title: 'Scale Mode',
+      subtitle: 'Switch the transform gizmo to scale',
+      group: 'Actions',
+      icon: Maximize2,
+      iconClass: 'text-fg-secondary',
+      keywords: 'scale resize gizmo transform',
+      run: () => setTransformMode('scale'),
+    })
+    items.push({
+      id: 'action-cycle-shading',
+      title: 'Cycle Viewport Shading',
+      subtitle: `Switch shading mode (current: ${viewportShading})`,
+      group: 'Actions',
+      icon: Layers,
+      iconClass: 'text-amber-400',
+      keywords: 'shading wireframe solid material rendered viewport display',
+      run: () => {
+        const order: Array<'wireframe' | 'solid' | 'material' | 'rendered'> = [
+          'wireframe', 'solid', 'material', 'rendered',
+        ]
+        const idx = order.indexOf(viewportShading)
+        setViewportShading(order[(idx + 1) % order.length])
+      },
+    })
+    items.push({
+      id: 'action-duplicate',
+      title: 'Duplicate Selection',
+      subtitle: 'Clone the selected object in place',
+      group: 'Actions',
+      icon: Copy,
+      iconClass: 'text-accent-emerald',
+      keywords: 'duplicate clone copy selection object',
+      run: () => {
+        if (selectedId) duplicateObject(selectedId)
+      },
+    })
+    items.push({
+      id: 'action-delete',
+      title: 'Delete Selection',
+      subtitle: 'Remove the selected object from the scene',
+      group: 'Actions',
+      icon: Trash2,
+      iconClass: 'text-rose-400',
+      keywords: 'delete remove trash selection object',
+      run: () => {
+        if (selectedId) removeObject(selectedId)
+      },
+    })
+    items.push({
+      id: 'action-select-all',
+      title: 'Select All',
+      subtitle: 'Select every object in the scene',
+      group: 'Actions',
+      icon: Layers,
+      iconClass: 'text-fg-secondary',
+      keywords: 'select all objects everything',
+      run: () => selectAll(),
+    })
+    items.push({
+      id: 'action-plan-run-toggle',
+      title: 'Toggle Plan & Run Mode',
+      subtitle: `Plan-then-execute SSE mode (current: ${planRunMode ? 'on' : 'off'})`,
+      group: 'Actions',
+      icon: Route,
+      iconClass: 'text-accent-cyan',
+      keywords: 'plan run mode sse execute step preview',
+      run: () => setPlanRunMode(!planRunMode),
+    })
+    items.push({
+      id: 'action-save-snapshot',
+      title: 'Save Snapshot',
+      subtitle: 'Capture the current scene as a labeled revision',
+      group: 'Actions',
+      icon: Save,
+      iconClass: 'text-accent-purple',
+      keywords: 'snapshot checkpoint save revision version history',
+      run: (s) => s('save a snapshot of the current scene'),
+    })
+    items.push({
+      id: 'action-export-scene',
+      title: 'Export Scene',
+      subtitle: 'Ship the scene as Three.js, React+R3F, or HTML',
+      group: 'Actions',
+      icon: Wand2,
+      iconClass: 'text-accent-emerald',
+      keywords: 'export code three.js react r3f html download',
+      run: (s) => s('export the current scene as three.js code'),
+    })
+    items.push({
+      id: 'action-reset-scene',
+      title: 'Reset Scene',
+      subtitle: 'Clear all objects and start fresh',
+      group: 'Actions',
+      icon: RotateCcw,
+      iconClass: 'text-rose-400',
+      keywords: 'reset clear scene new empty fresh start',
+      run: (s) => s('reset the scene'),
+    })
+    // Camera view presets — standard orthographic / perspective angles.
+    items.push({
+      id: 'action-view-top',
+      title: 'Top View',
+      subtitle: 'Snap the camera to a top-down orthographic angle',
+      group: 'Actions',
+      icon: Camera,
+      iconClass: 'text-fg-secondary',
+      keywords: 'top view camera orthographic俯视',
+      run: () => setViewportCamera([0, 20, 0.01], [0, 0, 0], true),
+    })
+    items.push({
+      id: 'action-view-front',
+      title: 'Front View',
+      subtitle: 'Snap the camera to a front elevation angle',
+      group: 'Actions',
+      icon: Camera,
+      iconClass: 'text-fg-secondary',
+      keywords: 'front view camera elevation正视图',
+      run: () => setViewportCamera([0, 2, 16], [0, 1, 0], true),
+    })
+    items.push({
+      id: 'action-view-side',
+      title: 'Side View',
+      subtitle: 'Snap the camera to a side elevation angle',
+      group: 'Actions',
+      icon: Camera,
+      iconClass: 'text-fg-secondary',
+      keywords: 'side view camera elevation侧视图',
+      run: () => setViewportCamera([16, 2, 0], [0, 1, 0], true),
+    })
+    items.push({
+      id: 'action-view-perspective',
+      title: 'Perspective View',
+      subtitle: 'Snap the camera to a default 3/4 perspective angle',
+      group: 'Actions',
+      icon: Camera,
+      iconClass: 'text-fg-secondary',
+      keywords: 'perspective view camera 3/4 default透视',
+      run: () => setViewportCamera([8, 6, 10], [0, 1, 0], true),
     })
 
     // Phase 4: extended quick actions.
@@ -405,7 +568,7 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     }
 
     return items
-  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode, scene, selectedId, addAnnotation, requestCapture, renderQuality, setRenderQuality, editorMode, setEditorMode, setMinimapEnabled, minimapEnabled, setPanelVisibility, chatPanelVisible, rightPanelVisible, clearSelection, onReopenOnboarding])
+  }, [tools, skills, undo, redo, gridVisible, setGrid, focusSelected, setViewportCamera, setTransformMode, scene, selectedId, addAnnotation, requestCapture, renderQuality, setRenderQuality, editorMode, setEditorMode, setMinimapEnabled, minimapEnabled, setPanelVisibility, chatPanelVisible, rightPanelVisible, clearSelection, onReopenOnboarding, duplicateObject, removeObject, selectAll, transformMode, viewportShading, setViewportShading, planRunMode, setPlanRunMode])
 
   // Filter + rank
   const filtered = useMemo(() => {
