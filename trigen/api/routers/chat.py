@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -70,6 +71,21 @@ def _resolve_image_tags(
 
     clean = _IMAGE_TAG_RE.sub(_replace, message).strip()
     return clean, images
+
+
+def _task_done_callback(task: "asyncio.Task") -> None:
+    """Surface exceptions from fire-and-forget stream tasks.
+
+    The ``_stream`` coroutine already catches and reports its own errors
+    over the socket, but if it ever raises before entering its try/except
+    (or raises something other than CancelledError after cancellation),
+    asyncio would otherwise log an "exception was never retrieved" warning.
+    Calling ``exception()`` here marks the exception as retrieved.
+    """
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
 
 
 @router.websocket("/chat/ws")
@@ -168,7 +184,20 @@ async def chat_ws(websocket: WebSocket) -> None:
 
             await session_svc.log_user_message(session_id, message)
             current_session = session_id
+            # Cancel any still-running turn so two concurrent turns cannot
+            # interleave their events on the same socket. The cancelled turn
+            # emits a clean interrupted ``done`` via the CancelledError path
+            # in ``_stream``.
+            if stream_task is not None and not stream_task.done():
+                stream_task.cancel()
+                try:
+                    await stream_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             stream_task = asyncio.create_task(_stream(message, session_id, model))
+            # Surface any unretrieved exception from the fire-and-forget task
+            # so a silent failure in ``_stream`` does not get swallowed.
+            stream_task.add_done_callback(_task_done_callback)
     except WebSocketDisconnect:
         # If the client disconnects mid-turn, stop the running task.
         if stream_task is not None and not stream_task.done():
@@ -197,11 +226,18 @@ async def chat_rest(req: ChatRequest) -> JSONResponse:
 
     final_content = ""  # Final reply content
     final_scene: Dict[str, Any] = {}  # Final scene data
+    collected_tool_calls: List[Dict[str, Any]] = []  # Tool calls this turn
     try:
         async for event in agent.chat_stream(
             clean_message, req.session_id, model=req.model, images=images
         ):
-            if event.type.value == "done":
+            if event.type.value == "tool_call":
+                collected_tool_calls.append({
+                    "name": event.data.get("name", ""),
+                    "arguments": event.data.get("arguments", {}),
+                    "status": event.data.get("status", ""),
+                })
+            elif event.type.value == "done":
                 final_content = event.data.get("content", "")
                 final_scene = event.data.get("scene", {})
                 await session_svc.log_assistant_message(req.session_id, final_content)
@@ -217,6 +253,7 @@ async def chat_rest(req: ChatRequest) -> JSONResponse:
             "content": final_content,
             "session_id": req.session_id,
             "scene": final_scene,
+            "tool_calls": collected_tool_calls,
         }
     )
 
