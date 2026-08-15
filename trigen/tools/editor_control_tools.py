@@ -474,3 +474,121 @@ class StopCameraFlythroughTool(ToolBase):
             message="Camera flythrough stopped",
             deltas=[SceneDelta(action="editor_stop_camera_flythrough", payload={})],
         )
+
+
+_TOGGLE_PANEL_PARAMS = {
+    "type": "object",
+    "properties": {
+        "panel": {
+            "type": "string",
+            "enum": ["chat", "right"],
+            "description": "Which panel to toggle: 'chat' (left conversation panel) or 'right' (side workspace panel).",
+        },
+        "visible": {
+            "type": "boolean",
+            "description": "Optional explicit visibility. Omit to toggle the current state.",
+        },
+    },
+    "required": ["panel"],
+}
+
+
+class TogglePanelTool(ToolBase):
+    """Show, hide, or toggle the left chat panel or the right workspace panel.
+
+    Lets the Agent control layout focus from the conversation: hide the chat
+    panel to give the canvas full width during a cinematic preview, or expand
+    the right panel to surface a specific workspace tab after switching it.
+    """
+
+    name = "toggle_panel"
+    description = (
+        "Show, hide, or toggle the left chat panel ('chat') or the right "
+        "workspace panel ('right'). Omit 'visible' to toggle the current state."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _TOGGLE_PANEL_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        panel = str(arguments.get("panel", "")).lower()
+        if panel not in ("chat", "right"):
+            return ToolResult(
+                success=False,
+                message="panel must be 'chat' or 'right'",
+            )
+        visible = arguments.get("visible")
+        payload: Dict[str, Any] = {"panel": panel}
+        if visible is not None:
+            payload["visible"] = bool(visible)
+            action = "show" if visible else "hide"
+        else:
+            action = "toggle"
+        label = "left chat panel" if panel == "chat" else "right workspace panel"
+        return ToolResult(
+            success=True,
+            message=f"Panel '{label}' {action} requested",
+            deltas=[SceneDelta(action="editor_toggle_panel", payload=payload)],
+            data=payload,
+        )
+
+
+class DeselectAllTool(ToolBase):
+    """Clear the current object/light selection.
+
+    Mirrors the Ctrl+Shift+A keyboard shortcut so the Agent can drop an
+    active selection before applying a batch operation or after finishing
+    a focused editing pass.
+    """
+
+    name = "deselect_all"
+    description = "Clear the current selection (objects and lights)."
+
+    def schema(self) -> Dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            success=True,
+            message="Selection cleared",
+            deltas=[SceneDelta(action="editor_deselect_all", payload={})],
+        )
+
+
+_SET_ANIMATION_LOOP_PARAMS = {
+    "type": "object",
+    "properties": {
+        "enabled": {
+            "type": "boolean",
+            "description": "True to loop playback back to the start when reaching the end; false to stop at the end.",
+        },
+    },
+    "required": ["enabled"],
+}
+
+
+class SetAnimationLoopTool(ToolBase):
+    """Set whether animation playback loops or stops at the end of the timeline.
+
+    When loop is disabled, playback stops at the timeline end and the
+    playhead rests there. When enabled (default), playback wraps back to
+    zero and continues indefinitely.
+    """
+
+    name = "set_animation_loop"
+    description = (
+        "Set whether animation playback loops (wraps back to start) or stops "
+        "at the end of the timeline."
+    )
+
+    def schema(self) -> Dict[str, Any]:
+        return _SET_ANIMATION_LOOP_PARAMS
+
+    async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
+        enabled = bool(arguments.get("enabled", True))
+        return ToolResult(
+            success=True,
+            message=f"Animation loop {'enabled' if enabled else 'disabled'}",
+            deltas=[SceneDelta(action="editor_set_loop", payload={"enabled": enabled})],
+            data={"enabled": enabled},
+        )
