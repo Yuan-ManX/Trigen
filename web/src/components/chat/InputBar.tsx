@@ -407,6 +407,7 @@ export function InputBar() {
   const send = useChat((s) => s.send)
   const stop = useChat((s) => s.stop)
   const isResponding = useChat((s) => s.isResponding)
+  const planRunMode = useChat((s) => s.planRunMode)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** Highlighted row index in the slash-command dropdown. */
@@ -763,7 +764,13 @@ export function InputBar() {
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
-          placeholder={isResponding ? 'Trigen is creating…' : 'Describe the 3D scene you want…'}
+          placeholder={
+            isResponding
+              ? 'Trigen is creating…'
+              : planRunMode
+                ? 'Plan & Run: describe a goal — Trigen will plan and execute step by step…'
+                : 'Describe the 3D scene you want…'
+          }
           disabled={isResponding}
           className="w-full resize-none bg-transparent text-sm text-fg-primary placeholder:text-fg-muted outline-none leading-relaxed disabled:opacity-60 min-h-[42px]"
         />
