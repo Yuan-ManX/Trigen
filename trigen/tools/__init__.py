@@ -21,6 +21,8 @@ from trigen.tools.scene_tools import (
     GroupObjectsTool,
     SetBackgroundTool,
     SetFogTool,
+    SetSceneEnvironmentTool,
+    SetGlobalGravityTool,
     UngroupObjectsTool,
 )
 from trigen.tools.editor_tools import (
@@ -48,6 +50,9 @@ from trigen.tools.editor_control_tools import (
     StopCameraFlythroughTool,
     ToggleGridSnappingTool,
     UndoSceneTool,
+    TogglePanelTool,
+    DeselectAllTool,
+    SetAnimationLoopTool,
 )
 from trigen.tools.exporter import ExportSceneTool
 from trigen.tools.camera_tools import AddCameraTool, ModifyCameraTool, SetViewTool
@@ -253,6 +258,78 @@ from trigen.tools.mesh_quality_tools import (
     LODChainTool,
     RepairMeshTool,
 )
+from trigen.tools.viewport_tools import (
+    SetViewportShadingTool,
+    CreateCurveTool,
+    BatchCreateObjectsTool,
+    SetMaterialTextureTool,
+    SetViewportBackgroundTool,
+)
+from trigen.tools.deformation_tools import (
+    NoiseDeformTool,
+    BendModifierTool,
+    TwistModifierTool,
+    TaperModifierTool,
+    WaveModifierTool,
+    ClearModifiersTool,
+)
+from trigen.tools.postfx_tools import (
+    SetBloomTool,
+    SetToneMappingTool,
+    SetColorGradingTool,
+    SetVignetteTool,
+    SetFilmGrainTool,
+    SetDOFTool,
+    SetChromaticAberrationTool,
+    ResetPostfxTool,
+)
+from trigen.tools.pattern_generators import (
+    HexGridPatternTool,
+    FibonacciLatticeTool,
+    MazeGeneratorTool,
+    HoneycombTrussTool,
+    KnotworkLatticeTool,
+)
+from trigen.tools.snapshot_tools import (
+    SnapshotSceneTool,
+    ListSnapshotsTool,
+    RestoreSnapshotTool,
+    SnapshotDiffTool,
+    DeleteSnapshotTool,
+)
+from trigen.tools.surface_detail_tools import (
+    ShellModifierTool,
+    BevelModifierTool,
+    InflateModifierTool,
+    ClearSurfaceOpsTool,
+    UvMapTool,
+    TextureTileTool,
+    BakeLodTool,
+)
+from trigen.tools.workspace_ux_tools import (
+    SetThemeTool,
+    BrowseHistoryTool,
+    RestoreHistoryEntryTool,
+    ApplyRenderPresetTool,
+    SetWorkspaceLayoutTool,
+    ListRenderPresetsTool,
+    ListThemesTool,
+    ListWorkspaceLayoutsTool,
+)
+from trigen.tools.checkpoint_tools import (
+    CheckpointDiffTool,
+    CheckpointSceneTool,
+    ListCheckpointsTool,
+    RestoreCheckpointTool,
+)
+from trigen.tools.img2scene_tool import ImageToSceneTool
+from trigen.tools.scene_analyzer import SceneAnalyzerTool
+from trigen.tools.code_exporter import CodeExporterTool
+from trigen.tools.precision_modeling_tools import (
+    SetEdgeCreaseTool,
+    SetBevelWeightTool,
+    ManageVertexGroupTool,
+)
 
 __all__ = [
     "ToolBase",
@@ -285,6 +362,8 @@ __all__ = [
     "UngroupObjectsTool",
     "SetBackgroundTool",
     "SetFogTool",
+    "SetSceneEnvironmentTool",
+    "SetGlobalGravityTool",
     "ArrangeLayoutTool",
     "AssignToGroupTool",
     "RenameGroupTool",
@@ -352,6 +431,9 @@ __all__ = [
     "ControlRadialMenuTool",
     "ClearMeasurementTool",
     "StopCameraFlythroughTool",
+    "TogglePanelTool",
+    "DeselectAllTool",
+    "SetAnimationLoopTool",
     # Export
     "ExportSceneTool",
     # Multimodal generation
@@ -404,6 +486,10 @@ __all__ = [
     "AddAnnotationTool",
     "RemoveAnnotationTool",
     "ConfigureShortcutsTool",
+    # Precision modeling (edge crease, bevel weight, vertex groups)
+    "SetEdgeCreaseTool",
+    "SetBevelWeightTool",
+    "ManageVertexGroupTool",
     # Scene workflow intelligence (query, style, batch transform, stats,
     # annotation listing, cinematic camera flythrough)
     "QuerySceneTool",
@@ -489,4 +575,65 @@ __all__ = [
     "PlaySceneTransitionTool",
     "ListSceneTransitionsTool",
     "RemoveSceneTransitionTool",
+    # Viewport shading + curve creation + batch creation + texture mapping
+    "SetViewportShadingTool",
+    "CreateCurveTool",
+    "BatchCreateObjectsTool",
+    "SetMaterialTextureTool",
+    "SetViewportBackgroundTool",
+    # Non-destructive geometric modifiers
+    "NoiseDeformTool",
+    "BendModifierTool",
+    "TwistModifierTool",
+    "TaperModifierTool",
+    "WaveModifierTool",
+    "ClearModifiersTool",
+    # Viewport post-processing effects pipeline
+    "SetBloomTool",
+    "SetToneMappingTool",
+    "SetColorGradingTool",
+    "SetVignetteTool",
+    "SetFilmGrainTool",
+    "SetDOFTool",
+    "SetChromaticAberrationTool",
+    "ResetPostfxTool",
+    # Advanced spatial pattern generators
+    "HexGridPatternTool",
+    "FibonacciLatticeTool",
+    "MazeGeneratorTool",
+    "HoneycombTrussTool",
+    "KnotworkLatticeTool",
+    # Scene snapshot / named version control
+    "SnapshotSceneTool",
+    "ListSnapshotsTool",
+    "RestoreSnapshotTool",
+    "SnapshotDiffTool",
+    "DeleteSnapshotTool",
+    # Persistent disk checkpoints (revision history)
+    "CheckpointSceneTool",
+    "ListCheckpointsTool",
+    "RestoreCheckpointTool",
+    "CheckpointDiffTool",
+    # Extras: image→scene reconstruction, scene analysis, code export
+    "ImageToSceneTool",
+    "SceneAnalyzerTool",
+    "CodeExporterTool",
+    # Surface-detail operators — non-destructive shell/bevel/inflate
+    "ShellModifierTool",
+    "BevelModifierTool",
+    "InflateModifierTool",
+    "ClearSurfaceOpsTool",
+    # UV/texture mapping + LOD baking
+    "UvMapTool",
+    "TextureTileTool",
+    "BakeLodTool",
+    # Workspace UX — themes, history browse, render presets, layouts
+    "SetThemeTool",
+    "BrowseHistoryTool",
+    "RestoreHistoryEntryTool",
+    "ApplyRenderPresetTool",
+    "SetWorkspaceLayoutTool",
+    "ListRenderPresetsTool",
+    "ListThemesTool",
+    "ListWorkspaceLayoutsTool",
 ]
