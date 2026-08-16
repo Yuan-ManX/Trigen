@@ -49,6 +49,11 @@ interface CommandItem {
   icon: LucideIcon
   iconClass: string
   keywords: string
+  /** When true, the item is visually dimmed and does not respond to clicks.
+   *  A badge explains the reason (e.g. "no selection"). */
+  disabled?: boolean
+  /** Short explanation shown as a tooltip / inline badge when ``disabled``. */
+  disabledReason?: string
   /** Run the command. Receives a sender that posts a chat message. */
   run: (send: (text: string) => void) => void
 }
@@ -219,6 +224,9 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     }
 
     // Quick editor actions
+    const hasObjects = scene.objects.length > 0
+    const selectionEmpty = !selectedId
+
     items.push({
       id: 'action-undo',
       title: 'Undo',
@@ -303,6 +311,8 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
       icon: Copy,
       iconClass: 'text-accent-emerald',
       keywords: 'duplicate clone copy selection object',
+      disabled: selectionEmpty,
+      disabledReason: selectionEmpty ? 'Select an object first' : undefined,
       run: () => {
         if (selectedId) duplicateObject(selectedId)
       },
@@ -315,6 +325,8 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
       icon: Trash2,
       iconClass: 'text-rose-400',
       keywords: 'delete remove trash selection object',
+      disabled: selectionEmpty,
+      disabledReason: selectionEmpty ? 'Select an object first' : undefined,
       run: () => {
         if (selectedId) removeObject(selectedId)
       },
@@ -322,11 +334,13 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     items.push({
       id: 'action-select-all',
       title: 'Select All',
-      subtitle: 'Select every object in the scene',
+      subtitle: hasObjects ? 'Select every object in the scene' : 'Scene is empty — nothing to select',
       group: 'Actions',
       icon: Layers,
       iconClass: 'text-fg-secondary',
       keywords: 'select all objects everything',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: () => selectAll(),
     })
     items.push({
@@ -342,31 +356,37 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     items.push({
       id: 'action-save-snapshot',
       title: 'Save Snapshot',
-      subtitle: 'Capture the current scene as a labeled revision',
+      subtitle: hasObjects ? 'Capture the current scene as a labeled revision' : 'Empty scene — nothing to snapshot yet',
       group: 'Actions',
       icon: Save,
       iconClass: 'text-accent-purple',
       keywords: 'snapshot checkpoint save revision version history',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: (s) => s('save a snapshot of the current scene'),
     })
     items.push({
       id: 'action-export-scene',
       title: 'Export Scene',
-      subtitle: 'Ship the scene as Three.js, React+R3F, or HTML',
+      subtitle: hasObjects ? 'Ship the scene as Three.js, React+R3F, or HTML' : 'Add an object first, then export',
       group: 'Actions',
       icon: Wand2,
       iconClass: 'text-accent-emerald',
       keywords: 'export code three.js react r3f html download',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: (s) => s('export the current scene as three.js code'),
     })
     items.push({
       id: 'action-reset-scene',
       title: 'Reset Scene',
-      subtitle: 'Clear all objects and start fresh',
+      subtitle: hasObjects ? 'Clear all objects and start fresh' : 'Scene is already empty',
       group: 'Actions',
       icon: RotateCcw,
       iconClass: 'text-rose-400',
       keywords: 'reset clear scene new empty fresh start',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: (s) => s('reset the scene'),
     })
     // Camera view presets — standard orthographic / perspective angles.
@@ -415,11 +435,15 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     items.push({
       id: 'action-add-annotation',
       title: 'Add Annotation',
-      subtitle: 'Pin a labeled annotation on the selected object',
+      subtitle: hasObjects
+        ? 'Pin a labeled annotation on the selected object'
+        : 'Empty scene — create an object first, then annotate',
       group: 'Actions',
       icon: Tag,
       iconClass: 'text-accent-emerald',
       keywords: 'annotation label note pin tag',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: () => {
         const target = scene.objects.find((o) => o.id === selectedId) ?? null
         const id = `note-${Date.now().toString(36)}`
@@ -475,11 +499,13 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     items.push({
       id: 'action-frame-all',
       title: 'Frame All',
-      subtitle: 'Fit the entire scene in the viewport',
+      subtitle: hasObjects ? 'Fit the entire scene in the viewport' : 'Scene is empty — nothing to frame',
       group: 'Actions',
       icon: Maximize2,
       iconClass: 'text-fg-secondary',
       keywords: 'frame fit all scene camera viewport',
+      disabled: !hasObjects,
+      disabledReason: hasObjects ? undefined : 'Scene is empty',
       run: () => {
         const objs = scene.objects
         if (objs.length === 0) return
@@ -501,11 +527,13 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     items.push({
       id: 'action-focus-selection',
       title: 'Focus Selection',
-      subtitle: 'Frame the selected object in the viewport',
+      subtitle: selectionEmpty ? 'No object selected' : 'Frame the selected object in the viewport',
       group: 'Actions',
       icon: Frame,
       iconClass: 'text-fg-secondary',
       keywords: 'focus frame selection camera fit',
+      disabled: selectionEmpty,
+      disabledReason: selectionEmpty ? 'Select an object first' : undefined,
       run: () => {
         const sel = focusSelected()
         if (sel) {
@@ -603,7 +631,7 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const picked = filtered[activeIndex]
-      if (picked) {
+      if (picked && !picked.disabled) {
         picked.run(send)
         onClose()
       }
@@ -701,31 +729,44 @@ export function CommandPalette({ open, onClose, onReopenOnboarding }: CommandPal
                         const idx = flatOrdered.findIndex((x) => x.id === item.id)
                         const active = idx === activeIndex
                         const Icon = item.icon
+                        const isDisabled = Boolean(item.disabled)
                         return (
                           <button
                             key={item.id}
                             data-idx={idx}
-                            onMouseMove={() => setActiveIndex(idx)}
+                            data-disabled={isDisabled ? 'true' : undefined}
+                            onMouseMove={() => !isDisabled && setActiveIndex(idx)}
                             onClick={() => {
+                              if (isDisabled) return
                               item.run(send)
                               onClose()
                             }}
+                            title={isDisabled ? item.disabledReason || 'Not available right now' : item.subtitle}
                             className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${
                               active
-                                ? 'bg-accent-cyan/10 border-l-2 border-accent-cyan'
-                                : 'border-l-2 border-transparent hover:bg-bg-hover'
-                            }`}
+                                ? isDisabled
+                                  ? 'bg-fg-muted/5 border-l-2 border-fg-muted/20'
+                                  : 'bg-accent-cyan/10 border-l-2 border-accent-cyan'
+                                : `border-l-2 border-transparent ${isDisabled ? '' : 'hover:bg-bg-hover'}`
+                            } ${isDisabled ? 'opacity-50 cursor-not-allowed select-none' : 'cursor-pointer'}`}
                           >
-                            <Icon size={15} className={`${item.iconClass} shrink-0`} />
+                            <Icon size={15} className={`${item.iconClass} shrink-0 ${isDisabled ? 'opacity-70' : ''}`} />
                             <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium text-fg-primary truncate">
-                                {item.title}
+                              <div className="flex items-center gap-2">
+                                <div className={`text-xs font-medium truncate ${isDisabled ? 'text-fg-muted' : 'text-fg-primary'}`}>
+                                  {item.title}
+                                </div>
+                                {isDisabled && item.disabledReason && (
+                                  <span className="shrink-0 px-1.5 h-4 inline-flex items-center rounded border border-fg-muted/30 bg-bg-elevated/50 text-[9px] font-medium text-fg-muted whitespace-nowrap">
+                                    {item.disabledReason}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[10px] text-fg-muted truncate">
                                 {item.subtitle}
                               </div>
                             </div>
-                            {active && (
+                            {active && !isDisabled && (
                               <CornerDownLeft
                                 size={11}
                                 className="text-fg-muted shrink-0"
