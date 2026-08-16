@@ -576,12 +576,12 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
           {call.pending ? (
             <span className="flex items-center gap-1 text-fg-secondary">
               <Loader2 size={11} className="animate-spin" />
-              Running
+              Running…
             </span>
           ) : call.result?.success ? (
             <span className="flex items-center gap-1 text-emerald-400">
               <CheckCircle2 size={11} />
-              Done
+              Success
             </span>
           ) : (
             <span className="flex items-center gap-1 text-rose-400">
