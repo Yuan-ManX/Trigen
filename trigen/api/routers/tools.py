@@ -67,6 +67,51 @@ async def list_tool_categories() -> Dict[str, Any]:
     }
 
 
+@router.get("/tools/search", response_model=ToolsResponse)
+async def search_tools(q: str) -> ToolsResponse:
+    """Search tools by name, description, or category.
+
+    Performs a case-insensitive substring match against each tool's name,
+    description, and category, returning the matching tool schemas. When
+    ``q`` is empty, every tool is returned (equivalent to ``GET /tools``).
+    Useful for Command Palette / quick-action lookups where the frontend
+    needs to filter the catalog by a free-text query.
+    """
+    agent = AgentService.get()
+    query = (q or "").strip().lower()
+    raw = agent.list_tools()
+    if not query:
+        tools = [
+            ToolSchema(
+                name=t.get("name", ""),
+                description=t.get("description", ""),
+                parameters=t.get("parameters", {}),
+                category=t.get("category", "general"),
+                requires_approval=bool(t.get("requires_approval", False)),
+            )
+            for t in raw
+        ]
+        return ToolsResponse(tools=tools, count=len(tools))
+    matched = []
+    for t in raw:
+        name = str(t.get("name", "")).lower()
+        description = str(t.get("description", "")).lower()
+        category = str(t.get("category", "general")).lower()
+        if query in name or query in description or query in category:
+            matched.append(t)
+    tools = [
+        ToolSchema(
+            name=t.get("name", ""),
+            description=t.get("description", ""),
+            parameters=t.get("parameters", {}),
+            category=t.get("category", "general"),
+            requires_approval=bool(t.get("requires_approval", False)),
+        )
+        for t in matched
+    ]
+    return ToolsResponse(tools=tools, count=len(tools))
+
+
 @router.get("/presets", response_model=PresetsResponse)
 async def list_presets() -> PresetsResponse:
     """List available geometry, material, and light presets."""
@@ -128,6 +173,108 @@ _TOOL_PRESETS: Dict[str, Dict[str, Any]] = {
         "category": "intelligence",
         "strategies": ["majority", "best_of_3", "first_success"],
         "defaults": {"strategy": "majority", "max_models": 3},
+    },
+    "set_bloom": {
+        "label": "Bloom Effect",
+        "category": "viewport",
+        "presets": {
+            "subtle": {"strength": 0.4, "threshold": 0.95, "radius": 0.3},
+            "cinematic": {"strength": 0.85, "threshold": 0.9, "radius": 0.5},
+            "neon": {"strength": 1.6, "threshold": 0.6, "radius": 0.7},
+            "dream": {"strength": 1.2, "threshold": 0.5, "radius": 0.9},
+        },
+        "defaults": {"enabled": True, "strength": 0.85, "threshold": 0.9, "radius": 0.5},
+    },
+    "set_color_grading": {
+        "label": "Color Grading",
+        "category": "viewport",
+        "presets": {
+            "warm_sunset": {"temperature": 0.6, "tint": -0.1, "saturation": 1.1, "contrast": 1.05},
+            "cool_night": {"temperature": -0.5, "tint": 0.1, "saturation": 0.9, "contrast": 1.1},
+            "cinematic_teal_orange": {"temperature": 0.3, "saturation": 1.15, "contrast": 1.15},
+            "noir": {"saturation": 0.0, "contrast": 1.3, "temperature": -0.2},
+            "vintage_film": {"temperature": 0.4, "saturation": 0.85, "contrast": 0.95},
+        },
+        "defaults": {"enabled": True, "temperature": 0.0, "tint": 0.0, "contrast": 1.0, "saturation": 1.0},
+    },
+    "set_vignette": {
+        "label": "Vignette",
+        "category": "viewport",
+        "presets": {
+            "subtle": {"strength": 0.25, "radius": 0.6, "softness": 0.7},
+            "cinematic": {"strength": 0.45, "radius": 0.45, "softness": 0.6},
+            "portrait": {"strength": 0.6, "radius": 0.35, "softness": 0.5},
+        },
+        "defaults": {"enabled": True, "strength": 0.4, "radius": 0.5, "softness": 0.6},
+    },
+    "set_film_grain": {
+        "label": "Film Grain",
+        "category": "viewport",
+        "presets": {
+            "fine": {"strength": 0.04, "size": 0.8},
+            "classic_35mm": {"strength": 0.08, "size": 1.0},
+            "super_8": {"strength": 0.18, "size": 2.2},
+        },
+        "defaults": {"enabled": False, "strength": 0.08, "size": 1.0, "animated": True},
+    },
+    "set_depth_of_field": {
+        "label": "Depth of Field",
+        "category": "viewport",
+        "presets": {
+            "portrait_50mm": {"focus_distance": 5.0, "focal_length": 50.0, "fstop": 1.8},
+            "product_85mm": {"focus_distance": 3.0, "focal_length": 85.0, "fstop": 2.8},
+            "cinematic_35mm": {"focus_distance": 8.0, "focal_length": 35.0, "fstop": 2.0},
+            "macro": {"focus_distance": 1.5, "focal_length": 100.0, "fstop": 2.8},
+        },
+        "defaults": {"enabled": False, "focus_distance": 5.0, "focal_length": 50.0, "fstop": 2.8},
+    },
+    "noise_deform": {
+        "label": "Noise Displacement",
+        "category": "procedural",
+        "presets": {
+            "subtle_water": {"scale": 2.0, "strength": 0.1, "octaves": 2},
+            "rocky_terrain": {"scale": 1.2, "strength": 0.4, "octaves": 5},
+            "asteroid": {"scale": 0.8, "strength": 0.2, "octaves": 4},
+            "cloud_like": {"scale": 3.0, "strength": 0.15, "octaves": 3},
+        },
+        "defaults": {"scale": 1.5, "strength": 0.25, "octaves": 3, "seed": 42},
+    },
+    "hex_grid_pattern": {
+        "label": "Hex Grid Pattern",
+        "category": "procedural",
+        "presets": {
+            "small_tile": {"cell_radius": 0.5, "rows": 6, "columns": 8},
+            "large_city": {"cell_radius": 1.5, "rows": 10, "columns": 12},
+        },
+        "defaults": {"geometry_type": "cylinder", "rows": 6, "columns": 8, "size": 0.5},
+    },
+    "fibonacci_lattice": {
+        "label": "Fibonacci Lattice",
+        "category": "procedural",
+        "presets": {
+            "small_flower": {"count": 30, "radius": 2.0},
+            "full_sunflower": {"count": 120, "radius": 5.0},
+        },
+        "defaults": {"count": 60, "radius": 4.0, "geometry_type": "sphere"},
+    },
+    "generate_maze": {
+        "label": "Maze Generator",
+        "category": "procedural",
+        "presets": {
+            "small_room": {"rows": 5, "cols": 5},
+            "classic": {"rows": 10, "cols": 14},
+            "epic": {"rows": 20, "cols": 28},
+        },
+        "defaults": {"rows": 8, "columns": 10, "cell_size": 1.5},
+    },
+    "honeycomb_truss": {
+        "label": "Honeycomb Truss",
+        "category": "procedural",
+        "presets": {
+            "small_panel": {"cells_x": 4, "cells_z": 3},
+            "large_sandwich": {"cells_x": 10, "cells_z": 8},
+        },
+        "defaults": {"cells_x": 6, "cells_z": 5, "cell_radius": 0.6},
     },
 }
 
@@ -358,6 +505,231 @@ async def batch_execute_tools(req: BatchToolRequest) -> Dict[str, Any]:
         })
 
     # Persist the live scene (best-effort) after the batch completes.
+    autosave_scene(req.session_id, scene)
+
+    return {
+        "session_id": req.session_id,
+        "total_steps": len(req.steps),
+        "executed_steps": len(step_results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "aborted": aborted,
+        "steps": step_results,
+        "scene": scene.to_dict(),
+    }
+
+
+# Template pattern for chain step argument references. Matches tokens like
+# ``{{step_0.result.id}}`` or ``{{step_2.data.name}}`` so a later step can
+# pull values produced by an earlier step's tool result.
+import re as _re
+
+_CHAIN_TEMPLATE_RE = _re.compile(r"\{\{\s*(step_\d+)\.([^}]+?)\s*\}\}")
+
+
+def _resolve_chain_template_value(value: Any, step_results: List[Dict[str, Any]]) -> Any:
+    """Resolve ``{{step_N.path.to.value}}`` references inside ``value``.
+
+    Walks dicts / lists recursively, replacing every template token with the
+    value found at the corresponding path inside the referenced step's
+    stored result dict. When a path cannot be resolved, the token is left
+    untouched so the failure is visible in the executed arguments. String
+    values containing a single token that resolves to a non-string are
+    returned as the raw value (so a ``{{step_0.result.id}}`` inside a string
+    field yields the actual id with its native type, not a stringified one).
+    """
+    if isinstance(value, str):
+        matches = list(_CHAIN_TEMPLATE_RE.finditer(value))
+        if not matches:
+            return value
+        # Single-token string: return the raw resolved value to preserve type.
+        if len(matches) == 1 and matches[0].group(0).strip() == value.strip():
+            return _resolve_step_path(matches[0].group(1), matches[0].group(2), step_results)
+        # Multiple tokens / surrounding text: interpolate as strings.
+        def _sub(match: "_re.Match") -> str:
+            resolved = _resolve_step_path(match.group(1), match.group(2), step_results)
+            if isinstance(resolved, str):
+                return resolved
+            return _json_dumps_safe(resolved)
+        return _CHAIN_TEMPLATE_RE.sub(_sub, value)
+    if isinstance(value, dict):
+        return {k: _resolve_chain_template_value(v, step_results) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_chain_template_value(v, step_results) for v in value]
+    return value
+
+
+def _resolve_step_path(step_key: str, path: str, step_results: List[Dict[str, Any]]) -> Any:
+    """Walk ``step_results[<index>][<path parts>]`` and return the leaf value.
+
+    Returns the original ``{{...}}`` token as a string when the step index
+    is out of range or the path cannot be followed, so the caller can see
+    that the reference was unresolved rather than silently dropping it.
+    """
+    try:
+        idx = int(step_key.split("_", 1)[1])
+    except (ValueError, IndexError):
+        return "{{" + f"{step_key}.{path}" + "}}"
+    if idx < 0 or idx >= len(step_results):
+        return "{{" + f"{step_key}.{path}" + "}}"
+    current: Any = step_results[idx]
+    for part in path.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (ValueError, IndexError):
+                return "{{" + f"{step_key}.{path}" + "}}"
+        else:
+            return "{{" + f"{step_key}.{path}" + "}}"
+    return current
+
+
+def _json_dumps_safe(value: Any) -> str:
+    """Best-effort JSON serialization for template interpolation."""
+    try:
+        return json.dumps(value)
+    except Exception:
+        return str(value)
+
+
+class ChainToolStep(BaseModel):
+    """A single step within a chain tool execution request.
+
+    Unlike a batch step, a chain step's ``arguments`` may contain template
+    references like ``{{step_0.result.id}}`` that are resolved against the
+    results of prior steps before execution, enabling data flow between
+    steps (e.g. create an object, then transform it by id).
+    """
+
+    tool_name: str = Field(..., description="Name of the tool to execute")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool arguments; may contain {{step_N.result.path}} template refs",
+    )
+
+
+class ChainToolRequest(BaseModel):
+    """Request body for chained tool execution with data flow between steps.
+
+    Like ``BatchToolRequest`` but each step's arguments are first resolved
+    against previous steps' results, so the output of one tool (e.g. the
+    id of a created object) can feed into the next tool's arguments (e.g.
+    a transform applied to that id). Use this when steps are dependent;
+    use ``/tools/batch`` when steps are independent.
+    """
+
+    steps: List[ChainToolStep] = Field(
+        ..., description="Ordered tool calls; later steps may reference earlier results"
+    )
+    session_id: str = Field("default", description="Session id for scene isolation")
+    stop_on_error: bool = Field(
+        True, description="When True, abort remaining steps on the first failure"
+    )
+
+
+@router.post("/tools/chain")
+async def chain_execute_tools(req: ChainToolRequest) -> Dict[str, Any]:
+    """Execute a chain of tools with data flow between steps.
+
+    Each step's arguments are scanned for ``{{step_N.result.path}}``
+    template references, which are resolved against the stored result of
+    step ``N`` before the tool runs. This lets a later step consume the
+    output of an earlier step — e.g. ``step_0`` creates an object and
+    ``step_1`` transforms it by referencing ``{{step_0.result.id}}``.
+
+    Unresolved references are left as literal strings in the executed
+    arguments so the failure is visible. When ``stop_on_error`` is True
+    the chain aborts on the first failing step. Returns the per-step
+    results (with both the resolved arguments and the raw tool result),
+    the final scene snapshot, and overall success/failure counts.
+    """
+    agent = AgentService.get()
+    orch = agent.orchestrator
+    registry = orch.registry
+    scene = orch.get_scene(req.session_id)
+
+    # Push scene history so the chain's mutations are undo-able.
+    orch.push_scene_history(req.session_id)
+
+    step_results: List[Dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+    aborted = False
+
+    for idx, step in enumerate(req.steps):
+        # Resolve template references against prior step results.
+        resolved_args = _resolve_chain_template_value(step.arguments, step_results)
+
+        tool = registry.get(step.tool_name)
+        if tool is None:
+            failed += 1
+            entry = {
+                "index": idx,
+                "tool": step.tool_name,
+                "success": False,
+                "message": f"Tool '{step.tool_name}' not found",
+                "arguments": resolved_args,
+                "raw_arguments": step.arguments,
+                "deltas": [],
+                "data": None,
+                "result": None,
+            }
+            step_results.append(entry)
+            if req.stop_on_error:
+                aborted = True
+                break
+            continue
+
+        try:
+            result = await tool.execute(scene, resolved_args)
+        except Exception as exc:
+            logger.exception("Chain step %d (%s) failed", idx, step.tool_name)
+            failed += 1
+            entry = {
+                "index": idx,
+                "tool": step.tool_name,
+                "success": False,
+                "message": str(exc),
+                "arguments": resolved_args,
+                "raw_arguments": step.arguments,
+                "deltas": [],
+                "data": None,
+                "result": None,
+            }
+            step_results.append(entry)
+            if req.stop_on_error:
+                aborted = True
+                break
+            continue
+
+        if result.success:
+            succeeded += 1
+        else:
+            failed += 1
+
+        # Store the result payload under "result" so {{step_N.result.X}}
+        # references resolve against the tool's data. Also keep "data" as
+        # an alias for parity with the batch endpoint shape.
+        result_payload = result.data if isinstance(result.data, dict) else {"value": result.data}
+        entry = {
+            "index": idx,
+            "tool": step.tool_name,
+            "success": result.success,
+            "message": result.message,
+            "arguments": resolved_args,
+            "raw_arguments": step.arguments,
+            "deltas": [d.__dict__ if hasattr(d, "__dict__") else d for d in result.deltas],
+            "data": result.data,
+            "result": result_payload,
+        }
+        step_results.append(entry)
+        if not result.success and req.stop_on_error:
+            aborted = True
+            break
+
+    # Persist the live scene (best-effort) after the chain completes.
     autosave_scene(req.session_id, scene)
 
     return {
