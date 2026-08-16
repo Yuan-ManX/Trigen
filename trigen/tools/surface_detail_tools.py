@@ -368,29 +368,82 @@ class BakeLodTool(ToolBase):
 
     async def execute(self, scene: Scene, arguments: Dict[str, Any]) -> ToolResult:
         target = str(arguments.get("target", "") or "")
-        levels_raw = arguments.get("levels") or [
-            {"distance": 8.0, "detail": 1.0},
-            {"distance": 20.0, "detail": 0.6},
-            {"distance": 50.0, "detail": 0.3},
-            {"distance": 120.0, "detail": 0.1},
-        ]
+
+        # --- Convenience shorthand expansion --------------------------------
+        # When the caller passes integer ``levels`` plus an optional
+        # ``reduction_factor`` (as intent_parser users naturally would via
+        # "bake 3 lod levels at 0.5 reduction"), expand it into the
+        # structured array form with geometrically growing distances and
+        # multiplicatively decreasing detail values. This keeps the AI
+        # interface friendly while the internal pipeline still consumes
+        # the normalized [{distance, detail}, ...] array.
+        levels_arg = arguments.get("levels")
+        if isinstance(levels_arg, int) and levels_arg > 0:
+            try:
+                factor = float(arguments.get("reduction_factor", 0.5))
+                factor = max(0.1, min(0.95, factor))
+            except (TypeError, ValueError):
+                factor = 0.5
+            base_dist = float(arguments.get("base_distance", 8.0))
+            n = max(1, min(4, int(levels_arg)))
+            auto: List[Dict[str, float]] = []
+            dist = base_dist
+            detail = 1.0
+            for i in range(n):
+                auto.append({"distance": dist, "detail": max(0.05, min(1.0, detail))})
+                dist *= 2.5
+                detail *= factor
+            levels_raw = auto
+        else:
+            levels_raw = levels_arg or [
+                {"distance": 8.0, "detail": 1.0},
+                {"distance": 20.0, "detail": 0.6},
+                {"distance": 50.0, "detail": 0.3},
+                {"distance": 120.0, "detail": 0.1},
+            ]
+
         levels: List[Dict[str, float]] = []
         for lvl in list(levels_raw)[:4]:
             try:
+                if not isinstance(lvl, dict):
+                    continue
                 d = float(lvl.get("distance", 8.0))
                 det = max(0.01, min(1.0, float(lvl.get("detail", 1.0))))
                 levels.append({"distance": d, "detail": det})
             except Exception:
                 continue
         levels.sort(key=lambda x: x["distance"])
+        if not levels:
+            return ToolResult(success=False, message="bake_lod: produced no valid LOD levels")
+
+        # --- Target resolution ------------------------------------------------
+        # When ``target`` is omitted the LOD chain is applied to every
+        # mesh-style object in the scene so distant views stay responsive
+        # without the user having to annotate objects one by one.
+        if not target:
+            candidates = [o for o in scene.objects if o.geometry]
+            if not candidates:
+                return ToolResult(success=False, message="bake_lod: no objects found in scene")
+            deltas: List[SceneDelta] = []
+            for o in candidates:
+                lod: Dict[str, Any] = {"levels": levels, "enabled": True}
+                o.lod = lod
+                deltas.append(SceneDelta(action="update", target_id=o.id, payload=o.to_dict()))
+            return ToolResult(
+                success=True,
+                message=f"Baked {len(levels)} LOD levels on {len(candidates)} objects (scene-wide).",
+                deltas=deltas,
+                data={"object_count": len(candidates), "levels": levels},
+            )
+
         obj = _find_object(scene, target)
         if obj is None:
             return ToolResult(success=False, message=f"bake_lod: Object '{target}' not found")
-        lod: Dict[str, Any] = {"levels": levels, "enabled": True}
+        lod = {"levels": levels, "enabled": True}
         obj.lod = lod
         return ToolResult(
             success=True,
-            message=f"Baked {len(levels)} LOD levels for '{obj.name}'",
+            message=f"Baked {len(levels)} LOD levels for '{obj.name}'.",
             deltas=[SceneDelta(action="update", target_id=obj.id, payload=obj.to_dict())],
             data={"object_id": obj.id, "lod": lod},
         )
