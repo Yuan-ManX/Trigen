@@ -196,6 +196,24 @@ function QuickActionsStrip({ suggestions }: { suggestions: Suggestion[] }) {
   )
 }
 
+/** Subtle pulsing-dots "thinking" indicator shown while an assistant
+ *  message is streaming but has not yet received any text content (e.g.
+ *  during the reasoning / tool-call phase before the first token arrives).
+ *  Three dots pulse with staggered delays to convey active processing. */
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 py-0.5" aria-label="Assistant is thinking">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-1.5 h-1.5 rounded-full bg-accent-cyan/70 animate-pulse"
+          style={{ animationDelay: `${i * 200}ms` }}
+        />
+      ))}
+    </span>
+  )
+}
+
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const retry = useChat((s) => s.retry)
@@ -300,9 +318,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         {/* Text content */}
         {(message.content || message.streaming) && (
           <div className="rounded-md rounded-tl-sm bg-bg-elevated border border-border px-3 py-2 text-sm text-fg-primary whitespace-pre-wrap break-words">
-            {message.content}
-            {message.streaming && (
-              <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-accent-cyan align-middle animate-pulse" />
+            {message.streaming && !message.content ? (
+              <TypingDots />
+            ) : (
+              <>
+                {message.content}
+                {message.streaming && (
+                  <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-accent-cyan align-middle animate-pulse" />
+                )}
+              </>
             )}
           </div>
         )}
