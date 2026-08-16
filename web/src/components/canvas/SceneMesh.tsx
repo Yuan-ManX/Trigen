@@ -39,7 +39,12 @@ function GeometryRenderer({ geometry }: { geometry: Geometry }) {
     return typeof v === 'number' ? Math.max(1, Math.round(v)) : fallback
   }
 
-  switch (geometry.type) {
+  // Memoize the geometry JSX so the underlying THREE.BufferGeometry is only
+  // recreated when the geometry type or params actually change. Without this,
+  // fresh args arrays allocated on every render force R3F to rebuild the
+  // geometry even when nothing material has changed.
+  return useMemo(() => {
+    switch (geometry.type) {
     case 'box':
       return (
         <boxGeometry
@@ -104,6 +109,7 @@ function GeometryRenderer({ geometry }: { geometry: Geometry }) {
     default:
       return <boxGeometry args={[1, 1, 1]} />
   }
+  }, [geometry.type, p])
 }
 
 /** Tube geometry requires a Curve object; build a gentle curved path */
