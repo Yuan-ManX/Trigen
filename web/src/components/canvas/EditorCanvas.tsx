@@ -4,7 +4,7 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Grid, Html } from '@react-three/drei'
 import { Magnet, Move, RotateCw, Scaling } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useEditor, type TransformMode } from '../../store/useEditor'
 import { usePlayback } from '../../store/usePlayback'
@@ -447,6 +447,69 @@ function SceneContent({
   // Render markers for scene cameras except the internal ViewportCamera.
   const visibleCameras = scene.cameras.filter((c) => c.name !== 'ViewportCamera')
 
+  // Frustum culling for large scenes: when the object count exceeds 50,
+  // skip rendering meshes whose approximate bounding box is outside the
+  // camera frustum. The check runs on a throttled interval (~100ms) to
+  // avoid per-frame overhead, and only triggers a re-render when the
+  // visible set actually changes.
+  const [visibleIds, setVisibleIds] = useState<Set<string> | null>(null)
+  const frustumRef = useRef(new THREE.Frustum())
+  const projMatrixRef = useRef(new THREE.Matrix4())
+  const boxRef = useRef(new THREE.Box3())
+  const centerRef = useRef(new THREE.Vector3())
+  const sizeRef = useRef(new THREE.Vector3())
+  const lastCullRef = useRef(0)
+  useFrame(({ camera }) => {
+    if (scene.objects.length <= 50) return
+    const now = performance.now()
+    if (now - lastCullRef.current < 100) return
+    lastCullRef.current = now
+    projMatrixRef.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    frustumRef.current.setFromProjectionMatrix(projMatrixRef.current)
+    const frustum = frustumRef.current
+    const box = boxRef.current
+    const center = centerRef.current
+    const size = sizeRef.current
+    const next = new Set<string>()
+    for (const o of scene.objects) {
+      const pos = o.transform.position
+      const scale = o.transform.scale
+      center.set(pos[0], pos[1], pos[2])
+      // Approximate bounding box from object position and scale. Most
+      // geometries are roughly unit-sized, so scale * 2 gives a reasonable
+      // envelope. A floor of 2 prevents tiny scaled objects from being
+      // culled too aggressively at the frustum boundary.
+      size.set(
+        Math.max(2, Math.abs(scale[0]) * 2),
+        Math.max(2, Math.abs(scale[1]) * 2),
+        Math.max(2, Math.abs(scale[2]) * 2),
+      )
+      box.setFromCenterAndSize(center, size)
+      if (frustum.intersectsBox(box)) {
+        next.add(o.id)
+      }
+    }
+    setVisibleIds((prev) => {
+      if (prev !== null && prev.size === next.size) {
+        let same = true
+        for (const id of prev) {
+          if (!next.has(id)) {
+            same = false
+            break
+          }
+        }
+        if (same) return prev
+      }
+      return next
+    })
+  })
+
+  // When culling is active, only render objects within the frustum.
+  const cullActive = scene.objects.length > 50 && visibleIds !== null
+  const renderedObjects = cullActive
+    ? scene.objects.filter((o) => visibleIds!.has(o.id))
+    : scene.objects
+
   return (
     <>
       <color attach="background" args={[scene.background]} />
@@ -488,8 +551,10 @@ function SceneContent({
         <shadowMaterial transparent opacity={0.35} />
       </mesh>
 
-      {/* Mesh objects — pass editMode and transformMode for gizmo support */}
-      {scene.objects.map((o) => (
+      {/* Mesh objects — pass editMode and transformMode for gizmo support.
+          When frustum culling is active, off-screen objects are filtered out
+          to skip React reconciliation and per-frame hooks for hidden meshes. */}
+      {renderedObjects.map((o) => (
         <SceneMesh
           key={o.id}
           object={o}
