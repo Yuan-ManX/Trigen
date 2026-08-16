@@ -417,9 +417,13 @@ class ManageVertexGroupTool(ToolBase):
                 data={"groups": summary, "count": len(summary)},
             )
 
-        name = str(arguments.get("name", "") or "").strip()
+        # Accept both "name" and the intent-parser-friendly "group_name" key
+        # for create / delete / assign / remove_vertices so callers can use
+        # either form without schema lookup.
+        name_raw = arguments.get("name") or arguments.get("group_name") or ""
+        name = str(name_raw).strip()
         if action != "rename" and not name:
-            return ToolResult(success=False, message="name is required for this action")
+            return ToolResult(success=False, message="name (or group_name) is required for this action")
 
         if action == "create":
             if name in groups:
