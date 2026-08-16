@@ -197,6 +197,13 @@ let turnHadSceneMutation = false
  *  cancel a long-running multi-step execution mid-stream. */
 let planRunAbort: AbortController | null = null
 
+/** Monotonic counter used to ignore stale plan-preview fetches. Each send()
+ *  that goes through the planning path captures the current value; if the
+ *  user cancels (via Stop or the destructive-confirmation modal), the
+ *  counter is bumped so the stale .then() handler can detect the cancellation
+ *  and skip _sendNow. */
+let planFetchId = 0
+
 /** Dispatch editor-control deltas to the matching local store. These deltas
  *  do not mutate the backend Scene; they request a frontend-side action. */
 function dispatchEditorDelta(action: string, targetId: string | undefined, payload: Record<string, unknown>): void {
@@ -1086,6 +1093,10 @@ export const useChat = create<ChatState>((set, get) => {
     send: (text) => {
       const trimmed = text.trim()
       if (!trimmed) return
+      // Set isResponding immediately so the typing indicator and Stop button
+      // appear even during the plan-preview fetch — not just after the first
+      // WebSocket event arrives.
+      set({ isResponding: true })
       // Plan-then-run mode: route through the SSE plan-run endpoint so the
       // user sees a structured plan checklist with live step progress.
       if (get().planRunMode) {
@@ -1099,9 +1110,13 @@ export const useChat = create<ChatState>((set, get) => {
       }
       // Otherwise preview via POST /api/agent/plan first. If the plan flags
       // any destructive step, surface a confirmation modal instead of sending.
+      const fetchId = ++planFetchId
       set({ planning: true })
       fetchAgentPlan(trimmed, get().sessionId, get().model)
         .then((plan) => {
+          // Ignore stale results from a cancelled fetch (user pressed Stop
+          // or cancelled the destructive-confirmation modal).
+          if (fetchId !== planFetchId) return
           set({ planning: false })
           const destructive = Array.isArray(plan.destructive_steps) ? plan.destructive_steps : []
           if (plan.has_destructive_steps && destructive.length > 0) {
@@ -1120,6 +1135,7 @@ export const useChat = create<ChatState>((set, get) => {
           }
         })
         .catch(() => {
+          if (fetchId !== planFetchId) return
           set({ planning: false })
           // On plan failure, proceed with the message (don't block the user).
           _sendNow(trimmed)
@@ -1134,7 +1150,13 @@ export const useChat = create<ChatState>((set, get) => {
       _sendNow(pending.text)
     },
 
-    cancelPendingDestructive: () => set({ pendingDestructive: null }),
+    cancelPendingDestructive: () => {
+      // Bump planFetchId so a stale planning fetch won't call _sendNow after
+      // the user already cancelled, and reset isResponding so the typing
+      // indicator and Stop button disappear immediately.
+      planFetchId++
+      set({ pendingDestructive: null, isResponding: false })
+    },
 
     setPlanRunMode: (enabled) => set({ planRunMode: enabled }),
 
@@ -1314,6 +1336,14 @@ export const useChat = create<ChatState>((set, get) => {
           ),
           isResponding: false,
         }))
+        return
+      }
+      // Cancel an in-flight plan-preview fetch (confirmDestructive path).
+      // Bumping planFetchId invalidates the pending .then() so it won't
+      // call _sendNow after the user already cancelled.
+      if (get().planning) {
+        planFetchId++
+        set({ planning: false, isResponding: false, pendingDestructive: null })
         return
       }
       // Ask the server to cancel the current turn. The socket stays open;
